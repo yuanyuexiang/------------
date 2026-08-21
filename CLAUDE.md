@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目是什么
 
-**Jinbang（金榜）**：面向国家电网供应商的智能投标文件编制系统。导入 ECP 平台下载的招标文件包（zip），解析为结构化的 TRM（招标要求模型），结合企业知识库生成商务/技术/价格投标文件，并做合规审查与模拟评分。当前处于原型阶段 Sprint 1（解析器）。
+**Jinbang（金榜）**：面向国家电网供应商的智能投标文件编制系统。导入 ECP 平台下载的招标文件包（zip），解析为结构化的 TRM（招标要求模型），结合企业知识库生成商务/技术/价格投标文件，并做合规审查与模拟评分。当前处于原型阶段 Sprint 2（持久层/确认页/资格自检）。
 
 总方案、Sprint 计划、国网业务规则（否决规则库、评分模板、真实文件结构实测）都在 `docs/`——**改业务逻辑前先读 `docs/国网真实招标文件结构分析.md`**，解析器的每个约定（GBK 文件名、表格变体、xlsx 表头位置）都来自那份实测记录，不是随意选择。
 
@@ -53,4 +53,4 @@ TRM Schema 演进规则：**字段只增不改名**（下游 Agent、前端、�
 
 - 知识库目前以 CompanyProfile 整体 JSON 存 `profiles` 表，S2 后半拆为多表（证照/人员/业绩）后才能做字段级检索与有效期预警
 - Celery 模式只在 compose（Redis）下生效，本地/测试为进程内 BackgroundTasks；两者共用 `jb_api.tasks.run_parse`，改任务逻辑只改这一处
-- LLM 抽取兜底未接（等 API 账号）；golden 标注集未建（等业务专家），建成后放 `tests/golden/`
+- LLM 兜底已接（`jb_llm`，配置在 .env，key 绝不入库）；golden 标注集未建（等业务专家），建成后放 `tests/golden/`
