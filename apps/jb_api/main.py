@@ -14,7 +14,12 @@ import uuid
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from jb_agents import qualify
+from jb_kb.models import CompanyProfile
 from jb_parser import parse
+from jb_parser.trm import TRM
+
+PROFILE_DIR = os.environ.get("PROFILE_DIR", "data/company_profiles")
 
 app = FastAPI(title="Jinbang API", version="0.1.0")
 app.add_middleware(
@@ -65,3 +70,29 @@ def get_trm(project_id: str):
     if not p:
         raise HTTPException(404, "项目不存在")
     return p["trm"]
+
+
+@app.get("/api/profiles")
+def list_profiles():
+    """已建档企业（S2 落库前读 data/company_profiles/*.json）。"""
+    if not os.path.isdir(PROFILE_DIR):
+        return []
+    return [f[:-5] for f in sorted(os.listdir(PROFILE_DIR)) if f.endswith(".json")]
+
+
+@app.post("/api/projects/{project_id}/qualify")
+def qualify_project(project_id: str, profile: str, llm: bool = False):
+    """资格自检：返回可投性矩阵（JSON + Markdown）。"""
+    p = _projects.get(project_id)
+    if not p:
+        raise HTTPException(404, "项目不存在")
+    path = os.path.join(PROFILE_DIR, profile + ".json")
+    if not os.path.exists(path):
+        raise HTTPException(404, "企业档案不存在")
+    trm = TRM.model_validate(p["trm"])
+    if llm:
+        from jb_parser.llm_fallback import enrich
+        enrich(trm)
+        p["trm"] = trm.model_dump()
+    rep = qualify(trm, CompanyProfile.load(path), use_llm=llm)
+    return {"report": rep.model_dump(), "markdown": rep.markdown()}

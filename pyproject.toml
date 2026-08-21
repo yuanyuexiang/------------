@@ -25,11 +25,12 @@ dev = [
 
 [project.scripts]
 jb-parse = "jb_parser.cli:main"
+jb-qualify = "jb_agents.cli:main"
 
 # 顶层导入名：jb_parser（领域包，位于 packages/）、jb_api（HTTP 层，位于 apps/）
 [tool.setuptools.packages.find]
 where = ["packages", "apps"]
-include = ["jb_parser*", "jb_api*", "jb_kb*", "jb_llm*"]
+include = ["jb_parser*", "jb_api*", "jb_kb*", "jb_llm*", "jb_agents*"]
 
 [tool.pytest.ini_options]
 # 未安装（pip install -e）时也能直接 pytest：把两个源码根加入导入路径

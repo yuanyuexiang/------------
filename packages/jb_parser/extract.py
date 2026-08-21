@@ -236,3 +236,69 @@ def extract_qualification(path: str) -> list[QualificationItem]:
             accept_agent=vals[12] if len(vals) > 12 else ""))
     wb.close()
     return out
+
+
+# ---------- xlsx：服务类本批需求一览表（每包一行：评审办法 + 资格要求） ----------
+
+def _f(v: str) -> Optional[float]:
+    try:
+        return float(str(v).replace(",", "").replace("%", "")) if v not in ("", "/") else None
+    except ValueError:
+        return None
+
+
+def extract_service_demand(path: str, pkg_no: str) -> Optional[dict]:
+    """返回本包的需求行（表头→值 dict），找不到返回 None。"""
+    wb, ws = _load_ws(path)
+    rows = [["" if c is None else str(c).strip() for c in r] for r in ws.iter_rows(values_only=True)]
+    wb.close()
+    head_idx = next((i for i, r in enumerate(rows[:6]) if "包号" in r and "分标名称" in r), None)
+    if head_idx is None:
+        return None
+    header = rows[head_idx]
+    for r in rows[head_idx + 1:]:
+        rec = dict(zip(header, r))
+        if rec.get("包号") == pkg_no:
+            return rec
+    return None
+
+
+def apply_service_demand(pkg, rec: dict) -> None:
+    """把需求行写入 PackageTRM（评审引用 + 资格要求 + 项目信息）。"""
+    pkg.project_name = rec.get("招标项目标段名称", "")
+    pkg.project_unit = rec.get("项目单位", "")
+    pkg.scope = rec.get("招标范围", "")
+    pkg.budget_yuan = _f(rec.get("招标金额（元）", ""))
+    pkg.max_price = rec.get("最高限价（元或折扣比例）", "")
+    d = _f(rec.get("标段工期（日）", ""))
+    pkg.duration_days = int(d) if d is not None else None
+    pkg.price_mode = rec.get("报价方式", "")
+    ac = rec.get("是否允许联合体", "")
+    pkg.allow_consortium = True if ac == "是" else (False if ac == "否" else None)
+    sr = pkg.scoring_ref
+    sr.price_method = rec.get("价格分计算方法", "")
+    sr.benchmark_c = _f(rec.get("基准价浮动系数C", ""))
+    sr.biz_template = rec.get("商务详评模板", "")
+    sr.tech_template = rec.get("技术详评模板", "")
+    sr.weight_biz = _f(rec.get("商务分权重（%）", ""))
+    sr.weight_tech = _f(rec.get("技术分权重（%）", ""))
+    sr.weight_price = _f(rec.get("价格分权重（%）", ""))
+    if not pkg.sub_name:
+        pkg.sub_name = rec.get("分标名称", "")
+    if not pkg.sub_no:
+        pkg.sub_no = rec.get("分标编号", "")
+    q = QualificationItem(
+        sub_name=rec.get("分标名称", ""), pkg=pkg_no_of(rec),
+        performance_req=_slash(rec.get("企业业绩要求", "")),
+        other_reqs={k: v for k, v in (("企业资质条件", _slash(rec.get("企业资质条件", ""))),
+                                     ("主要人员要求", _slash(rec.get("主要人员要求", ""))),
+                                     ("技术规范书ID", rec.get("技术规范书ID", ""))) if v})
+    pkg.qualification.append(q)
+
+
+def pkg_no_of(rec: dict) -> str:
+    return rec.get("包号", "")
+
+
+def _slash(v: str) -> str:
+    return "" if v.strip() == "/" else v.strip()

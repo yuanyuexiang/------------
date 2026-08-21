@@ -14,6 +14,7 @@ ANNOUNCEMENT = "announcement"    # 第一章招标公告 docx
 GOODS_DEMAND_XLSX = "goods_demand_xlsx"      # 附件：货物需求一览表
 QUAL_PERF_XLSX = "qual_perf_xlsx"            # 附件：资质业绩一览表
 GOODS_LIST_XLSX = "goods_list_xlsx"          # 货物清单（行项目级）
+SERVICE_DEMAND_XLSX = "service_demand_xlsx"  # 服务类：本批需求一览表（每包评审办法+资格要求）
 SPEC_DOC = "spec_doc"            # 技术规范书 docx
 SCORING = "scoring"              # 评分细则（docx/xlsx）
 CONTRACT = "contract"            # 合同文件
@@ -64,6 +65,8 @@ def classify_file(relpath: str) -> str:
             return QUAL_PERF_XLSX
         if "货物清单" in name:
             return GOODS_LIST_XLSX
+        if "需求一览表" in name:
+            return SERVICE_DEMAND_XLSX
         if "报价" in name:
             return PRICE_SHEET
         if "评分" in name or "详评" in name or "细则" in name or "评分" in relpath or "详评" in relpath:

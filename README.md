@@ -12,7 +12,10 @@
 ```
 apps/jb-web/          前端 React SPA（Vite + AntD + TanStack Query），dev 端口 5173，/api 代理到 8000
 apps/jb_api/          后端 FastAPI（只做路由/校验/调度，不写业务逻辑），端口 8000，导入名 jb_api
-packages/jb_parser/   S1 解析器：ECP 招标文件包 → TRM（招标要求模型）
+packages/jb_parser/   S1 解析器：ECP 招标文件包 → TRM（招标要求模型）；--llm 启用 LLM 兜底
+packages/jb_llm/      LLM 客户端（OpenAI 兼容；配置走 .env：LLM_BASE_URL/LLM_API_KEY/LLM_MODEL）
+packages/jb_kb/       企业知识库：档案模型 + 从历史投标文件建档（scripts/build_profile_baiente.py）
+packages/jb_agents/   业务 Agent：资格自检（jb-qualify）→ 可投性矩阵
   unpack.py           递归 zip 解压 + GBK 文件名修复
   classify.py         包内文件分类（主文件/公告/规范书/清单/评分细则…）
   docx_utils.py       六章切分、表格结构化
@@ -28,7 +31,8 @@ docs/                 项目文档（方案/计划/调研分析/否决案例库�
 
 ```bash
 pip install -e ".[dev]"                       # 安装（含开发依赖）；导入名 jb_parser / jb_api
-jb-parse <招标文件包.zip> -o trm.json          # CLI 解析
+jb-parse <招标文件包.zip> -o trm.json          # CLI 解析（加 --llm 启用兜底）
+jb-qualify <包.zip> --profile data/company_profiles/xxx.json --llm   # 资格自检
 pytest -q                                     # 回归测试
 
 uvicorn jb_api.main:app --reload --port 8000  # 后端

@@ -61,6 +61,14 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
         mine = [q for q in all_rows if key and (key in q.sub_name or (sub_name and sub_name in q.sub_name))]
         pkg.qualification = mine if mine else all_rows
 
+    demand_rel = manifest.first(classify.SERVICE_DEMAND_XLSX)
+    if demand_rel and pkg_no:
+        rec = extract.extract_service_demand(os.path.join(root, demand_rel), pkg_no)
+        if rec:
+            extract.apply_service_demand(pkg, rec)
+        else:
+            trm.warnings.append(f"{pkg_no}: 需求一览表中未找到本包行")
+
     for sc_rel in manifest.by_category.get(classify.SCORING, []):
         full = os.path.join(root, sc_rel)
         if sc_rel.lower().endswith((".xlsx", ".xls")):

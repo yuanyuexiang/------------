@@ -109,10 +109,30 @@ class KeyTerms(BaseModel):
     llm_filled: list[str] = Field(default_factory=list)  # 由 LLM 兜底填充的字段名
 
 
+class ScoringRef(BaseModel):
+    """本包应用的评审办法（前附表之三 / 服务类需求一览表）。"""
+    price_method: str = ""          # 如 区间平均价浮动法
+    benchmark_c: Optional[float] = None
+    biz_template: str = ""          # 如 FWSW01服务类通用商务详评细则
+    tech_template: str = ""
+    weight_biz: Optional[float] = None
+    weight_tech: Optional[float] = None
+    weight_price: Optional[float] = None
+
+
 class PackageTRM(BaseModel):
     sub_no: str = ""
     sub_name: str = ""
     pkg_no: str = ""
+    project_name: str = ""
+    project_unit: str = ""
+    scope: str = ""
+    budget_yuan: Optional[float] = None
+    max_price: str = ""
+    duration_days: Optional[int] = None
+    price_mode: str = ""            # 金额总价报价 / 折扣比例报价 ...
+    allow_consortium: Optional[bool] = None
+    scoring_ref: ScoringRef = Field(default_factory=ScoringRef)
     materials: list[Material] = Field(default_factory=list)
     qualification: list[QualificationItem] = Field(default_factory=list)
     spec_docs: list[SpecDoc] = Field(default_factory=list)
