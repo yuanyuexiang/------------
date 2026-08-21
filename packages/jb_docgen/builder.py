@@ -27,6 +27,7 @@ class GenContext:
     pkg: PackageTRM
     profile: CompanyProfile
     product: Optional[Product] = None
+    drafts: Optional[list] = None               # writer Agent 的 DraftSection 列表（可选）
     todos: list[str] = field(default_factory=list)
 
     def need(self, value: Optional[str], what: str) -> str:
@@ -92,6 +93,29 @@ def _table(d, header: list[str], rows: list[list[str]]):
         for i, v in enumerate(r):
             cells[i].text = "" if v is None else str(v)
     return t
+
+
+_SRC_TAG = re.compile(r"\s*\[来源:[^\]]+\]")
+
+
+def _markdown_to_doc(d, md: str, keep_sources: bool = False):
+    """极简 Markdown → docx：#→标题，-/数字列表→项目段落，**粗体**去标记；来源标注默认剥离（审阅版保留）。"""
+    for raw in md.split("\n"):
+        line = raw.rstrip()
+        if not line.strip():
+            continue
+        if not keep_sources:
+            line = _SRC_TAG.sub("", line)
+        line = line.replace("**", "")
+        m = re.match(r"^(#{1,6})\s*(.+)$", line)
+        if m:
+            _h(d, m.group(2).strip(), min(3, 1 + len(m.group(1))))
+            continue
+        m = re.match(r"^\s*(?:[-*]|\d+[.、])\s+(.+)$", line)
+        if m:
+            d.add_paragraph(m.group(1).strip(), style="List Bullet")
+            continue
+        _p(d, line.strip())
 
 
 def _cover(d, ctx: GenContext, kind: str):
@@ -238,11 +262,18 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
         else:
             _p(d, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，需按需求逐条响应）"))
 
-    # 4. 服务类：需求逐条响应（S4 接 LLM 起草；此处先给结构）
-    if p.scope:
+    # 4. 技术/服务方案（写作 Agent 起草；未起草时给结构占位）
+    if ctx.drafts:
+        _h(d, "技术/服务方案", 1)
+        if p.scope:
+            _p(d, "招标范围：" + p.scope)
+        for sec in ctx.drafts:
+            _h(d, sec.title, 2)
+            _markdown_to_doc(d, sec.text)
+    elif p.scope:
         _h(d, "项目需求响应", 1)
         _p(d, "招标范围：" + p.scope)
-        _p(d, todo("总体技术/服务方案（S4 由写作 Agent 依据评分项起草）"))
+        _p(d, todo("总体技术/服务方案（由写作 Agent 依据评分项起草）"))
 
     # 5. 人员
     _h(d, "主要技术人员、项目经理及其相关证书", 1)

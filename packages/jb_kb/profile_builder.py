@@ -10,7 +10,7 @@ from typing import Optional
 
 import docx
 
-from .models import Certificate, CompanyProfile, FinancialYear, Performance, Person
+from .models import Boilerplate, Certificate, CompanyProfile, FinancialYear, Performance, Person
 
 _CREDENTIAL_WORDS = ("身份证", "学历证", "职称证书", "资格证书", "社保证明", "劳动合同", "服务项目", "毕业证")
 _CERT_HEADING_PAT = re.compile(r"(证书|许可证)$")
@@ -148,6 +148,36 @@ def read_headings_tree(doc, profile: CompanyProfile, source: str) -> None:
         profile.sources.append(source)
 
 
+_BP_TOPICS = {
+    "售后服务": ("售后服务", "服务承诺", "服务体系", "技术服务", "响应时间"),
+    "质量保证": ("质量保证", "质量保障", "质量管理", "质量控制"),
+    "培训": ("培训",),
+    "项目管理": ("项目管理", "进度", "组织机构", "实施方案"),
+    "保密": ("保密", "信息安全"),
+}
+
+
+def read_boilerplates(doc, profile: CompanyProfile, source: str, min_len: int = 40) -> None:
+    """历史标书中售后/质量/培训等章节的正文段落 → 话术候选（approved=False，需人工审核后启用）。
+    只收叙述性段落，不收含具体数字事实（金额/日期）的句子以免误用。"""
+    topic = ""
+    known = {b.text for b in profile.boilerplates}
+    for p in doc.paragraphs:
+        t = p.text.strip()
+        if not t:
+            continue
+        is_heading = p.style is not None and "Heading" in (p.style.name or "")
+        if is_heading:
+            topic = next((k for k, kws in _BP_TOPICS.items() if any(w in t for w in kws)), "")
+            continue
+        if not topic or len(t) < min_len or t in known:
+            continue
+        if re.search(r"\d{4}年|\d+万元|\d+元", t):
+            continue
+        profile.boilerplates.append(Boilerplate(topic=topic, title="", text=t, source=source, approved=False))
+        known.add(t)
+
+
 def build_profile(doc_paths: list[str]) -> CompanyProfile:
     profile = CompanyProfile()
     for path in doc_paths:
@@ -155,4 +185,5 @@ def build_profile(doc_paths: list[str]) -> CompanyProfile:
         read_basic_info(doc, profile, path)
         read_financials(doc, profile)
         read_headings_tree(doc, profile, path)
+        read_boilerplates(doc, profile, path)
     return profile

@@ -49,8 +49,9 @@ def pick_product(profile: CompanyProfile, pkg: PackageTRM, model: Optional[str] 
 
 
 def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
-             product_model: Optional[str] = None) -> GenResult:
-    ctx = GenContext(trm=trm, pkg=pkg, profile=profile, product=pick_product(profile, pkg, product_model))
+             product_model: Optional[str] = None, drafts: Optional[list] = None) -> GenResult:
+    ctx = GenContext(trm=trm, pkg=pkg, profile=profile, product=pick_product(profile, pkg, product_model),
+                     drafts=drafts)
     tag = f"{pkg.sub_no}{pkg.pkg_no}".replace("/", "_") or "pkg"
     com = build_commercial(ctx, os.path.join(out_dir, f"商务文件_{tag}.docx"))
     tech, results = build_technical(ctx, os.path.join(out_dir, f"技术文件_{tag}.docx"))

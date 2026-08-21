@@ -16,7 +16,6 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from jb_agents import qualify
-from jb_docgen import generate
 from jb_kb.models import CompanyProfile
 from jb_parser.trm import TRM
 from jb_store import Profile, Project, Task, init_db, session
@@ -198,16 +197,85 @@ def _load_trm_profile(project_id: str, profile: str):
         return TRM.model_validate(data), CompanyProfile.model_validate(prow.data)
 
 
-@app.post("/api/projects/{project_id}/generate")
-def generate_docs(project_id: str, profile: str, pkg_index: int = 0, product_model: Optional[str] = None):
-    """生成商务文件/技术文件 docx（同步；S4 起大文件改任务）。返回待补充统计与下载名。"""
+@app.post("/api/projects/{project_id}/generate", status_code=202)
+def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pkg_index: int = 0,
+                  product_model: Optional[str] = None, with_draft: bool = False):
+    """生成商务/技术文件（异步任务；with_draft 时先由写作 Agent 起草）。轮询 /api/tasks/{id}。"""
+    _load_trm_profile(project_id, profile)  # 参数校验（404/409）
+    with session() as s:
+        t = Task(project_id=project_id, kind="generate")
+        s.add(t)
+        s.flush()
+        tid = t.id
+    mode = tasks.submit_generate(background, tid, project_id, profile, pkg_index, with_draft, product_model or "")
+    return {"task_id": tid, "mode": mode}
+
+
+@app.post("/api/projects/{project_id}/review")
+def review_docs(project_id: str, profile: str, pkg_index: int = 0):
+    """合规审查：规则引擎扫描最近一次生成结果 + 档案 + TRM。"""
+    import docx as _docx
+    from jb_docgen.placeholders import scan_docx
+    from jb_docgen.techparams import fill_spec
+    from jb_rules import Context, review
     trm, cp = _load_trm_profile(project_id, profile)
-    if not (0 <= pkg_index < len(trm.packages)):
-        raise HTTPException(400, "pkg_index 越界")
+    pkg = trm.packages[pkg_index]
     out_dir = os.path.join(UPLOAD_DIR, project_id, "out")
-    res = generate(trm, trm.packages[pkg_index], cp, out_dir, product_model)
-    return {"summary": res.summary(), "todos": res.docx_todos,
-            "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)]}
+    docx_todos, doc_texts = {}, {}
+    if os.path.isdir(out_dir):
+        for fn in os.listdir(out_dir):
+            if fn.endswith(".docx") and pkg.pkg_no in fn:
+                path = os.path.join(out_dir, fn)
+                docx_todos[fn] = scan_docx(path)
+                d = _docx.Document(path)
+                doc_texts[fn] = "\n".join(p.text for p in d.paragraphs) + "\n".join(c.text for t in d.tables for r in t.rows for c in r.cells)
+    from jb_docgen import pick_product
+    product = pick_product(cp, pkg)
+    tech_params = [fill_spec(sd, product) for sd in pkg.spec_docs]
+    ctx = Context(trm=trm, pkg=pkg, profile=cp, tech_params=tech_params, docx_todos=docx_todos, doc_texts=doc_texts)
+    rep = review(ctx)
+    return {"blocked": rep.blocked, "counts": rep.counts(), "findings": [f.model_dump() for f in rep.findings],
+            "markdown": rep.markdown()}
+
+
+@app.post("/api/projects/{project_id}/price/validate")
+def price_validate(project_id: str, sheet: dict, peer_avg: Optional[float] = None, over_limit_pct: Optional[float] = None):
+    from jb_agents.price import PriceSheet, validate
+    issues = validate(PriceSheet.model_validate(sheet), peer_avg=peer_avg, over_limit_pct=over_limit_pct)
+    return {"issues": [i.model_dump() for i in issues], "blocked": any(i.level == "否决" for i in issues)}
+
+
+@app.post("/api/price/simulate")
+def price_simulate(my_price: float, peer_prices: list[float], c_candidates: Optional[list[float]] = None,
+                   weight: float = 30.0):
+    from jb_agents.price import simulate_interval_avg
+    sim = simulate_interval_avg(my_price, peer_prices, c_candidates or [0.0, 0.01, 0.02, 0.03, 0.05], weight=weight)
+    return {"benchmark_range": sim.benchmark_range, "score_range": sim.score_range, "detail": sim.detail}
+
+
+@app.get("/api/projects/{project_id}/submission-matrix")
+def submission_matrix(project_id: str, profile: str = "", pkg_index: int = 0):
+    """递交矩阵：提交方式表 × 本包，标注系统已产出的文件。"""
+    with session() as s:
+        p = s.get(Project, project_id)
+        if not p or not (p.trm_confirmed or p.trm):
+            raise HTTPException(404, "项目/TRM 不存在")
+        trm = TRM.model_validate(p.trm_confirmed or p.trm)
+    out_dir = os.path.join(UPLOAD_DIR, project_id, "out")
+    produced = os.listdir(out_dir) if os.path.isdir(out_dir) else []
+    rows = []
+    for it in trm.submission_table:
+        if not it.item:
+            continue
+        sec = it.section
+        gen = None
+        if "商务" in sec and any("商务文件" in f for f in produced):
+            gen = next(f for f in produced if "商务文件" in f)
+        elif "技术" in sec and any("技术文件" in f for f in produced):
+            gen = next(f for f in produced if "技术文件" in f)
+        rows.append({"section": sec, "seq": it.seq, "item": it.item, "channels": it.channels, "port": it.port,
+                     "generated_file": gen, "status": "系统产出(含于文件)" if gen else ("工具内填报" if "价格" in sec else "人工挂载")})
+    return {"rows": rows}
 
 
 @app.get("/api/projects/{project_id}/files/{filename}")

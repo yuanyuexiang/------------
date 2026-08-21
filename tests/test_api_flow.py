@@ -52,9 +52,18 @@ def test_full_flow(client):
     assert {p["pkg_no"] for p in q["report"]["packages"]} == {"包147", "包148"}
     assert "可投性矩阵" in q["markdown"]
     # 文件生成 + 下载
-    g = client.post(f"/api/projects/{pid}/generate", params={"profile": "测试企业", "pkg_index": 0}).json()
-    assert g["summary"]["export_blocked"] is True and len(g["files"]) == 2
-    assert client.get(f"/api/projects/{pid}/files/{g['files'][0]}").status_code == 200
+    g = client.post(f"/api/projects/{pid}/generate", params={"profile": "测试企业", "pkg_index": 0})
+    assert g.status_code == 202
+    gt = client.get(f"/api/tasks/{g.json()['task_id']}").json()
+    assert gt["status"] == "done" and gt["result"]["summary"]["export_blocked"] is True
+    assert client.get(f"/api/projects/{pid}/files/{gt['result']['files'][0]}").status_code == 200
+    # 合规审查 + 递交矩阵 + 价格
+    rv = client.post(f"/api/projects/{pid}/review", params={"profile": "测试企业"}).json()
+    assert rv["blocked"] and any(f["rule_id"] == "DOC-01" for f in rv["findings"])
+    sm = client.get(f"/api/projects/{pid}/submission-matrix").json()
+    assert len(sm["rows"]) >= 30
+    sim = client.post("/api/price/simulate", params={"my_price": 100}, json=[95, 98, 102, 105]).status_code
+    assert sim in (200, 422)  # 参数形态以 OpenAPI 为准；此处仅验证路由存在
 
 
 def test_reject_non_zip(client):
