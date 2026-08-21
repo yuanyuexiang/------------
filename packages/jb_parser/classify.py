@@ -7,7 +7,6 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List
 
 # 类别常量
 MAIN_DOC = "main_doc"            # 六章主文件 docx
@@ -28,7 +27,7 @@ _MAIN_PAT = re.compile(r"(招标文件\(|招标文件（|招标文件分册|采�
 @dataclass
 class Manifest:
     root: str
-    by_category: Dict[str, List[str]] = field(default_factory=dict)
+    by_category: dict[str, list[str]] = field(default_factory=dict)
 
     def add(self, category: str, relpath: str) -> None:
         self.by_category.setdefault(category, []).append(relpath)
@@ -73,7 +72,7 @@ def classify_file(relpath: str) -> str:
     return OTHER
 
 
-def build_manifest(root: str, files: List[str]) -> Manifest:
+def build_manifest(root: str, files: list[str]) -> Manifest:
     m = Manifest(root=root)
     for f in files:
         m.add(classify_file(f), f)

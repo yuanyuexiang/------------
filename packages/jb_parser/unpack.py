@@ -9,7 +9,6 @@ import os
 import shutil
 import zipfile
 from dataclasses import dataclass, field
-from typing import List
 
 IGNORE_NAMES = {".DS_Store", "__MACOSX"}
 NESTED_ZIP_MAX_DEPTH = 5
@@ -32,7 +31,7 @@ def fix_zip_name(name: str) -> str:
 @dataclass
 class UnpackResult:
     root: str
-    files: List[str] = field(default_factory=list)  # 相对 root 的路径
+    files: list[str] = field(default_factory=list)  # 相对 root 的路径
 
 
 def _should_ignore(path: str) -> bool:

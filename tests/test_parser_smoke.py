@@ -4,12 +4,9 @@
 样本缺失时跳过（CI 环境无样本包）。
 """
 import os
-import sys
 
 import pytest
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from packages.jb_parser import parse  # noqa: E402
+from jb_parser import parse
 
 WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 仓库根，样本在 物资/、服务/
 SHAANXI_PKG = os.path.join(

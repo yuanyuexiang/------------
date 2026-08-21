@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -28,7 +28,7 @@ class SubmissionItem(BaseModel):
     """提交方式表条目（第六章末尾，= 递交矩阵）。"""
     seq: str = ""
     item: str = ""
-    channels: List[str] = Field(default_factory=list)  # 命中的渠道名（如 ECP2.0/网盘/天源e采）
+    channels: list[str] = Field(default_factory=list)  # 命中的渠道名（如 ECP2.0/网盘/天源e采）
     port: str = ""          # 投标工具上传端口说明
     section: str = ""       # 价格文件/商务文件/技术文件
 
@@ -48,7 +48,7 @@ class SpecDoc(BaseModel):
     title: str = ""
     source: str = ""        # 相对路径
     structured: bool = True
-    param_rows: List[SpecParamRow] = Field(default_factory=list)
+    param_rows: list[SpecParamRow] = Field(default_factory=list)
 
 
 class Material(BaseModel):
@@ -69,7 +69,7 @@ class QualificationItem(BaseModel):
     pkg: str = ""
     performance_req: str = ""
     test_report_req: str = ""
-    other_reqs: Dict[str, str] = Field(default_factory=dict)
+    other_reqs: dict[str, str] = Field(default_factory=dict)
     accept_agent: str = ""
 
 
@@ -84,7 +84,7 @@ class ScoringTemplate(BaseModel):
     name: str = ""          # 如 "FWSW01：服务类通用商务详评细则"
     kind: str = "other"     # tech | biz | price | other
     source: str = ""
-    items: List[ScoringItem] = Field(default_factory=list)
+    items: list[ScoringItem] = Field(default_factory=list)
 
 
 class KeyTerms(BaseModel):
@@ -107,9 +107,9 @@ class PackageTRM(BaseModel):
     sub_no: str = ""
     sub_name: str = ""
     pkg_no: str = ""
-    materials: List[Material] = Field(default_factory=list)
-    qualification: List[QualificationItem] = Field(default_factory=list)
-    spec_docs: List[SpecDoc] = Field(default_factory=list)
+    materials: list[Material] = Field(default_factory=list)
+    qualification: list[QualificationItem] = Field(default_factory=list)
+    spec_docs: list[SpecDoc] = Field(default_factory=list)
 
 
 class TRM(BaseModel):
@@ -117,34 +117,30 @@ class TRM(BaseModel):
     batch_no: str = ""
     terminology: str = "投标"      # 投标 | 应答
     source_zip: str = ""
-    prenotice: List[PrenoticeClause] = Field(default_factory=list)
-    rejection_rules: List[RejectionRule] = Field(default_factory=list)
-    submission_table: List[SubmissionItem] = Field(default_factory=list)
-    packages: List[PackageTRM] = Field(default_factory=list)
+    prenotice: list[PrenoticeClause] = Field(default_factory=list)
+    rejection_rules: list[RejectionRule] = Field(default_factory=list)
+    submission_table: list[SubmissionItem] = Field(default_factory=list)
+    packages: list[PackageTRM] = Field(default_factory=list)
     key_terms: KeyTerms = Field(default_factory=KeyTerms)
-    scoring_templates: List[ScoringTemplate] = Field(default_factory=list)
-    warnings: List[str] = Field(default_factory=list)
+    scoring_templates: list[ScoringTemplate] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
     def summary(self) -> str:
         lines = [
             "批次: {} ({})".format(self.batch_name or "?", self.batch_no or "?"),
-            "术语体系: {}".format(self.terminology),
-            "前附表条款: {} 条".format(len(self.prenotice)),
-            "否决规则: {} 条".format(len(self.rejection_rules)),
-            "提交方式表: {} 项".format(len(self.submission_table)),
-            "评分模板: {} 套".format(len(self.scoring_templates)),
-            "关键条件: 有效期{}日 | 保证金:{} | 无纸化:{}".format(
-                self.key_terms.validity_days, self.key_terms.deposit_mode,
-                self.key_terms.paperless),
-            "标包: {} 个".format(len(self.packages)),
+            f"术语体系: {self.terminology}",
+            f"前附表条款: {len(self.prenotice)} 条",
+            f"否决规则: {len(self.rejection_rules)} 条",
+            f"提交方式表: {len(self.submission_table)} 项",
+            f"评分模板: {len(self.scoring_templates)} 套",
+            f"关键条件: 有效期{self.key_terms.validity_days}日 | 保证金:{self.key_terms.deposit_mode} | 无纸化:{self.key_terms.paperless}",
+            f"标包: {len(self.packages)} 个",
         ]
         for p in self.packages:
             n_star = sum(1 for s in p.spec_docs for r in s.param_rows if r.star)
             n_rows = sum(len(s.param_rows) for s in p.spec_docs)
             lines.append(
-                "  - {} {} {} | 清单行 {} | 规范书 {} 本 | 参数行 {}（★{}）".format(
-                    p.sub_no, p.sub_name, p.pkg_no,
-                    len(p.materials), len(p.spec_docs), n_rows, n_star))
+                f"  - {p.sub_no} {p.sub_name} {p.pkg_no} | 清单行 {len(p.materials)} | 规范书 {len(p.spec_docs)} 本 | 参数行 {n_rows}（★{n_star}）")
         if self.warnings:
             lines.append("警告: " + "; ".join(self.warnings))
         return "\n".join(lines)

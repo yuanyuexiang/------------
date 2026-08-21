@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from typing import List, Optional
+from typing import Optional
 
 from . import classify, docx_utils, extract, normalize, scoring, unpack
 from .trm import TRM, PackageTRM
@@ -18,7 +18,7 @@ PKG_ZIP_PAT = re.compile(r"包(\d+)_完整(?:招标|采购)文件_\d+")
 SUB_DIR_PAT = re.compile(r"分标(\d+)([^/]*)")
 
 
-def parse_package_dir(root: str, files: List[str], trm: TRM,
+def parse_package_dir(root: str, files: list[str], trm: TRM,
                       sub_no: str = "", sub_name: str = "", pkg_no: str = "") -> None:
     """解析一个"包"目录（已解压），结果写入 trm。"""
     manifest = classify.build_manifest(root, files)
@@ -38,7 +38,7 @@ def parse_package_dir(root: str, files: List[str], trm: TRM,
         if trm.prenotice and trm.key_terms.validity_days is None:
             trm.key_terms = normalize.extract_key_terms(trm.prenotice)
     else:
-        trm.warnings.append("{}: 未找到六章主文件".format(pkg_no or root))
+        trm.warnings.append(f"{pkg_no or root}: 未找到六章主文件")
 
     if not trm.batch_name:
         ann_rel = manifest.first(classify.ANNOUNCEMENT)

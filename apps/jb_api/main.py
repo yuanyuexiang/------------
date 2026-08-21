@@ -3,33 +3,30 @@
 薄 API 原则：业务逻辑全部在 packages/，本层只做路由、参数校验、任务调度。
 原型阶段解析同步执行；接入 Celery 后改为提交任务 + 轮询。
 
-启动：uvicorn apps.jb_api.main:app --reload --port 8000
+启动：uvicorn jb_api.main:app --reload --port 8000
 """
 from __future__ import annotations
 
 import os
 import shutil
-import sys
 import tempfile
 import uuid
-from typing import Dict
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from packages.jb_parser import parse  # noqa: E402
+from jb_parser import parse
 
 app = FastAPI(title="Jinbang API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # jb-web dev server
+    # 逗号分隔的允许来源；默认 jb-web dev server。Nginx 反代（同源）场景无需配置。
+    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # 原型内存态项目存储；S2 起换 PostgreSQL
-_projects: Dict[str, dict] = {}
+_projects: dict[str, dict] = {}
 
 
 @app.get("/api/health")
@@ -43,14 +40,14 @@ async def create_project(file: UploadFile):
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(400, "请上传招标文件包 zip")
     project_id = uuid.uuid4().hex[:12]
-    workdir = tempfile.mkdtemp(prefix="jb_{}_".format(project_id))
+    workdir = tempfile.mkdtemp(prefix=f"jb_{project_id}_")
     zip_path = os.path.join(workdir, file.filename)
     with open(zip_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     try:
         trm = parse(zip_path, os.path.join(workdir, "unpacked"))
     except Exception as exc:  # 解析失败也保留项目以便排查
-        raise HTTPException(422, "解析失败: {}".format(exc))
+        raise HTTPException(422, f"解析失败: {exc}") from exc
     _projects[project_id] = {"id": project_id, "filename": file.filename,
                              "trm": trm.model_dump()}
     return {"id": project_id, "summary": trm.summary()}

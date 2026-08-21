@@ -1,6 +1,5 @@
-"""CLI: python -m packages.jb_parser.cli <招标文件包.zip> [-o trm.json]"""
+"""CLI: jb-parse <招标文件包.zip> [-o trm.json]（或 python -m jb_parser.cli）"""
 import argparse
-import json
 import sys
 
 from .pipeline import parse

@@ -3,13 +3,20 @@ from __future__ import annotations
 
 import os
 import re
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import openpyxl
 
 from . import docx_utils
-from .trm import (Material, PrenoticeClause, QualificationItem, RejectionRule,
-                  SpecDoc, SpecParamRow, SubmissionItem)
+from .trm import (
+    Material,
+    PrenoticeClause,
+    QualificationItem,
+    RejectionRule,
+    SpecDoc,
+    SpecParamRow,
+    SubmissionItem,
+)
 
 SPEC_ID_PAT = re.compile(r"\(([A-Z0-9]{4}-\d{9}-\d{5})\)")
 BATCH_NO_PAT = re.compile(r"[（(]([A-Z0-9\-]{6,})(?:物资|服务)?[）)]")
@@ -17,9 +24,9 @@ BATCH_NO_PAT = re.compile(r"[（(]([A-Z0-9\-]{6,})(?:物资|服务)?[）)]")
 
 # ---------- 主文件：前附表 / 否决表 / 提交方式表 ----------
 
-def extract_prenotice(doc) -> List[PrenoticeClause]:
+def extract_prenotice(doc) -> list[PrenoticeClause]:
     rows = docx_utils.find_table(doc, ["条款号", "条款名称", "编列内容"], min_hits=3)
-    out: List[PrenoticeClause] = []
+    out: list[PrenoticeClause] = []
     if not rows:
         return out
     import re as _re
@@ -39,9 +46,9 @@ def extract_prenotice(doc) -> List[PrenoticeClause]:
     return out
 
 
-def extract_rejection_rules(doc) -> List[RejectionRule]:
+def extract_rejection_rules(doc) -> list[RejectionRule]:
     rows = docx_utils.find_table(doc, ["评审内容", "否决情形", "否决事项"], min_hits=2)
-    out: List[RejectionRule] = []
+    out: list[RejectionRule] = []
     if not rows:
         return out
     last_cat = ""
@@ -66,7 +73,7 @@ def extract_rejection_rules(doc) -> List[RejectionRule]:
 _SECTION_NAMES = ("价格文件", "商务文件", "技术文件", "资质业绩文件", "报价文件")
 
 
-def extract_submission_table(doc) -> List[SubmissionItem]:
+def extract_submission_table(doc) -> list[SubmissionItem]:
     """提交方式表，兼容两种实测变体：
     - 陕西物资版：… | 提交方式(电子商务平台/省系统) | 格式要求 | 投标工具上传端口，
       分节行为"一/二/三 | 价格文件（按包制作）"
@@ -74,7 +81,7 @@ def extract_submission_table(doc) -> List[SubmissionItem]:
       分节行为"1 | 价格文件"，明细行以 √/× 标注各渠道
     """
     rows = docx_utils.find_table(doc, ["提交方式", "投标工具上传端口"], min_hits=2)         or docx_utils.find_table(doc, ["提交方式", "是否有格式要求"], min_hits=2)
-    out: List[SubmissionItem] = []
+    out: list[SubmissionItem] = []
     if not rows:
         return out
     # 渠道名从前两行表头收集
@@ -119,7 +126,7 @@ def batch_name_from_doc(doc, limit: int = 60) -> str:
     return name
 
 
-def extract_batch_info(doc, filename: str) -> Tuple[str, str, str]:
+def extract_batch_info(doc, filename: str) -> tuple[str, str, str]:
     """返回 (批次名, 批次号, 术语体系)。批次名主文件取不到时由调用方从招标公告兜底。"""
     name = batch_name_from_doc(doc)
     m = BATCH_NO_PAT.search(os.path.basename(filename))
@@ -165,7 +172,7 @@ def extract_spec(path: str, relpath: str) -> Optional[SpecDoc]:
 
 # ---------- xlsx：货物清单 / 资质业绩一览表 ----------
 
-def _detect_header(ws, keywords: List[str], scan: int = 6) -> Optional[int]:
+def _detect_header(ws, keywords: list[str], scan: int = 6) -> Optional[int]:
     for idx, row in enumerate(ws.iter_rows(max_row=scan, values_only=True)):
         vals = [str(c) for c in row if c is not None]
         if sum(1 for k in keywords if any(k in v for v in vals)) >= 2:
@@ -185,13 +192,13 @@ def _load_ws(path: str):
     return wb, ws
 
 
-def extract_goods_list(path: str) -> List[Material]:
+def extract_goods_list(path: str) -> list[Material]:
     wb, ws = _load_ws(path)
     head_idx = _detect_header(ws, ["分标编号", "物资描述", "包名称", "数量"])
-    out: List[Material] = []
+    out: list[Material] = []
     if head_idx is None:
         return out
-    header: List[str] = []
+    header: list[str] = []
     for idx, row in enumerate(ws.iter_rows(values_only=True)):
         vals = ["" if c is None else str(c).strip() for c in row]
         if idx == head_idx:
@@ -211,10 +218,10 @@ def extract_goods_list(path: str) -> List[Material]:
     return out
 
 
-def extract_qualification(path: str) -> List[QualificationItem]:
+def extract_qualification(path: str) -> list[QualificationItem]:
     wb, ws = _load_ws(path)
     head_idx = _detect_header(ws, ["分标名称", "业绩要求", "资质要求"])
-    out: List[QualificationItem] = []
+    out: list[QualificationItem] = []
     if head_idx is None:
         return out
     rows = list(ws.iter_rows(values_only=True))

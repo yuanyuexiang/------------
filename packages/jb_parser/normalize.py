@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import Optional
 
 from .trm import KeyTerms, PrenoticeClause
 
@@ -14,7 +14,7 @@ _VALIDITY_PAT = re.compile(r"自\S*截止\S*起\s*(\d+)\s*(?:日|天)")
 _DATE_PAT = re.compile(r"(\d{4}年\d{1,2}月\d{1,2}日[\d:：时分\s]*)")
 
 
-def _find(clauses: List[PrenoticeClause], *keywords: str) -> Optional[PrenoticeClause]:
+def _find(clauses: list[PrenoticeClause], *keywords: str) -> Optional[PrenoticeClause]:
     for c in clauses:
         text = c.name + c.content
         if all(k in text for k in keywords):
@@ -22,7 +22,7 @@ def _find(clauses: List[PrenoticeClause], *keywords: str) -> Optional[PrenoticeC
     return None
 
 
-def extract_key_terms(clauses: List[PrenoticeClause]) -> KeyTerms:
+def extract_key_terms(clauses: list[PrenoticeClause]) -> KeyTerms:
     kt = KeyTerms()
 
     c = _find(clauses, "投标有效期") or _find(clauses, "应答有效期")

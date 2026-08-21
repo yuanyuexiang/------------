@@ -11,7 +11,7 @@
 
 ```
 apps/jb-web/          前端 React SPA（Vite + AntD + TanStack Query），dev 端口 5173，/api 代理到 8000
-apps/jb_api/          后端 FastAPI（只做路由/校验/调度，不写业务逻辑），端口 8000
+apps/jb_api/          后端 FastAPI（只做路由/校验/调度，不写业务逻辑），端口 8000，导入名 jb_api
 packages/jb_parser/   S1 解析器：ECP 招标文件包 → TRM（招标要求模型）
   unpack.py           递归 zip 解压 + GBK 文件名修复
   classify.py         包内文件分类（主文件/公告/规范书/清单/评分细则…）
@@ -27,13 +27,16 @@ docs/                 项目文档（方案/计划/调研分析/否决案例库�
 ## 使用
 
 ```bash
-pip install -r requirements.txt
-python3 -m packages.jb_parser.cli <招标文件包.zip> -o trm.json   # CLI 解析
-python3 -m pytest tests/ -q                                      # 回归测试
+pip install -e ".[dev]"                       # 安装（含开发依赖）；导入名 jb_parser / jb_api
+jb-parse <招标文件包.zip> -o trm.json          # CLI 解析
+pytest -q                                     # 回归测试
 
-uvicorn apps.jb_api.main:app --reload --port 8000                # 后端
-cd apps/jb-web && npm install && npm run dev                     # 前端（localhost:5173）
+uvicorn jb_api.main:app --reload --port 8000  # 后端
+cd apps/jb-web && npm install && npm run dev  # 前端（localhost:5173）
 ```
+
+命名约定：Python 包用 snake_case（`jb_api`、`jb_parser`），npm 工程用 kebab-case（`jb-web`）——
+分别遵循各生态惯例，属有意为之。
 
 ## Docker Compose 部署
 

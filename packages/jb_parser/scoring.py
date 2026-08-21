@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import openpyxl
 
@@ -21,7 +21,7 @@ SCORE_RANGE_PAT = re.compile(r"[（(]\s*(-?\d+(?:\.\d+)?)\s*[-~—]\s*(-?\d+(?:\
 SINGLE_SCORE_PAT = re.compile(r"[（(]\s*(-?\d+(?:\.\d+)?)\s*分\s*[）)]")
 
 
-def _score_range(text: str) -> Tuple[Optional[float], Optional[float]]:
+def _score_range(text: str) -> tuple[Optional[float], Optional[float]]:
     m = SCORE_RANGE_PAT.search(text)
     if m:
         return float(m.group(1)), float(m.group(2))
@@ -80,7 +80,7 @@ def parse_xlsx(path: str, relpath: str) -> Optional[ScoringTemplate]:
             tpl.items.append(ScoringItem(
                 element=element, content=content, score_min=lo, score_max=hi))
     # 合并同要素续行
-    merged: List[ScoringItem] = []
+    merged: list[ScoringItem] = []
     for it in tpl.items:
         if merged and it.element == merged[-1].element:
             merged[-1].content = (merged[-1].content + "\n" + it.content).strip()
