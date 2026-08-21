@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+COPY requirements.txt .
+RUN pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+COPY packages/ packages/
+COPY apps/jb_api/ apps/jb_api/
+COPY apps/__init__.py apps/__init__.py
+EXPOSE 8000
+CMD ["uvicorn", "apps.jb_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

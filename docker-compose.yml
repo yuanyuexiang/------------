@@ -1,0 +1,77 @@
+# Jinbang（金榜）部署编排。
+#   核心:      docker compose up -d          （web/api/db/redis/minio）
+#   文档转换:  docker compose --profile docgen up -d   （S3 起用）
+#   LLM 网关:  docker compose --profile llm up -d      （接入模型账号后用）
+name: jinbang
+
+services:
+  jb-web:
+    build: { context: ., dockerfile: deploy/Dockerfile.web }
+    ports: ["8080:80"]
+    depends_on: [jb-api]
+
+  jb-api:
+    build: { context: ., dockerfile: deploy/Dockerfile.api }
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jinbang}:${POSTGRES_PASSWORD:-jinbang-dev-only}@db:5432/${POSTGRES_DB:-jinbang}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-jinbang}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-jinbang-dev-only}
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+      minio: { condition: service_started }
+
+  # S2 起启用：Celery worker（与 jb-api 同镜像，跑异步解析/生成任务）
+  # jb-worker:
+  #   build: { context: ., dockerfile: deploy/Dockerfile.api }
+  #   command: celery -A apps.jb_api.worker worker -l info
+  #   environment: *同 jb-api*
+  #   depends_on: [db, redis]
+
+  db:
+    image: pgvector/pgvector:pg15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jinbang}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jinbang-dev-only}
+      POSTGRES_DB: ${POSTGRES_DB:-jinbang}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jinbang}"]
+      interval: 5s
+      retries: 10
+    ports: ["5432:5432"]   # 开发期暴露；生产收回
+
+  redis:
+    image: redis:7-alpine
+    volumes: ["redisdata:/data"]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-jinbang}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-jinbang-dev-only}
+    volumes: ["miniodata:/data"]
+    ports: ["9001:9001"]   # 控制台；生产收回
+
+  # ---- profile: docgen（S3 文档转换，docx→PDF，HTTP API）----
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    profiles: [docgen]
+
+  # ---- profile: llm（统一 LLM 网关，多模型/记账/限流）----
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    profiles: [llm]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-jinbang-dev}
+    volumes: ["./deploy/litellm.yaml:/app/config.yaml:ro"]
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports: ["4000:4000"]
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

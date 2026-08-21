@@ -35,6 +35,18 @@ uvicorn apps.jb_api.main:app --reload --port 8000                # 后端
 cd apps/jb-web && npm install && npm run dev                     # 前端（localhost:5173）
 ```
 
+## Docker Compose 部署
+
+```bash
+cp .env.example .env            # 修改口令
+docker compose up -d --build    # 核心五件套：jb-web(8080) / jb-api / pg+pgvector / redis / minio
+open http://localhost:8080
+```
+
+按阶段追加：`--profile docgen`（gotenberg，S3 文档转 PDF）、`--profile llm`（LiteLLM 网关，
+先在 deploy/litellm.yaml 填模型账号）。S2 接 Celery 后解开 compose 中 jb-worker 注释。
+文件：`docker-compose.yml`、`deploy/`（Dockerfile.api / Dockerfile.web / nginx.conf / litellm.yaml）。
+
 ## 已知边界（S1 内迭代）
 
 - 批次级 zip 的批次号需从公告补抽；服务类规范书为叙述式，参数表按物资口径不适用

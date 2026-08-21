@@ -1,0 +1,7 @@
+# LLM 网关配置：接入模型账号后填 key（勿提交真实 key，用环境变量引用）
+model_list:
+  - model_name: default
+    litellm_params:
+      model: openai/qwen-max        # 示例：阿里云百炼 OpenAI 兼容端点
+      api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: os.environ/DASHSCOPE_API_KEY
