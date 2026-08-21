@@ -10,8 +10,13 @@ def main() -> int:
     ap.add_argument("zip_path")
     ap.add_argument("-o", "--out", help="输出 TRM JSON 路径")
     ap.add_argument("-w", "--workdir", help="解压工作目录（默认临时目录）")
+    ap.add_argument("--llm", action="store_true", help="启用 LLM 兜底抽取（需 .env 配置）")
     args = ap.parse_args()
     trm = parse(args.zip_path, args.workdir)
+    if args.llm:
+        from .llm_fallback import enrich
+        n = enrich(trm)
+        print(f"LLM 兜底: 补充 {n} 个字段")
     print(trm.summary())
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:

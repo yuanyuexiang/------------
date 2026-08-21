@@ -55,7 +55,11 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
 
     qual_rel = manifest.first(classify.QUAL_PERF_XLSX)
     if qual_rel:
-        pkg.qualification = extract.extract_qualification(os.path.join(root, qual_rel))
+        all_rows = extract.extract_qualification(os.path.join(root, qual_rel))
+        # 附件为全批次资质业绩一览表：按本包分标过滤；无法定位分标时保留全部
+        key = (sub_no or "") + (sub_name or "")
+        mine = [q for q in all_rows if key and (key in q.sub_name or (sub_name and sub_name in q.sub_name))]
+        pkg.qualification = mine if mine else all_rows
 
     for sc_rel in manifest.by_category.get(classify.SCORING, []):
         full = os.path.join(root, sc_rel)

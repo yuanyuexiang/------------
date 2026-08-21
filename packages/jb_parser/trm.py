@@ -71,6 +71,11 @@ class QualificationItem(BaseModel):
     test_report_req: str = ""
     other_reqs: dict[str, str] = Field(default_factory=dict)
     accept_agent: str = ""
+    # LLM 兜底结构化（None=未抽取）
+    perf_years: Optional[int] = None
+    perf_scope: str = ""
+    report_required: Optional[bool] = None
+    llm_extracted: bool = False
 
 
 class ScoringItem(BaseModel):
@@ -101,6 +106,7 @@ class KeyTerms(BaseModel):
     max_price_clause: str = ""
     max_price_note: str = ""
     vat_note: str = ""
+    llm_filled: list[str] = Field(default_factory=list)  # 由 LLM 兜底填充的字段名
 
 
 class PackageTRM(BaseModel):
