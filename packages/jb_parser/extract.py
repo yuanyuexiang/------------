@@ -22,12 +22,18 @@ def extract_prenotice(doc) -> List[PrenoticeClause]:
     out: List[PrenoticeClause] = []
     if not rows:
         return out
+    import re as _re
+    _clause_no = _re.compile(r"^\d+(\.\d+)*")
     for r in rows[1:]:
         if len(r) < 2:
             continue
+        cells = list(r)
+        # 四列变体（如福建竞谈：大项|条款号|条款名称|编列内容）：首列非条款号则左移
+        if len(cells) >= 4 and not _clause_no.match(cells[0]) and _clause_no.match(cells[1]):
+            cells = cells[1:]
         clause = PrenoticeClause(
-            clause_no=r[0], name=r[1] if len(r) > 1 else "",
-            content=r[2] if len(r) > 2 else (r[1] if len(r) > 1 else ""))
+            clause_no=cells[0], name=cells[1] if len(cells) > 1 else "",
+            content=cells[2] if len(cells) > 2 else (cells[1] if len(cells) > 1 else ""))
         if clause.clause_no or clause.content:
             out.append(clause)
     return out
@@ -57,26 +63,50 @@ def extract_rejection_rules(doc) -> List[RejectionRule]:
     return out
 
 
+_SECTION_NAMES = ("价格文件", "商务文件", "技术文件", "资质业绩文件", "报价文件")
+
+
 def extract_submission_table(doc) -> List[SubmissionItem]:
-    rows = docx_utils.find_table(doc, ["提交方式", "投标工具上传端口"], min_hits=2)
+    """提交方式表，兼容两种实测变体：
+    - 陕西物资版：… | 提交方式(电子商务平台/省系统) | 格式要求 | 投标工具上传端口，
+      分节行为"一/二/三 | 价格文件（按包制作）"
+    - 江苏服务版：双行表头，渠道列为 ECP2.0（国网）/网盘/天源e采（江苏），
+      分节行为"1 | 价格文件"，明细行以 √/× 标注各渠道
+    """
+    rows = docx_utils.find_table(doc, ["提交方式", "投标工具上传端口"], min_hits=2)         or docx_utils.find_table(doc, ["提交方式", "是否有格式要求"], min_hits=2)
     out: List[SubmissionItem] = []
     if not rows:
         return out
+    # 渠道名从前两行表头收集
+    channel_names = []
+    for r in rows[:2]:
+        for c in r:
+            cc = c.replace(chr(10), "")
+            if any(k in cc for k in ("平台", "系统", "ECP", "网盘", "e采")) and len(cc) < 20:
+                if cc not in channel_names:
+                    channel_names.append(cc)
     section = ""
     for r in rows[1:]:
         cells = [c for c in r if c]
         if not cells:
             continue
-        seq = cells[0]
-        # 分节行："一 | 价格文件（按包制作）"
-        if seq in ("一", "二", "三", "四") and len(cells) >= 2:
-            section = cells[1]
+        seq = cells[0].replace(chr(10), "")
+        item = cells[1].replace(chr(10), " ") if len(cells) > 1 else ""
+        if seq in ("序号",) or item in ("内容",):
             continue
-        if seq in ("序号",):
+        is_section = (seq in ("一", "二", "三", "四") or seq.isdigit()) and             any(item.startswith(n) for n in _SECTION_NAMES)
+        if is_section:
+            section = item
             continue
-        item = cells[1] if len(cells) > 1 else ""
+        marks = [c for c in cells[2:]]
+        channels = []
+        if channel_names and any(m in ("√", "×") for m in marks):
+            for name, m in zip(channel_names, marks):
+                if m == "√":
+                    channels.append(name)
         port = cells[-1] if len(cells) > 2 and ("端口" in cells[-1] or "页签" in cells[-1] or "生成" in cells[-1]) else ""
-        out.append(SubmissionItem(seq=seq, item=item, port=port, section=section))
+        out.append(SubmissionItem(seq=seq, item=item, channels=channels,
+                                  port=port, section=section))
     return out
 
 

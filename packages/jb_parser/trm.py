@@ -28,7 +28,7 @@ class SubmissionItem(BaseModel):
     """提交方式表条目（第六章末尾，= 递交矩阵）。"""
     seq: str = ""
     item: str = ""
-    channels: List[str] = Field(default_factory=list)
+    channels: List[str] = Field(default_factory=list)  # 命中的渠道名（如 ECP2.0/网盘/天源e采）
     port: str = ""          # 投标工具上传端口说明
     section: str = ""       # 价格文件/商务文件/技术文件
 
@@ -73,6 +73,36 @@ class QualificationItem(BaseModel):
     accept_agent: str = ""
 
 
+class ScoringItem(BaseModel):
+    element: str = ""       # 评审要素（含分值区间原文）
+    content: str = ""       # 评审内容/档位标准
+    score_min: Optional[float] = None
+    score_max: Optional[float] = None
+
+
+class ScoringTemplate(BaseModel):
+    name: str = ""          # 如 "FWSW01：服务类通用商务详评细则"
+    kind: str = "other"     # tech | biz | price | other
+    source: str = ""
+    items: List[ScoringItem] = Field(default_factory=list)
+
+
+class KeyTerms(BaseModel):
+    """前附表语义归一结果；None = 未抽到，待 LLM 兜底或人工确认。"""
+    validity_days: Optional[int] = None
+    validity_clause: str = ""
+    deposit_mode: Optional[str] = None    # none | 诚信担保 | 年度保证金 | 按包保证金
+    deposit_clause: str = ""
+    sign_whole_doc: Optional[bool] = None # 整体电子签章
+    sign_clause: str = ""
+    paperless: Optional[bool] = None      # 不接收纸质投标文件
+    electronic: Optional[bool] = None
+    clarify_deadline: Optional[str] = None
+    max_price_clause: str = ""
+    max_price_note: str = ""
+    vat_note: str = ""
+
+
 class PackageTRM(BaseModel):
     sub_no: str = ""
     sub_name: str = ""
@@ -91,6 +121,8 @@ class TRM(BaseModel):
     rejection_rules: List[RejectionRule] = Field(default_factory=list)
     submission_table: List[SubmissionItem] = Field(default_factory=list)
     packages: List[PackageTRM] = Field(default_factory=list)
+    key_terms: KeyTerms = Field(default_factory=KeyTerms)
+    scoring_templates: List[ScoringTemplate] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
     def summary(self) -> str:
@@ -100,6 +132,10 @@ class TRM(BaseModel):
             "前附表条款: {} 条".format(len(self.prenotice)),
             "否决规则: {} 条".format(len(self.rejection_rules)),
             "提交方式表: {} 项".format(len(self.submission_table)),
+            "评分模板: {} 套".format(len(self.scoring_templates)),
+            "关键条件: 有效期{}日 | 保证金:{} | 无纸化:{}".format(
+                self.key_terms.validity_days, self.key_terms.deposit_mode,
+                self.key_terms.paperless),
             "标包: {} 个".format(len(self.packages)),
         ]
         for p in self.packages:

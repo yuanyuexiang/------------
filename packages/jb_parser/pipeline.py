@@ -11,7 +11,7 @@ import re
 import tempfile
 from typing import List, Optional
 
-from . import classify, docx_utils, extract, unpack
+from . import classify, docx_utils, extract, normalize, scoring, unpack
 from .trm import TRM, PackageTRM
 
 PKG_ZIP_PAT = re.compile(r"包(\d+)_完整(?:招标|采购)文件_\d+")
@@ -35,6 +35,8 @@ def parse_package_dir(root: str, files: List[str], trm: TRM,
             trm.rejection_rules = extract.extract_rejection_rules(doc)
         if not trm.submission_table:
             trm.submission_table = extract.extract_submission_table(doc)
+        if trm.prenotice and trm.key_terms.validity_days is None:
+            trm.key_terms = normalize.extract_key_terms(trm.prenotice)
     else:
         trm.warnings.append("{}: 未找到六章主文件".format(pkg_no or root))
 
@@ -54,6 +56,15 @@ def parse_package_dir(root: str, files: List[str], trm: TRM,
     qual_rel = manifest.first(classify.QUAL_PERF_XLSX)
     if qual_rel:
         pkg.qualification = extract.extract_qualification(os.path.join(root, qual_rel))
+
+    for sc_rel in manifest.by_category.get(classify.SCORING, []):
+        full = os.path.join(root, sc_rel)
+        if sc_rel.lower().endswith((".xlsx", ".xls")):
+            tpl = scoring.parse_xlsx(full, sc_rel)
+        else:
+            tpl = scoring.parse_docx_name_only(sc_rel)
+        if tpl and not any(t.name == tpl.name for t in trm.scoring_templates):
+            trm.scoring_templates.append(tpl)
 
     for spec_rel in manifest.by_category.get(classify.SPEC_DOC, []):
         sd = extract.extract_spec(os.path.join(root, spec_rel), spec_rel)

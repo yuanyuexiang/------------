@@ -43,6 +43,10 @@ def test_shaanxi_package():
     assert len(pkg.spec_docs) >= 3
     stars = [r for s in pkg.spec_docs for r in s.param_rows if r.star]
     assert len(stars) >= 10  # 综合网管规范书含大量★项
+    # 前附表语义归一
+    assert trm.key_terms.validity_days == 90
+    assert trm.key_terms.deposit_mode == "none"      # 本批次不要求保证金
+    assert trm.key_terms.paperless is True           # 不接收纸质投标文件
 
 
 @pytest.mark.skipif(not os.path.exists(FUJIAN_BATCH), reason="样本缺失")
@@ -51,3 +55,25 @@ def test_fujian_negotiation_batch():
     assert trm.terminology == "应答"      # 竞谈术语体系
     assert len(trm.packages) == 3         # 包14/15/16
     assert len(trm.rejection_rules) >= 40
+    # 评分细则模板（官方 xlsx）结构化
+    kinds = {t.kind for t in trm.scoring_templates}
+    assert "biz" in kinds and "tech" in kinds and "price" in kinds
+    biz = next(t for t in trm.scoring_templates if t.kind == "biz")
+    assert len(biz.items) >= 8            # FWSW01 商务细则条目
+    # 四列前附表变体 + 竞谈保证金模式
+    assert trm.key_terms.validity_days == 90
+    assert trm.key_terms.deposit_mode == "诚信担保"
+
+
+JIANGSU_BATCH = os.path.join(WS, "服务/1/国网江苏省电力有限公司2026年服务第四次公开招标采购_招标文件包.zip")
+
+
+@pytest.mark.skipif(not os.path.exists(JIANGSU_BATCH), reason="样本缺失")
+def test_jiangsu_service_batch():
+    trm = parse(JIANGSU_BATCH)
+    assert len(trm.packages) == 2         # 包147/148
+    # 江苏版双行表头/三渠道提交表变体
+    assert len(trm.submission_table) >= 30
+    channels = {c for it in trm.submission_table for c in it.channels}
+    assert any("e采" in c or "ECP" in c for c in channels)
+    assert trm.key_terms.paperless is True

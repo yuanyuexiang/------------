@@ -52,7 +52,7 @@ def classify_file(relpath: str) -> str:
             return ANNOUNCEMENT
         if "合同" in name:
             return CONTRACT
-        if "评分" in name or "详评" in name:
+        if "评分" in name or "详评" in name or "评分" in relpath or "详评" in relpath:
             return SCORING
         # 规范书目录下的正文 docx（如"…-综合网管1.docx"）也视作规范书
         if "技术规范" in relpath or re.search(r"\([A-Z0-9]{4}-\d{9}-\d{5}\)", relpath):
@@ -67,7 +67,7 @@ def classify_file(relpath: str) -> str:
             return GOODS_LIST_XLSX
         if "报价" in name:
             return PRICE_SHEET
-        if "评分" in name or "详评" in name or "细则" in name:
+        if "评分" in name or "详评" in name or "细则" in name or "评分" in relpath or "详评" in relpath:
             return SCORING
         return OTHER
     return OTHER
