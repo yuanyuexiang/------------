@@ -17,6 +17,9 @@ packages/jb_llm/      LLM 客户端（OpenAI 兼容；配置走 .env：LLM_BASE_
 packages/jb_kb/       企业知识库：档案模型 + 从历史投标文件建档（scripts/build_profile_baiente.py）
 packages/jb_agents/   业务 Agent：资格自检（jb-qualify）→ 可投性矩阵
 packages/jb_store/    持久层：SQLAlchemy（本地 SQLite jinbang.db / compose PostgreSQL），Alembic 迁移在 deploy/alembic
+packages/jb_docgen/   文档引擎：数值比较、技术参数自动填写、商务/技术文件生成、【待补充】阻断、导出加固
+packages/jb_rules/    否决规则引擎（否决情形表 + 典型案例库 SG 规则）
+packages/jb_agents/   资格自检 / 起草 writer / 价格 price / 评分 scorer
   unpack.py           递归 zip 解压 + GBK 文件名修复
   classify.py         包内文件分类（主文件/公告/规范书/清单/评分细则…）
   docx_utils.py       六章切分、表格结构化

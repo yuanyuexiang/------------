@@ -67,7 +67,7 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
     if demand_rel and pkg_no:
         rec = extract.extract_service_demand(os.path.join(root, demand_rel), pkg_no)
         if rec:
-            extract.apply_service_demand(pkg, rec)
+            extract.apply_service_demand(pkg, rec, trm)
         else:
             trm.warnings.append(f"{pkg_no}: 需求一览表中未找到本包行")
 

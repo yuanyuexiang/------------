@@ -147,7 +147,9 @@ def extract_spec(path: str, relpath: str) -> Optional[SpecDoc]:
     m = SPEC_ID_PAT.search(relpath)
     spec_id = m.group(1) if m else ""
     rows = docx_utils.find_table(doc, ["参数名称", "投标人保证值"], min_hits=2) \
-        or docx_utils.find_table(doc, ["项目需求值", "保证值"], min_hits=1)
+        or docx_utils.find_table(doc, ["项目需求值", "保证值"], min_hits=2)
+    if rows is not None and len(rows) < 3:
+        rows = None  # 叙述式规范（服务类）偶见单行表格，不是参数表
     title = ""
     for p in doc.paragraphs[:20]:
         t = p.text.strip()
@@ -264,8 +266,13 @@ def extract_service_demand(path: str, pkg_no: str) -> Optional[dict]:
     return None
 
 
-def apply_service_demand(pkg, rec: dict) -> None:
-    """把需求行写入 PackageTRM（评审引用 + 资格要求 + 项目信息）。"""
+def apply_service_demand(pkg, rec: dict, trm=None) -> None:
+    """把需求行写入 PackageTRM（评审引用 + 资格要求 + 项目信息）；批次号/批次名为空时由需求表兜底。"""
+    if trm is not None:
+        if not trm.batch_no and rec.get("计划批次编号"):
+            trm.batch_no = rec["计划批次编号"]
+        if not trm.batch_name and rec.get("计划批次名称"):
+            trm.batch_name = rec["计划批次名称"]
     pkg.project_name = rec.get("招标项目标段名称", "")
     pkg.project_unit = rec.get("项目单位", "")
     pkg.scope = rec.get("招标范围", "")
@@ -307,8 +314,13 @@ def _slash(v: str) -> str:
 
 # ---------- 第六章：格式块（投标函/授权委托书/承诺书 原文） ----------
 
-_BLOCK_TITLE = re.compile(r"^(（[一二三四五六七八九十]+）|\d{1,2}\.\d?\s*)(\S.{1,30})$")
+_BLOCK_TITLE = re.compile(r"^(（[一二三四五六七八九十]+）|\d{1,2}(?:\.\d{1,2})*\.?\s*)(\S.{1,30})$")
 _SKIP_TITLE = ("格式", "目录", "参考以下")
+# 裸标题（江苏服务版第六章不带编号）：已知格式件名称
+_BARE_TITLES = ("投标函", "应答函", "商务偏差表", "技术偏差表", "投标人基本情况表", "应答人基本情况表",
+                "法定代表人（单位负责人）授权委托书", "授权委托书", "投标保证信用承诺书", "应答保证信用承诺书",
+                "联合体协议书", "投标函价格表", "报价明细表", "公章对投标专用章授权书", "制造商授权委托书",
+                "投标人与国家电网公司系统人员关系说明", "投标保证金明细表", "业绩和实施经验表")
 
 
 def extract_format_blocks(doc, chapters) -> list[FormatBlock]:
@@ -323,12 +335,16 @@ def extract_format_blocks(doc, chapters) -> list[FormatBlock]:
             continue
         m = _BLOCK_TITLE.match(t)
         is_title = bool(m) and len(t) < 36
+        title = m.group(2).strip() if m else ""
         if is_title and not m.group(1).startswith("（"):
             # 数字编号行：仅短标题算格式块标题，条款句（含"我方/承诺/，"）算正文
             body = m.group(2)
             is_title = len(body) <= 16 and not any(w in body for w in ("我方", "承诺", "，", "。"))
+        if not is_title and t in _BARE_TITLES:
+            is_title, title = True, t
+        if is_title and (title.startswith("）") or title.endswith(("；", "：", "。"))):
+            is_title = False  # "（1）xxx；"被编号正则误切，属正文
         if is_title:
-            title = m.group(2).strip()
             if any(k in title for k in _SKIP_TITLE) and "投标函" not in title:
                 cur = None
                 continue
