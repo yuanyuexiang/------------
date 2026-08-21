@@ -10,10 +10,13 @@ from __future__ import annotations
 import os
 import shutil
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from jb_agents import qualify
+from jb_docgen import generate
 from jb_kb.models import CompanyProfile
 from jb_parser.trm import TRM
 from jb_store import Profile, Project, Task, init_db, session
@@ -177,3 +180,40 @@ def qualify_project(project_id: str, profile: str, llm: bool = False):
         enrich(trm)
     rep = qualify(trm, cp, use_llm=llm)
     return {"report": rep.model_dump(), "markdown": rep.markdown()}
+
+
+# ---------- 文件生成 ----------
+
+def _load_trm_profile(project_id: str, profile: str):
+    with session() as s:
+        p = s.get(Project, project_id)
+        if not p:
+            raise HTTPException(404, "项目不存在")
+        data = p.trm_confirmed or p.trm
+        if data is None:
+            raise HTTPException(409, "TRM 尚未就绪")
+        prow = s.get(Profile, profile)
+        if prow is None:
+            raise HTTPException(404, "企业档案不存在")
+        return TRM.model_validate(data), CompanyProfile.model_validate(prow.data)
+
+
+@app.post("/api/projects/{project_id}/generate")
+def generate_docs(project_id: str, profile: str, pkg_index: int = 0, product_model: Optional[str] = None):
+    """生成商务文件/技术文件 docx（同步；S4 起大文件改任务）。返回待补充统计与下载名。"""
+    trm, cp = _load_trm_profile(project_id, profile)
+    if not (0 <= pkg_index < len(trm.packages)):
+        raise HTTPException(400, "pkg_index 越界")
+    out_dir = os.path.join(UPLOAD_DIR, project_id, "out")
+    res = generate(trm, trm.packages[pkg_index], cp, out_dir, product_model)
+    return {"summary": res.summary(), "todos": res.docx_todos,
+            "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)]}
+
+
+@app.get("/api/projects/{project_id}/files/{filename}")
+def download_file(project_id: str, filename: str):
+    path = os.path.join(UPLOAD_DIR, project_id, "out", os.path.basename(filename))
+    if not os.path.exists(path):
+        raise HTTPException(404, "文件不存在")
+    return FileResponse(path, filename=filename,
+                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")

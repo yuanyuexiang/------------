@@ -78,6 +78,12 @@ class QualificationItem(BaseModel):
     llm_extracted: bool = False
 
 
+class FormatBlock(BaseModel):
+    """第六章"投标文件格式"中的一个格式块（投标函/授权委托书/承诺书…原文段落）。"""
+    title: str = ""
+    paragraphs: list[str] = Field(default_factory=list)
+
+
 class ScoringItem(BaseModel):
     element: str = ""       # 评审要素（含分值区间原文）
     content: str = ""       # 评审内容/档位标准
@@ -149,6 +155,7 @@ class TRM(BaseModel):
     packages: list[PackageTRM] = Field(default_factory=list)
     key_terms: KeyTerms = Field(default_factory=KeyTerms)
     scoring_templates: list[ScoringTemplate] = Field(default_factory=list)
+    format_blocks: list[FormatBlock] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
     def summary(self) -> str:

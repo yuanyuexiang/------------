@@ -37,7 +37,20 @@ def split_chapters(doc) -> list[Chapter]:
             continue
         hits.setdefault(no, []).append(i)
         titles[no] = m.group(2).strip() or titles.get(no, "")
-    starts = sorted((idxs[-1], no) for no, idxs in hits.items())
+    start_by_no = {no: idxs[-1] for no, idxs in hits.items()}
+    # 正文标题可能省略"第N章"前缀（实测第六章正文只写"投标文件格式"）：
+    # 若某章起点早于编号更小的章（说明命中的是目录行），则在后文按裸标题重新定位
+    paras = [p.text.strip() for p in doc.paragraphs]
+    for no in sorted(start_by_no):
+        prev = [start_by_no[k] for k in start_by_no if k < no]
+        if prev and start_by_no[no] < max(prev):
+            title = titles.get(no, "")
+            if title:
+                for i in range(max(prev) + 1, len(paras)):
+                    if paras[i] == title:
+                        start_by_no[no] = i
+                        break
+    starts = sorted((st, no) for no, st in start_by_no.items())
     chapters: list[Chapter] = []
     for k, (start, no) in enumerate(starts):
         end = starts[k + 1][0] if k + 1 < len(starts) else len(doc.paragraphs)

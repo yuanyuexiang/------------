@@ -37,6 +37,8 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
             trm.submission_table = extract.extract_submission_table(doc)
         if trm.prenotice and trm.key_terms.validity_days is None:
             trm.key_terms = normalize.extract_key_terms(trm.prenotice)
+        if not trm.format_blocks:
+            trm.format_blocks = extract.extract_format_blocks(doc, docx_utils.split_chapters(doc))
     else:
         trm.warnings.append(f"{pkg_no or root}: 未找到六章主文件")
 

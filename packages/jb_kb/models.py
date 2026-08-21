@@ -46,6 +46,26 @@ class FinancialYear(BaseModel):
     liability_ratio: str = ""
 
 
+class Product(BaseModel):
+    """产品（物资类技术参数响应的数据源）。params 的 key 为参数名/关键词，value 为具体值字符串。"""
+    model: str = ""                 # 型号
+    name: str = ""                  # 名称/物料类别
+    category: str = ""
+    params: dict[str, str] = Field(default_factory=dict)   # {"CPU": "2*32Core@2.6GHz", "内存": "256GB", ...}
+    features: list[str] = Field(default_factory=list)      # 功能描述（供描述性要求匹配）
+    test_reports: list[str] = Field(default_factory=list)  # 关联检测报告名
+    source: str = ""
+
+
+class Boilerplate(BaseModel):
+    """审核过的话术段落（售后/质量/培训等），写作 Agent 的素材；非事实内容可复用。"""
+    topic: str = ""                 # 售后服务 / 质量保证 / 培训 / 保密 / 应急...
+    title: str = ""
+    text: str = ""
+    source: str = ""
+    approved: bool = False
+
+
 class CompanyProfile(BaseModel):
     name: str = ""
     credit_code: str = ""
@@ -68,6 +88,11 @@ class CompanyProfile(BaseModel):
     personnel: list[Person] = Field(default_factory=list)
     performances: list[Performance] = Field(default_factory=list)
     financials: list[FinancialYear] = Field(default_factory=list)
+    products: list[Product] = Field(default_factory=list)
+    boilerplates: list[Boilerplate] = Field(default_factory=list)
+    legal_person: str = ""          # 法定代表人
+    authorized_rep: str = ""        # 常用被授权人
+    authorized_rep_title: str = ""
     sources: list[str] = Field(default_factory=list)      # 建档依据文件
 
     def save(self, path: str) -> None:

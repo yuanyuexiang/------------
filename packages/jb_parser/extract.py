@@ -9,6 +9,7 @@ import openpyxl
 
 from . import docx_utils
 from .trm import (
+    FormatBlock,
     Material,
     PrenoticeClause,
     QualificationItem,
@@ -302,3 +303,38 @@ def pkg_no_of(rec: dict) -> str:
 
 def _slash(v: str) -> str:
     return "" if v.strip() == "/" else v.strip()
+
+
+# ---------- 第六章：格式块（投标函/授权委托书/承诺书 原文） ----------
+
+_BLOCK_TITLE = re.compile(r"^(（[一二三四五六七八九十]+）|\d{1,2}\.\d?\s*)(\S.{1,30})$")
+_SKIP_TITLE = ("格式", "目录", "参考以下")
+
+
+def extract_format_blocks(doc, chapters) -> list[FormatBlock]:
+    ch6 = next((c for c in chapters if c.no == 6), None)
+    if ch6 is None:
+        return []
+    blocks: list[FormatBlock] = []
+    cur: Optional[FormatBlock] = None
+    for p in doc.paragraphs[ch6.start:ch6.end]:
+        t = p.text.strip()
+        if not t:
+            continue
+        m = _BLOCK_TITLE.match(t)
+        is_title = bool(m) and len(t) < 36
+        if is_title and not m.group(1).startswith("（"):
+            # 数字编号行：仅短标题算格式块标题，条款句（含"我方/承诺/，"）算正文
+            body = m.group(2)
+            is_title = len(body) <= 16 and not any(w in body for w in ("我方", "承诺", "，", "。"))
+        if is_title:
+            title = m.group(2).strip()
+            if any(k in title for k in _SKIP_TITLE) and "投标函" not in title:
+                cur = None
+                continue
+            cur = FormatBlock(title=title)
+            blocks.append(cur)
+            continue
+        if cur is not None:
+            cur.paragraphs.append(t)
+    return [b for b in blocks if b.paragraphs]

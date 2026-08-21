@@ -51,6 +51,10 @@ def test_full_flow(client):
     q = client.post(f"/api/projects/{pid}/qualify", params={"profile": "测试企业"}).json()
     assert {p["pkg_no"] for p in q["report"]["packages"]} == {"包147", "包148"}
     assert "可投性矩阵" in q["markdown"]
+    # 文件生成 + 下载
+    g = client.post(f"/api/projects/{pid}/generate", params={"profile": "测试企业", "pkg_index": 0}).json()
+    assert g["summary"]["export_blocked"] is True and len(g["files"]) == 2
+    assert client.get(f"/api/projects/{pid}/files/{g['files'][0]}").status_code == 200
 
 
 def test_reject_non_zip(client):
