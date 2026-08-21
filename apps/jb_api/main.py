@@ -136,6 +136,15 @@ def list_profiles():
                 for r in rows]
 
 
+@app.get("/api/profiles/{name}")
+def get_profile(name: str):
+    with session() as s:
+        row = s.get(Profile, name)
+        if row is None:
+            raise HTTPException(404, "企业档案不存在")
+        return row.data
+
+
 @app.put("/api/profiles/{name}")
 def upsert_profile(name: str, profile: dict):
     cp = CompanyProfile.model_validate(profile)
