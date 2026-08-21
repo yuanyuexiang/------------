@@ -285,3 +285,37 @@ def download_file(project_id: str, filename: str):
         raise HTTPException(404, "文件不存在")
     return FileResponse(path, filename=filename,
                         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+
+# ---------- 模拟评分 / 导出 ----------
+
+@app.post("/api/projects/{project_id}/score")
+def score_project(project_id: str, profile: str, pkg_index: int = 0, llm: bool = False, task_id: Optional[str] = None):
+    """模拟评分：硬指标按档案计数，软指标对最近一次起草（task_id 的 draft）做 LLM 评审。"""
+    from jb_agents.scorer import score_package
+    from jb_agents.writer import DraftSection
+    trm, cp = _load_trm_profile(project_id, profile)
+    pkg = trm.packages[pkg_index]
+    drafts = None
+    if task_id:
+        with session() as s:
+            t = s.get(Task, task_id)
+            md = (t.result or {}).get("draft_markdown", "") if t else ""
+        if md:
+            import re as _re
+            drafts = [DraftSection(title=m.group(1).strip(), text=m.group(2))
+                      for m in _re.finditer(r"## (.+?)\n(.*?)(?=\n## |\Z)", md, _re.S)]
+    rep = score_package(trm, pkg, cp, draft_sections=drafts, use_llm=llm)
+    return {"report": rep.model_dump(), "heatmap": rep.heatmap(), "markdown": rep.markdown()}
+
+
+@app.post("/api/projects/{project_id}/export")
+def export_project(project_id: str, filename: str, pdf: bool = True, force: bool = False):
+    """导出加固：待补充阻断 → 元数据清理 → PDF（有转换服务时）。"""
+    from jb_docgen.export import export
+    path = os.path.join(UPLOAD_DIR, project_id, "out", os.path.basename(filename))
+    if not os.path.exists(path):
+        raise HTTPException(404, "文件不存在")
+    res = export(path, want_pdf=pdf, force=force)
+    return {"ok": res.ok, "blocked_by": res.blocked_by[:20], "blocked_count": len(res.blocked_by),
+            "pdf": os.path.basename(res.pdf_path) if res.pdf_path else None, "notes": res.notes}

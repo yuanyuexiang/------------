@@ -4,6 +4,7 @@ import ProjectsPage from './pages/ProjectsPage'
 import TrmConfirmPage from './pages/TrmConfirmPage'
 import QualifyPage from './pages/QualifyPage'
 import ProfilePage from './pages/ProfilePage'
+import WorkbenchPage from './pages/WorkbenchPage'
 
 const { Header, Content } = Layout
 
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/projects/:id/trm" element={<TrmConfirmPage />} />
           <Route path="/projects/:id/qualify" element={<QualifyPage />} />
           <Route path="/profiles/:name" element={<ProfilePage />} />
+          <Route path="/projects/:id/workbench" element={<WorkbenchPage />} />
         </Routes>
       </Content>
     </Layout>

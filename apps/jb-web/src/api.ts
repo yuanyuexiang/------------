@@ -73,7 +73,28 @@ export interface CompanyProfile {
   [k: string]: unknown
 }
 
+export interface Finding { rule_id: string; level: string; title: string; message: string; location: string; source: string }
+export interface ItemScore { element: string; kind: string; score_min: number; score_max: number; predicted: number | null; method: string; basis: string; missing: string[] }
+export interface ScoreReport { pkg_no: string; items: ItemScore[]; tech_total: number | null; biz_total: number | null; tech_max: number; biz_max: number; weighted: number | null; notes: string[] }
+export interface GenResult {
+  summary: { commercial: string; technical: string; todo_count: number; export_blocked: boolean; tech_params: { spec_id: string; rows: number; satisfied: number; deviation: number; unknown: number; missing: number }[] }
+  todos: Record<string, string[]>; files: string[]; draft_markdown: string
+  tech_params: { spec_id: string; responses: { row: number; name: string; required: string; star: boolean; response: string; verdict: string; reason: string }[] }[]
+}
+
 export const api = {
+  generate: (id: string, profile: string, pkgIndex: number, withDraft: boolean) =>
+    req<{ task_id: string; mode: string }>(`/api/projects/${id}/generate?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&with_draft=${withDraft}`, { method: 'POST' }),
+  review: (id: string, profile: string, pkgIndex: number) =>
+    req<{ blocked: boolean; counts: Record<string, number>; findings: Finding[]; markdown: string }>(`/api/projects/${id}/review?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, { method: 'POST' }),
+  score: (id: string, profile: string, pkgIndex: number, llm: boolean, taskId?: string) =>
+    req<{ report: ScoreReport; heatmap: { element: string; loss: number; predicted: number; max: number; missing: string[] }[]; markdown: string }>(
+      `/api/projects/${id}/score?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&llm=${llm}${taskId ? `&task_id=${taskId}` : ''}`, { method: 'POST' }),
+  exportFile: (id: string, filename: string, force = false) =>
+    req<{ ok: boolean; blocked_count: number; blocked_by: string[]; pdf: string | null; notes: string[] }>(`/api/projects/${id}/export?filename=${encodeURIComponent(filename)}&force=${force}`, { method: 'POST' }),
+  submissionMatrix: (id: string, pkgIndex: number) =>
+    req<{ rows: { section: string; seq: string; item: string; channels: string[]; port: string; generated_file: string | null; status: string }[] }>(`/api/projects/${id}/submission-matrix?pkg_index=${pkgIndex}`),
+  fileUrl: (id: string, filename: string) => `/api/projects/${id}/files/${encodeURIComponent(filename)}`,
   profile: (name: string) => req<CompanyProfile>(`/api/profiles/${encodeURIComponent(name)}`),
   saveProfile: (name: string, p: CompanyProfile) => req<{ ok: boolean }>(`/api/profiles/${encodeURIComponent(name)}`, json(p)),
   health: () => req<{ status: string; task_mode: string }>('/api/health'),

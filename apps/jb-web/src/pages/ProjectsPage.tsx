@@ -59,12 +59,13 @@ export default function ProjectsPage() {
             { title: '批次号', dataIndex: 'batch_no', width: 160 },
             { title: '状态', dataIndex: 'status', width: 110, render: (s: string) => <Tag color={STATUS_COLOR[s]}>{s}</Tag> },
             { title: '创建', dataIndex: 'created_at', width: 170, render: (v: string) => v.replace('T', ' ').slice(0, 16) },
-            { title: '操作', width: 220, render: (_, r) => (
+            { title: '操作', width: 320, render: (_, r) => (
               <Space>
                 <Button size="small" type="primary" disabled={!['parsed', 'confirmed'].includes(r.status)} onClick={() => nav(`/projects/${r.id}/trm`)}>
                   {r.confirmed ? '查看确认版' : '确认 TRM'}
                 </Button>
                 <Button size="small" disabled={!['parsed', 'confirmed'].includes(r.status)} onClick={() => nav(`/projects/${r.id}/qualify`)}>资格自检</Button>
+                <Button size="small" disabled={!['parsed', 'confirmed'].includes(r.status)} onClick={() => nav(`/projects/${r.id}/workbench`)}>生成与审查</Button>
               </Space>
             ) },
           ]} />

@@ -61,12 +61,15 @@ def parse_xlsx(path: str, relpath: str) -> Optional[ScoringTemplate]:
     name = rows[0][0] if rows[0] else os.path.basename(relpath)
     tpl = ScoringTemplate(name=name, kind=kind_from_path(relpath), source=relpath)
     element = ""
+    group = ""
     for r in rows[1:]:
         cells = [c for c in r if c]
         if not cells or cells[0] in ("评审要素", "项目"):
             continue
-        # 多列：新评审要素行；单列：上一要素的续行（评分档位说明）
-        if len(cells) >= 2:
+        # 三列（项目|评审要素|评审内容）：cells[0] 为分组；两列：cells[0] 即要素；单列：续行
+        if len(cells) >= 3:
+            group, element, content = cells[0], cells[1], cells[-1]
+        elif len(cells) == 2:
             element = cells[0] if "分" in cells[0] or len(cells[0]) < 30 else element
             content = cells[-1]
         else:
@@ -78,7 +81,7 @@ def parse_xlsx(path: str, relpath: str) -> Optional[ScoringTemplate]:
             lo, hi = _score_range(content)
         if element or content:
             tpl.items.append(ScoringItem(
-                element=element, content=content, score_min=lo, score_max=hi))
+                element=element, content=content, score_min=lo, score_max=hi, group=group))
     # 合并同要素续行
     merged: list[ScoringItem] = []
     for it in tpl.items:

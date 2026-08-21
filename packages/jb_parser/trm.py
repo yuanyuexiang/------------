@@ -85,6 +85,7 @@ class FormatBlock(BaseModel):
 
 
 class ScoringItem(BaseModel):
+    group: str = ""         # 所属分组（如"3.科研创新评价（7 分）"）
     element: str = ""       # 评审要素（含分值区间原文）
     content: str = ""       # 评审内容/档位标准
     score_min: Optional[float] = None
