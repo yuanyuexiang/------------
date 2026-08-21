@@ -14,14 +14,18 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "python-multipart>=0.0.9",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4",
-    "httpx>=0.27",     # fastapi TestClient
     "ruff>=0.5",
 ]
+pg = ["psycopg[binary]>=3.1"]     # PostgreSQL 驱动（compose 部署）
+worker = ["celery>=5.3", "redis>=5.0"]
 
 [project.scripts]
 jb-parse = "jb_parser.cli:main"
@@ -30,7 +34,7 @@ jb-qualify = "jb_agents.cli:main"
 # 顶层导入名：jb_parser（领域包，位于 packages/）、jb_api（HTTP 层，位于 apps/）
 [tool.setuptools.packages.find]
 where = ["packages", "apps"]
-include = ["jb_parser*", "jb_api*", "jb_kb*", "jb_llm*", "jb_agents*"]
+include = ["jb_parser*", "jb_api*", "jb_kb*", "jb_llm*", "jb_agents*", "jb_store*"]
 
 [tool.pytest.ini_options]
 # 未安装（pip install -e）时也能直接 pytest：把两个源码根加入导入路径

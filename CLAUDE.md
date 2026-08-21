@@ -14,6 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pip install -e ".[dev]"        # 安装（导入名 jb_parser / jb_api；须 pip>=21.3）
 pytest -q                      # 回归测试（依赖 物资/、服务/ 下的真实样本，缺样本自动 skip）
 pytest -q -k shaanxi           # 单跑一个样本用例
+alembic -c deploy/alembic.ini upgrade head   # 建表/迁移（本地 SQLite）
 ruff check packages apps tests # lint（提交前必须 clean）
 jb-parse <招标文件包.zip> -o trm.json          # CLI 解析
 uvicorn jb_api.main:app --reload --port 8000  # 后端
@@ -24,6 +25,8 @@ docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；-
 ## 架构（读代码前必须知道的）
 
 **薄 API + 厚领域包**（六边形架构）：`apps/jb_api` 只做路由/校验/调度，业务逻辑全部在 `packages/`。铁律：`packages/` 不得 import `apps/` 或任何 Web 框架；删掉 `apps/` 后 `pytest` 必须照样全绿。前后端分离是另一维度：`apps/jb-web`（React/Vite/AntD，kebab-case 是 npm 惯例）独立于 `apps/jb_api`（snake_case 是 Python 惯例），REST 通信。
+
+**持久层 `jb_store`**：Pydantic 对象是真源，数据库只做落盘（TRM/档案以 JSON 列整体存取，需检索的列单独冗余）。表结构改动必须走 Alembic（`alembic -c deploy/alembic.ini revision --autogenerate`），字段只增不删。`Project.trm` 是机器解析版，`trm_confirmed` 是确认页人工版，下游一律优先用后者。
 
 **jb_parser 流水线**（`pipeline.parse()` 为唯一入口）：
 `unpack`（递归 zip + GBK 文件名修复）→ `classify`（按实测命名规律分类文件）→ `docx_utils`（六章切分/表格结构化）→ `extract` + `scoring` + `normalize`（前附表/否决表/提交方式表/技术参数表/评分模板/关键条件）→ `trm`（Pydantic Schema，全流程唯一真源）。
@@ -48,5 +51,6 @@ TRM Schema 演进规则：**字段只增不改名**（下游 Agent、前端、�
 
 ## 当前欠债（有意为之，接手时按计划还，勿提前"顺手修"）
 
-- `jb_api` 项目数据存内存、解析同步执行 → S2 换 PostgreSQL + Celery（compose 里 `jb-worker` 注释与 `DATABASE_URL` 等环境变量已预留）
+- 知识库目前以 CompanyProfile 整体 JSON 存 `profiles` 表，S2 后半拆为多表（证照/人员/业绩）后才能做字段级检索与有效期预警
+- Celery 模式只在 compose（Redis）下生效，本地/测试为进程内 BackgroundTasks；两者共用 `jb_api.tasks.run_parse`，改任务逻辑只改这一处
 - LLM 抽取兜底未接（等 API 账号）；golden 标注集未建（等业务专家），建成后放 `tests/golden/`

@@ -13,22 +13,30 @@ services:
   jb-api:
     build: { context: ., dockerfile: deploy/Dockerfile.api }
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-jinbang}:${POSTGRES_PASSWORD:-jinbang-dev-only}@db:5432/${POSTGRES_DB:-jinbang}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jinbang}:${POSTGRES_PASSWORD:-jinbang-dev-only}@db:5432/${POSTGRES_DB:-jinbang}
+      CELERY_BROKER_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-jinbang}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-jinbang-dev-only}
+      UPLOAD_DIR: /data/uploads
+    volumes: ["uploads:/data/uploads"]   # api 与 worker 共享上传目录
+    command: sh -c "alembic -c deploy/alembic.ini upgrade head && uvicorn jb_api.main:app --host 0.0.0.0 --port 8000"
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_started }
       minio: { condition: service_started }
 
-  # S2 起启用：Celery worker（与 jb-api 同镜像，跑异步解析/生成任务）
-  # jb-worker:
-  #   build: { context: ., dockerfile: deploy/Dockerfile.api }
-  #   command: celery -A apps.jb_api.worker worker -l info
-  #   environment: *同 jb-api*
-  #   depends_on: [db, redis]
+  jb-worker:
+    build: { context: ., dockerfile: deploy/Dockerfile.api }
+    command: celery -A jb_api.tasks worker -l info --concurrency=2
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jinbang}:${POSTGRES_PASSWORD:-jinbang-dev-only}@db:5432/${POSTGRES_DB:-jinbang}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      UPLOAD_DIR: /data/uploads
+    volumes: ["uploads:/data/uploads"]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
 
   db:
     image: pgvector/pgvector:pg15
@@ -72,6 +80,7 @@ services:
     ports: ["4000:4000"]
 
 volumes:
+  uploads:
   pgdata:
   redisdata:
   miniodata:
