@@ -7,3 +7,5 @@ __pycache__/
 物资/
 服务/
 *.zip
+node_modules/
+dist/

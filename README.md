@@ -5,9 +5,13 @@
 方案与调研文档见 `docs/`（总方案：《国网智能投标Agent系统-完整技术方案.md》；开发依据：《原型开发计划.md》）。
 真实招标文件样本（原型固定测试集）在 `物资/`、`服务/` 目录，体积大、不入 git。
 
-## 结构
+## 架构
+
+前后端分离（独立工程、REST 通信）+ 后端"薄 API、厚领域包"：
 
 ```
+apps/jb-web/          前端 React SPA（Vite + AntD + TanStack Query），dev 端口 5173，/api 代理到 8000
+apps/jb_api/          后端 FastAPI（只做路由/校验/调度，不写业务逻辑），端口 8000
 packages/jb_parser/   S1 解析器：ECP 招标文件包 → TRM（招标要求模型）
   unpack.py           递归 zip 解压 + GBK 文件名修复
   classify.py         包内文件分类（主文件/公告/规范书/清单/评分细则…）
@@ -24,8 +28,11 @@ docs/                 项目文档（方案/计划/调研分析/否决案例库�
 
 ```bash
 pip install -r requirements.txt
-python3 -m packages.jb_parser.cli <招标文件包.zip> -o trm.json
-python3 -m pytest tests/ -q
+python3 -m packages.jb_parser.cli <招标文件包.zip> -o trm.json   # CLI 解析
+python3 -m pytest tests/ -q                                      # 回归测试
+
+uvicorn apps.jb_api.main:app --reload --port 8000                # 后端
+cd apps/jb-web && npm install && npm run dev                     # 前端（localhost:5173）
 ```
 
 ## 已知边界（S1 内迭代）
