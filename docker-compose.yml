@@ -29,6 +29,11 @@ services:
   jb-worker:
     build: { context: ., dockerfile: deploy/Dockerfile.api }
     command: celery -A jb_api.tasks worker -l info --concurrency=2
+    healthcheck:   # 覆盖镜像默认的 HTTP 健康检查（worker 无 HTTP 端口）
+      test: ["CMD-SHELL", "celery -A jb_api.tasks inspect ping -d celery@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jinbang}:${POSTGRES_PASSWORD:-jinbang-dev-only}@db:5432/${POSTGRES_DB:-jinbang}
       CELERY_BROKER_URL: redis://redis:6379/0
