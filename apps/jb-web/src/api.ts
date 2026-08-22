@@ -10,13 +10,39 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** 后端时间戳为 naive UTC ISO（无时区后缀）→ 本地 "YYYY-MM-DD HH:mm"。投标截止等业务时间是墙钟字符串，不经此转换。 */
+export function fmtUtc(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(/[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : iso + 'Z')
+  if (Number.isNaN(d.getTime())) return iso
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 const json = (body: unknown, method = 'PUT'): RequestInit => ({
   method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 })
 
 export interface Project {
   id: string; filename: string; status: string; batch_name: string; batch_no: string
-  error: string; created_at: string; confirmed: boolean
+  error: string; created_at: string; updated_at: string; confirmed: boolean
+  deadline: string; open_time: string; deadline_manual: boolean; days_left: number | null
+  stage: string; stage_cn: string; outcome: string; outcome_cn: string; active: boolean; notes: string
+  pkg_nos: string[]; packages: number
+  results: {
+    qualify?: { profile: string; verdicts: Record<string, string>; llm: boolean }
+    generate?: Record<string, { todo_count: number; export_blocked: boolean; files: string[]; with_draft: boolean; profile: string }>
+    review?: Record<string, { blocked: boolean; counts: Record<string, number>; profile: string }>
+    score?: Record<string, { weighted: number | null; tech_total: number | null; tech_max: number; biz_total: number | null; biz_max: number; llm: boolean }>
+  }
+}
+export interface ProjectEvent { id: string; kind: string; message: string; data: Record<string, unknown> | null; created_at: string }
+export interface ProjectDetail extends Project {
+  key_terms: Partial<KeyTerms> & { bid_deadline?: string | null; bid_deadline_text?: string; bid_open_time?: string | null; bid_open_note?: string }
+  package_list: { pkg_no: string; sub_no: string; sub_name: string; project_name: string; budget_yuan: number | null; max_price: string; materials: number; spec_docs: number }[]
+  events: ProjectEvent[]
+  tasks: { id: string; kind: string; status: string; progress: number; message: string; created_at: string }[]
+  files: { name: string; size: number; modified: string }[]
 }
 export interface Task {
   id: string; project_id: string; kind: string; status: string; progress: number
@@ -116,8 +142,12 @@ export const api = {
   profile: (name: string) => req<CompanyProfile>(`/api/profiles/${encodeURIComponent(name)}`),
   saveProfile: (name: string, p: CompanyProfile) => req<{ ok: boolean }>(`/api/profiles/${encodeURIComponent(name)}`, json(p)),
   health: () => req<{ status: string; task_mode: string }>('/api/health'),
-  projects: () => req<Project[]>('/api/projects'),
+  projects: (active?: boolean) => req<Project[]>(`/api/projects${active === undefined ? '' : `?active=${active}`}`),
   project: (id: string) => req<Project>(`/api/projects/${id}`),
+  projectDetail: (id: string) => req<ProjectDetail>(`/api/projects/${id}/detail`),
+  patchProject: (id: string, fields: Partial<Pick<Project, 'deadline' | 'open_time' | 'outcome' | 'notes'>>) =>
+    req<Project>(`/api/projects/${id}`, json(fields, 'PATCH')),
+  deleteProject: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
   upload: (file: File) => {
     const form = new FormData(); form.append('file', file)
     return req<{ id: string; task_id: string; mode: string }>('/api/projects', { method: 'POST', body: form })

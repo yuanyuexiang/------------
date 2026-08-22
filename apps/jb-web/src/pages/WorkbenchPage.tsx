@@ -60,7 +60,7 @@ export default function WorkbenchPage() {
           <Button onClick={doReview} disabled={!gen}>合规审查</Button>
           <Button onClick={doScore} disabled={!gen}>模拟评分</Button>
           <Button onClick={doMatrix}>递交矩阵</Button>
-          <Button onClick={() => nav('/')}>返回</Button>
+          <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
         </Space>
         {task && task.status !== 'done' && (
           <div style={{ marginTop: 12 }}>

@@ -13,6 +13,7 @@ from jb_kb import repo as kb_repo
 from jb_parser import parse
 from jb_parser.trm import TRM
 from jb_store import Project, Task, session
+from jb_store import projects as pm
 
 BROKER = os.environ.get("CELERY_BROKER_URL", "")
 
@@ -48,6 +49,16 @@ def run_parse(task_id: str, project_id: str) -> None:
         p = s.get(Project, project_id)
         p.trm = trm.model_dump()
         p.batch_name, p.batch_no, p.status = trm.batch_name, trm.batch_no, "parsed"
+        if not p.deadline_manual:            # 人工改过的截止时间不被重新解析覆盖
+            p.deadline = trm.key_terms.bid_deadline or p.deadline
+            p.open_time = trm.key_terms.bid_open_time or p.open_time
+        pm.advance(p, "parsed")
+        pkg_nos = [k.pkg_no for k in trm.packages]
+        pm.log_event(s, project_id, "parsed",
+                     f"解析完成：{len(pkg_nos)} 个包（{'、'.join(pkg_nos)}）"
+                     + (f"，投标截止 {p.deadline}" if p.deadline else "，公告未抽到截止时间，请人工录入")
+                     + (f"，{len(trm.warnings)} 条告警" if trm.warnings else ""),
+                     {"packages": pkg_nos, "deadline": p.deadline, "summary": trm.summary(), "warnings": trm.warnings})
     _update(task_id, status="done", progress=1.0, message=trm.summary(),
             result={"packages": len(trm.packages), "warnings": trm.warnings})
 
@@ -82,6 +93,15 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
     except Exception as exc:
         _update(task_id, status="failed", message=f"生成失败: {exc}"[:2000])
         return
+    with session() as s:
+        p = s.get(Project, project_id)
+        summary = res.summary()
+        pm.set_result(p, "generate", {"todo_count": summary.get("todo_count"), "export_blocked": summary.get("export_blocked"),
+                                      "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],
+                                      "with_draft": with_draft, "profile": profile_name}, pkg.pkg_no)
+        pm.advance(p, "generated")
+        pm.log_event(s, project_id, "generated", f"{pkg.pkg_no} 生成商务/技术文件，待补充 {summary.get('todo_count')} 处",
+                     {"pkg_no": pkg.pkg_no, "with_draft": with_draft})
     _update(task_id, status="done", progress=1.0, message="生成完成",
             result={"summary": res.summary(), "todos": res.docx_todos,
                     "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],

@@ -23,6 +23,15 @@ def load(path: str) -> docx.document.Document:
     return docx.Document(path)
 
 
+def full_text(doc) -> str:
+    """正文段落 + 表格单元格文本（按行拼接），供正则扫描整篇（如招标公告）。"""
+    parts = [p.text for p in doc.paragraphs]
+    for t in doc.tables:
+        for row in t.rows:
+            parts.append(" | ".join(c.text.strip() for c in row.cells))
+    return "\n".join(parts)
+
+
 def split_chapters(doc) -> list[Chapter]:
     """按"第N章"标记切分正文。目录区的章名行（连续出现在文首）会被跳过：
     取每个章号最后一次出现的位置作为正文起点。"""

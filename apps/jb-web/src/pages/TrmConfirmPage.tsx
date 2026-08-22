@@ -114,7 +114,7 @@ export default function TrmConfirmPage() {
     try {
       await api.confirmTrm(id, trm)
       message.success('确认版已保存，下游流程将以此为准')
-      nav('/')
+      nav(`/projects/${id}`)
     } catch (e) { message.error(String(e)) } finally { setSaving(false) }
   }
   const setPkg = (i: number, p: PackageTRM) => setTrm({ ...trm, packages: trm.packages.map((x, k) => k === i ? p : x) })
@@ -159,7 +159,7 @@ export default function TrmConfirmPage() {
       <Card size="small">
         <Space>
           <Button type="primary" loading={saving} onClick={save}>确认并保存为人工确认版</Button>
-          <Button onClick={() => nav('/')}>返回</Button>
+          <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
           <Text type="secondary">确认后下游（资格自检/生成/审查）一律使用确认版</Text>
         </Space>
       </Card>

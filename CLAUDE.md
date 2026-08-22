@@ -31,6 +31,10 @@ docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；-
 
 **知识库 `jb_kb`**：`CompanyProfile` 仍是下游 Agent 的唯一接口（聚合），`repo.load_profile/save_profile` 负责与多表互转，`repo.upsert_item/delete_item` 供管理页单条维护；新增 Pydantic 字段不需要迁移，只有新增"需检索"的列才加。旧格式整体 JSON 行首次读取时自动迁入子表（`_ensure_split`）。有效期预警在 `expiry.py`，扫描件在 `attachments.py`（本地共享卷，接口留给 MinIO）。
 
+**投标项目管理 `jb_store.projects`**：`Project.stage` 是"到达的最远阶段"（parsed→confirmed→qualified→generated→reviewed→submitted，只前进），`outcome` 是人工标的结果（submitted/won/lost/abandoned），`results` 存各环节最近摘要（按包分桶），`project_events` 是时间线。API 各环节完成时调 `pm.advance / pm.set_result / pm.log_event` 回写——新增环节照此三步。投标截止时间由解析器从招标公告 5.1 抽取（`KeyTerms.bid_deadline`，四样本实测写法一致），人工改过（`deadline_manual`）后重新解析不覆盖。
+
+**建表规则**：`init_db()` 只在"没有 `alembic_version` 表"的空库上 create_all（测试/首次本地起服务）；已由 Alembic 管理的库一律 `alembic upgrade head`，否则 create_all 会抢先建表导致后续迁移冲突。
+
 **前端 `apps/jb-web`**：管理后台外壳 `layout/AdminLayout.tsx`（侧边栏：投标项目 / 企业知识库 / 配置中心 / 用户权限，后两者占位）。知识库页面由 `pages/kb/fields.ts` 的字段规格驱动通用表格+表单（`KbItemsTab`）——后端加字段时在规格里加一行即可出现在页面。
 
 **流水线全景**：`jb_parser`（解析→TRM）→ `jb_agents.qualify`（资格自检）→ `jb_agents.writer`（LLM 起草，带溯源）→ `jb_docgen`（参数自动填 + 商务/技术文件 + 导出加固）→ `jb_rules`（否决规则引擎）→ `jb_agents.scorer`（模拟评分）→ `jb_agents.price`（价格校验/基准价模拟）。`jb_kb` 提供档案与检索，`jb_llm` 是唯一的模型出口，`jb_store` 落盘。`scripts/demo.py` 一键跑全链路。
@@ -60,6 +64,7 @@ TRM Schema 演进规则：**字段只增不改名**（下游 Agent、前端、�
 ## 当前欠债（有意为之，接手时按计划还，勿提前"顺手修"）
 
 - 知识库已拆多表（证照/人员/业绩/财务/产品/检测报告/话术/附件）；总方案 4.2 剩余 4 表（国网档案 sgcc_profile、高质量发展证据 hq_evidence、知识产权 ip_assets、历史标书 bid_history）按需追加。附件仍存本地共享卷，切 MinIO 时只改 `jb_kb.attachments`
-- P2 管理系统按 P0 知识库 → P0 投标项目管理（截止日/状态流/详情）→ P1 配置中心 → P1 用户权限 → P2 仪表盘 推进；侧边栏已留占位
+- P2 管理系统：P0 知识库、P0 投标项目管理已完成；下一步 P1 配置中心（评分模板库/否决规则库/LLM 设置）→ P1 用户权限（事件表的 actor 列等用户表建好后补）→ P2 仪表盘；侧边栏已留占位
+- 后端时间戳是 naive UTC（`datetime.utcnow`），前端统一经 `fmtUtc` 转本地显示；投标截止/开标是墙钟字符串不转换
 - Celery 模式只在 compose（Redis）下生效，本地/测试为进程内 BackgroundTasks；两者共用 `jb_api.tasks.run_parse`，改任务逻辑只改这一处
 - LLM 兜底已接（`jb_llm`，配置在 .env，key 绝不入库）；golden 标注集未建（等业务专家），建成后放 `tests/golden/`

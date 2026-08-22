@@ -30,8 +30,28 @@ class Project(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     trm: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)          # 解析结果（机器）
     trm_confirmed: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # 人工确认版（确认页写入）
+    # ---- 项目管理（P2）----
+    deadline: Mapped[str] = mapped_column(String(16), default="", index=True)   # 投标截止 "YYYY-MM-DD HH:MM"；解析自公告，可人工改
+    open_time: Mapped[str] = mapped_column(String(16), default="")
+    deadline_manual: Mapped[bool] = mapped_column(Boolean, default=False)     # 人工改过后解析不再覆盖
+    stage: Mapped[str] = mapped_column(String(16), default="", index=True)    # 到达的最远阶段，见 jb_store.projects.STAGES
+    outcome: Mapped[str] = mapped_column(String(16), default="")              # "" | submitted | won | lost | abandoned
+    notes: Mapped[str] = mapped_column(Text, default="")
+    results: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)      # 各环节最近结果摘要 {qualify|generate|review|score: {...}}
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ProjectEvent(Base):
+    """项目时间线：解析完成/确认/自检/生成/审查/评分/导出/递交/结果…（谁做的留待用户权限后补 actor 列）。"""
+    __tablename__ = "project_events"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_uid)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    message: Mapped[str] = mapped_column(Text, default="")
+    data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
 class Task(Base):

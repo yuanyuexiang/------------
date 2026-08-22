@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Tag, Typography, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { api, KbKind, ProfileSummary } from '../../api'
+import { api, fmtUtc, KbKind, ProfileSummary } from '../../api'
 import { KIND_TITLES } from './fields'
 
 const COUNT_KINDS: KbKind[] = ['certificates', 'personnel', 'performances', 'financials', 'products', 'test_reports', 'boilerplates']
@@ -39,7 +39,7 @@ export default function KbListPage() {
                 {COUNT_KINDS.map((k) => <Tag key={k} color={c[k] ? 'blue' : 'default'}>{KIND_TITLES[k]} {c[k] ?? 0}</Tag>)}
               </Space>
             ) },
-            { title: '更新', dataIndex: 'updated_at', width: 160, render: (v: string) => v.replace('T', ' ').slice(0, 16) },
+            { title: '更新', dataIndex: 'updated_at', width: 160, render: fmtUtc },
             { title: '操作', width: 160, render: (_, r) => (
               <Space>
                 <Button size="small" type="primary" onClick={() => nav(`/kb/${encodeURIComponent(r.name)}`)}>管理</Button>

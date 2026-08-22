@@ -43,6 +43,9 @@ def test_full_flow(client):
     assert client.put(f"/api/projects/{pid}/trm", json=trm).status_code == 200
     assert client.get(f"/api/projects/{pid}/trm", params={"confirmed": True}).json()["key_terms"]["validity_days"] == 120
     assert client.get(f"/api/projects/{pid}").json()["status"] == "confirmed"
+    # 项目管理：截止时间来自公告、阶段随环节推进、事件时间线
+    pj = client.get(f"/api/projects/{pid}").json()
+    assert pj["deadline"] == "2026-08-07 14:00" and pj["stage"] == "confirmed" and pj["pkg_nos"] == ["包147", "包148"]
     # 档案 upsert + 资格自检（不启用 LLM）
     profile = {"name": "测试企业", "credit_code": "9100X",
                "performances": [{"project": "某信息系统实施", "evidence": ["合同", "发票"]}]}
@@ -64,6 +67,24 @@ def test_full_flow(client):
     assert len(sm["rows"]) >= 30
     sim = client.post("/api/price/simulate", params={"my_price": 100}, json=[95, 98, 102, 105]).status_code
     assert sim in (200, 422)  # 参数形态以 OpenAPI 为准；此处仅验证路由存在
+    # 项目详情：阶段到 reviewed，结果摘要按包分桶，时间线完整
+    d = client.get(f"/api/projects/{pid}/detail").json()
+    assert d["stage"] == "reviewed"
+    assert d["results"]["qualify"]["verdicts"]["包147"] and d["results"]["generate"]["包147"]["export_blocked"] is True
+    assert d["results"]["review"]["包147"]["blocked"] is True
+    assert [e["kind"] for e in d["events"]][::-1] == ["parsed", "confirmed", "qualified", "generated", "reviewed"]
+    assert len(d["files"]) >= 2 and len(d["package_list"]) == 2
+    # 人工改截止时间（之后重新解析不覆盖）、标记结果、列表排序/过滤、删除
+    assert client.patch(f"/api/projects/{pid}", json={"deadline": "bad"}).status_code == 400
+    pj = client.patch(f"/api/projects/{pid}", json={"deadline": "2026-09-01 09:30", "notes": "影子投标"}).json()
+    assert pj["deadline_manual"] and pj["days_left"] is not None
+    pj = client.patch(f"/api/projects/{pid}", json={"outcome": "submitted"}).json()
+    assert pj["stage"] == "submitted" and pj["active"] and pj["outcome_cn"] == "已递交"
+    assert client.patch(f"/api/projects/{pid}", json={"outcome": "won"}).json()["active"] is False
+    assert client.get("/api/projects", params={"active": True}).json() == []
+    assert client.get("/api/projects", params={"active": False}).json()[0]["id"] == pid
+    assert client.delete(f"/api/projects/{pid}").status_code == 200
+    assert client.get(f"/api/projects/{pid}").status_code == 404 and client.get("/api/projects").json() == []
 
 
 def test_reject_non_zip(client):

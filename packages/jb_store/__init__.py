@@ -11,7 +11,7 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import (  # noqa: F401
@@ -26,6 +26,7 @@ from .models import (  # noqa: F401
     KbTestReport,
     Profile,
     Project,
+    ProjectEvent,
     Task,
 )
 
@@ -64,7 +65,13 @@ def reset_engine() -> None:
 
 
 def init_db() -> None:
-    Base.metadata.create_all(get_engine())
+    """开发/测试便利：空库直接按当前模型建表。
+    已由 Alembic 管理的库（存在 alembic_version）不做任何事——否则 create_all 会抢先建出新表、
+    之后 `alembic upgrade` 再建就冲突；表结构演进一律走迁移。"""
+    engine = get_engine()
+    if inspect(engine).has_table("alembic_version"):
+        return
+    Base.metadata.create_all(engine)
 
 
 @contextmanager

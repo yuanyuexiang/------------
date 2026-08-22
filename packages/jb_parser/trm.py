@@ -110,6 +110,10 @@ class KeyTerms(BaseModel):
     paperless: Optional[bool] = None      # 不接收纸质投标文件
     electronic: Optional[bool] = None
     clarify_deadline: Optional[str] = None
+    bid_deadline: Optional[str] = None    # 投标/应答截止时间，归一为 "YYYY-MM-DD HH:MM"（来自招标公告 5.1）
+    bid_deadline_text: str = ""           # 公告原文片段
+    bid_open_time: Optional[str] = None   # 开标时间；国网电子开标多为"同投标截止时间"
+    bid_open_note: str = ""
     max_price_clause: str = ""
     max_price_note: str = ""
     vat_note: str = ""

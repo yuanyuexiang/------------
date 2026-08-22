@@ -44,6 +44,8 @@ def test_shaanxi_package():
     assert trm.key_terms.validity_days == 90
     assert trm.key_terms.deposit_mode == "none"      # 本批次不要求保证金
     assert trm.key_terms.paperless is True           # 不接收纸质投标文件
+    assert trm.key_terms.bid_deadline == "2026-05-25 09:30"   # 招标公告 5.1
+    assert trm.key_terms.bid_open_time == "2026-05-25 09:30" and trm.key_terms.bid_open_note == "同投标截止时间"
 
 
 @pytest.mark.skipif(not os.path.exists(FUJIAN_BATCH), reason="样本缺失")
@@ -60,6 +62,7 @@ def test_fujian_negotiation_batch():
     # 四列前附表变体 + 竞谈保证金模式
     assert trm.key_terms.validity_days == 90
     assert trm.key_terms.deposit_mode == "诚信担保"
+    assert trm.key_terms.bid_deadline == "2026-06-15 08:00"   # "首次应答文件提交的截止时间：…8:00时"
 
 
 JIANGSU_BATCH = os.path.join(WS, "服务/1/国网江苏省电力有限公司2026年服务第四次公开招标采购_招标文件包.zip")
@@ -74,3 +77,5 @@ def test_jiangsu_service_batch():
     channels = {c for it in trm.submission_table for c in it.channels}
     assert any("e采" in c or "ECP" in c for c in channels)
     assert trm.key_terms.paperless is True
+    assert trm.key_terms.bid_deadline == "2026-08-07 14:00"
+    assert trm.key_terms.bid_open_time is None                # 公告未写开标时间，不猜

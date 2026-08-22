@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 import AdminLayout from './layout/AdminLayout'
 import ProjectsPage from './pages/ProjectsPage'
+import ProjectDetailPage from './pages/ProjectDetailPage'
 import TrmConfirmPage from './pages/TrmConfirmPage'
 import QualifyPage from './pages/QualifyPage'
 import WorkbenchPage from './pages/WorkbenchPage'
@@ -18,6 +19,7 @@ export default function App() {
     <AdminLayout>
       <Routes>
         <Route path="/" element={<ProjectsPage />} />
+        <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/projects/:id/trm" element={<TrmConfirmPage />} />
         <Route path="/projects/:id/qualify" element={<QualifyPage />} />
         <Route path="/projects/:id/workbench" element={<WorkbenchPage />} />

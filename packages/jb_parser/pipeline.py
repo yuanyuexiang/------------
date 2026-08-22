@@ -42,14 +42,15 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
     else:
         trm.warnings.append(f"{pkg_no or root}: 未找到六章主文件")
 
-    if not trm.batch_name:
-        ann_rel = manifest.first(classify.ANNOUNCEMENT)
-        if ann_rel:
-            try:
-                ann = docx_utils.load(os.path.join(root, ann_rel))
+    ann_rel = manifest.first(classify.ANNOUNCEMENT)
+    if ann_rel and (not trm.batch_name or trm.key_terms.bid_deadline is None):
+        try:
+            ann = docx_utils.load(os.path.join(root, ann_rel))
+            if not trm.batch_name:
                 trm.batch_name = extract.batch_name_from_doc(ann, limit=120)
-            except Exception:
-                pass
+            normalize.extract_announcement_terms(docx_utils.full_text(ann), trm.key_terms)
+        except Exception as exc:
+            trm.warnings.append(f"{pkg_no or root}: 招标公告解析失败 {exc}")
 
     goods_rel = manifest.first(classify.GOODS_LIST_XLSX)
     if goods_rel:

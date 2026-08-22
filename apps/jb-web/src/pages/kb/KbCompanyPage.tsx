@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Badge, Breadcrumb, Button, Card, Form, Input, InputNumber, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Typography, Upload, message } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
-import { api, Attachment, CompanyProfile, ExpiryItem } from '../../api'
+import { api, fmtUtc, Attachment, CompanyProfile, ExpiryItem } from '../../api'
 import { KIND_SPECS } from './fields'
 import KbItemsTab from './KbItemsTab'
 
@@ -117,7 +117,7 @@ function AttachmentsTab({ company }: { company: string }) {
           { title: '文件', dataIndex: 'filename', render: (v: string, r) => <a href={api.attachmentUrl(r.id)} target="_blank" rel="noreferrer">{v}</a> },
           { title: '归类', dataIndex: 'kind', width: 110, render: (k: string) => kinds.find(([v]) => v === k)?.[1] ?? k },
           { title: '大小', dataIndex: 'size', width: 100, render: (n: number) => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB` },
-          { title: '上传时间', dataIndex: 'uploaded_at', width: 170, render: (v: string) => v.replace('T', ' ').slice(0, 16) },
+          { title: '上传时间', dataIndex: 'uploaded_at', width: 170, render: fmtUtc },
           { title: '操作', width: 80, render: (_, r) => (
             <Popconfirm title="删除附件？已挂接的条目会失去该文件" onConfirm={async () => { await api.deleteAttachment(company, r.id); refresh() }}>
               <Button size="small" type="link" danger>删除</Button>

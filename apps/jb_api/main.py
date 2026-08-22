@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import datetime as dt
 import os
 import shutil
 from contextlib import asynccontextmanager
@@ -18,7 +19,8 @@ from fastapi.responses import FileResponse
 from jb_agents import qualify
 from jb_kb import repo as kb_repo
 from jb_parser.trm import TRM
-from jb_store import Project, Task, init_db, session
+from jb_store import Project, ProjectEvent, Task, init_db, session
+from jb_store import projects as pm
 from sqlalchemy import select
 
 from . import kb, tasks
@@ -44,9 +46,23 @@ app.include_router(kb.router)   # 企业知识库：/api/profiles/*、/api/attac
 
 
 def _project_out(p: Project) -> dict:
+    trm = p.trm_confirmed or p.trm or {}
+    pkgs = trm.get("packages") or []
     return {"id": p.id, "filename": p.filename, "status": p.status, "batch_name": p.batch_name,
             "batch_no": p.batch_no, "error": p.error, "created_at": p.created_at.isoformat(),
-            "confirmed": p.trm_confirmed is not None}
+            "updated_at": p.updated_at.isoformat(), "confirmed": p.trm_confirmed is not None,
+            "deadline": p.deadline, "open_time": p.open_time, "deadline_manual": p.deadline_manual,
+            "days_left": pm.days_left(p.deadline), "stage": p.stage, "stage_cn": pm.STAGE_CN.get(p.stage, p.stage),
+            "outcome": p.outcome, "outcome_cn": pm.OUTCOME_CN.get(p.outcome, p.outcome), "active": pm.is_active(p),
+            "notes": p.notes, "pkg_nos": [k.get("pkg_no", "") for k in pkgs], "packages": len(pkgs),
+            "results": p.results or {}}
+
+
+def _get_project(s, project_id: str) -> Project:
+    p = s.get(Project, project_id)
+    if not p:
+        raise HTTPException(404, "项目不存在")
+    return p
 
 
 @app.get("/api/health")
@@ -79,10 +95,82 @@ async def create_project(file: UploadFile, background: BackgroundTasks):
 
 
 @app.get("/api/projects")
-def list_projects():
+def list_projects(active: Optional[bool] = None):
+    """项目列表：在投按截止日升序在前，已结束在后；active 过滤在投/已结束。"""
     with session() as s:
-        rows = s.execute(select(Project).order_by(Project.created_at.desc())).scalars().all()
-        return [_project_out(p) for p in rows]
+        rows = s.execute(select(Project)).scalars().all()
+        if active is not None:
+            rows = [p for p in rows if pm.is_active(p) == active]
+        return [_project_out(p) for p in sorted(rows, key=pm.sort_key)]
+
+
+@app.patch("/api/projects/{project_id}")
+def patch_project(project_id: str, fields: dict):
+    """项目管理字段：deadline / open_time（"YYYY-MM-DD HH:MM"）、outcome、notes。"""
+    with session() as s:
+        p = _get_project(s, project_id)
+        for key in ("deadline", "open_time"):
+            if key in fields:
+                val = (fields[key] or "").strip()
+                if val and pm.parse_deadline(val) is None:
+                    raise HTTPException(400, f"{key} 须为 YYYY-MM-DD HH:MM")
+                if getattr(p, key) != val:
+                    pm.log_event(s, project_id, "deadline", f"{'截止' if key == 'deadline' else '开标'}时间改为 {val or '（清空）'}")
+                setattr(p, key, val)
+                p.deadline_manual = True
+        if "outcome" in fields:
+            val = fields["outcome"] or ""
+            if val not in pm.OUTCOMES:
+                raise HTTPException(400, "outcome 取值：submitted/won/lost/abandoned 或空")
+            if val != p.outcome:
+                p.outcome = val
+                if val == "submitted":
+                    pm.advance(p, "submitted")
+                pm.log_event(s, project_id, "outcome", f"结果标记为「{pm.OUTCOME_CN[val]}」")
+        if "notes" in fields:
+            p.notes = fields["notes"] or ""
+        return _project_out(p)
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: str):
+    """删除项目及其任务、事件、上传/产出文件。"""
+    with session() as s:
+        p = _get_project(s, project_id)
+        for t in s.execute(select(Task).where(Task.project_id == project_id)).scalars():
+            s.delete(t)
+        for e in s.execute(select(ProjectEvent).where(ProjectEvent.project_id == project_id)).scalars():
+            s.delete(e)
+        s.delete(p)
+    shutil.rmtree(os.path.join(UPLOAD_DIR, project_id), ignore_errors=True)
+    return {"ok": True}
+
+
+@app.get("/api/projects/{project_id}/detail")
+def project_detail(project_id: str):
+    """项目详情：概览 + 各包摘要 + 各环节结果 + 时间线 + 任务 + 产出文件。"""
+    with session() as s:
+        p = _get_project(s, project_id)
+        out = _project_out(p)
+        trm = p.trm_confirmed or p.trm or {}
+        out["key_terms"] = trm.get("key_terms") or {}
+        out["package_list"] = [{"pkg_no": k.get("pkg_no"), "sub_no": k.get("sub_no"), "sub_name": k.get("sub_name"),
+                                "project_name": k.get("project_name"), "budget_yuan": k.get("budget_yuan"),
+                                "max_price": k.get("max_price"), "materials": len(k.get("materials") or []),
+                                "spec_docs": len(k.get("spec_docs") or [])} for k in trm.get("packages") or []]
+        out["events"] = [{"id": e.id, "kind": e.kind, "message": e.message, "data": e.data,
+                          "created_at": e.created_at.isoformat()} for e in pm.events(s, project_id)]
+        tasks_rows = s.execute(select(Task).where(Task.project_id == project_id).order_by(Task.created_at.desc())).scalars()
+        out["tasks"] = [{"id": t.id, "kind": t.kind, "status": t.status, "progress": t.progress,
+                         "message": t.message[:200], "created_at": t.created_at.isoformat()} for t in tasks_rows]
+    out_dir = os.path.join(UPLOAD_DIR, project_id, "out")
+    files = []
+    if os.path.isdir(out_dir):
+        for fn in sorted(os.listdir(out_dir)):
+            st = os.stat(os.path.join(out_dir, fn))
+            files.append({"name": fn, "size": st.st_size, "modified": dt.datetime.utcfromtimestamp(st.st_mtime).isoformat()})
+    out["files"] = files
+    return out
 
 
 @app.get("/api/projects/{project_id}")
@@ -116,6 +204,8 @@ def confirm_trm(project_id: str, trm: dict):
             raise HTTPException(404, "项目不存在")
         p.trm_confirmed = validated.model_dump()
         p.status = "confirmed"
+        pm.advance(p, "confirmed")
+        pm.log_event(s, project_id, "confirmed", "TRM 人工确认")
     return {"ok": True}
 
 
@@ -139,6 +229,13 @@ def qualify_project(project_id: str, profile: str, llm: bool = False):
         from jb_parser.llm_fallback import enrich
         enrich(trm)
     rep = qualify(trm, cp, use_llm=llm)
+    with session() as s:
+        p = _get_project(s, project_id)
+        verdicts = {pk.pkg_no: pk.verdict for pk in rep.packages}
+        pm.set_result(p, "qualify", {"profile": profile, "verdicts": verdicts, "llm": llm})
+        pm.advance(p, "qualified")
+        pm.log_event(s, project_id, "qualified", "资格自检：" + "，".join(f"{k} {v}" for k, v in verdicts.items()),
+                     {"profile": profile, "verdicts": verdicts})
     return {"report": rep.model_dump(), "markdown": rep.markdown()}
 
 
@@ -195,6 +292,13 @@ def review_docs(project_id: str, profile: str, pkg_index: int = 0):
     tech_params = [fill_spec(sd, product) for sd in pkg.spec_docs]
     ctx = Context(trm=trm, pkg=pkg, profile=cp, tech_params=tech_params, docx_todos=docx_todos, doc_texts=doc_texts)
     rep = review(ctx)
+    with session() as s:
+        p = _get_project(s, project_id)
+        pm.set_result(p, "review", {"blocked": rep.blocked, "counts": rep.counts(), "profile": profile}, pkg.pkg_no)
+        pm.advance(p, "reviewed")
+        pm.log_event(s, project_id, "reviewed",
+                     f"{pkg.pkg_no} 合规审查：{'存在否决项' if rep.blocked else '无否决项'}，" + "，".join(f"{k} {v}" for k, v in rep.counts().items()),
+                     {"pkg_no": pkg.pkg_no, "blocked": rep.blocked, "counts": rep.counts()})
     return {"blocked": rep.blocked, "counts": rep.counts(), "findings": [f.model_dump() for f in rep.findings],
             "markdown": rep.markdown()}
 
@@ -267,6 +371,13 @@ def score_project(project_id: str, profile: str, pkg_index: int = 0, llm: bool =
             drafts = [DraftSection(title=m.group(1).strip(), text=m.group(2))
                       for m in _re.finditer(r"## (.+?)\n(.*?)(?=\n## |\Z)", md, _re.S)]
     rep = score_package(trm, pkg, cp, draft_sections=drafts, use_llm=llm)
+    with session() as s:
+        p = _get_project(s, project_id)
+        summary = {"weighted": rep.weighted, "tech_total": rep.tech_total, "tech_max": rep.tech_max,
+                   "biz_total": rep.biz_total, "biz_max": rep.biz_max, "llm": llm}
+        pm.set_result(p, "score", summary, pkg.pkg_no)
+        pm.log_event(s, project_id, "scored", f"{pkg.pkg_no} 模拟评分：技术 {rep.tech_total}/{rep.tech_max}，商务 {rep.biz_total}/{rep.biz_max}"
+                     + (f"，加权 {rep.weighted}" if rep.weighted is not None else ""), {"pkg_no": pkg.pkg_no, **summary})
     return {"report": rep.model_dump(), "heatmap": rep.heatmap(), "markdown": rep.markdown()}
 
 
@@ -278,5 +389,8 @@ def export_project(project_id: str, filename: str, pdf: bool = True, force: bool
     if not os.path.exists(path):
         raise HTTPException(404, "文件不存在")
     res = export(path, want_pdf=pdf, force=force)
+    with session() as s:
+        pm.log_event(s, project_id, "exported", f"导出 {os.path.basename(filename)}：{'成功' if res.ok else f'被阻断（待补充 {len(res.blocked_by)} 处）'}",
+                     {"filename": os.path.basename(filename), "ok": res.ok, "blocked_count": len(res.blocked_by), "force": force})
     return {"ok": res.ok, "blocked_by": res.blocked_by[:20], "blocked_count": len(res.blocked_by),
             "pdf": os.path.basename(res.pdf_path) if res.pdf_path else None, "notes": res.notes}

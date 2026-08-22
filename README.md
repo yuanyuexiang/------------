@@ -16,7 +16,7 @@ packages/jb_parser/   S1 解析器：ECP 招标文件包 → TRM（招标要求�
 packages/jb_llm/      LLM 客户端（OpenAI 兼容；配置走 .env：LLM_BASE_URL/LLM_API_KEY/LLM_MODEL）
 packages/jb_kb/       企业知识库：档案模型、多表仓储（repo）、有效期预警（expiry）、附件（attachments）、从历史投标文件建档
 packages/jb_agents/   业务 Agent：资格自检（jb-qualify）→ 可投性矩阵
-packages/jb_store/    持久层：SQLAlchemy（本地 SQLite jinbang.db / compose PostgreSQL），Alembic 迁移在 deploy/alembic
+packages/jb_store/    持久层：SQLAlchemy（本地 SQLite jinbang.db / compose PostgreSQL），Alembic 迁移在 deploy/alembic；projects.py 投标项目阶段/事件/截止日
 packages/jb_docgen/   文档引擎：数值比较、技术参数自动填写、商务/技术文件生成、【待补充】阻断、导出加固
 packages/jb_rules/    否决规则引擎（否决情形表 + 典型案例库 SG 规则）
 packages/jb_agents/   资格自检 / 起草 writer / 价格 price / 评分 scorer
