@@ -64,14 +64,32 @@ export interface FeasibilityReport {
   packages: { sub_no: string; sub_name: string; pkg_no: string; project_name: string; verdict: string; checks: Check[] }[]
 }
 
-export interface Performance { project: string; buyer: string; buyer_is_end_user: boolean | null; amount_wan: number | null; signed_date: string; evidence: string[]; source: string }
+// ---- 企业知识库（与 jb_kb.models 对齐；条目通用字段 id/status/attachments/source） ----
+export interface KbItem { id: string; status?: string; attachments?: string[]; source?: string; [k: string]: unknown }
+export interface Certificate extends KbItem { name: string; cert_type: string; number: string; issuer: string; level: string; valid_from: string; valid_until: string }
+export interface Person extends KbItem { name: string; title: string; major: string; education: string; social_insurance_unit: string; available: boolean | null; credentials: string[] }
+export interface Performance extends KbItem {
+  project: string; buyer: string; buyer_type: string; buyer_is_end_user: boolean | null; in_sgcc: boolean | null
+  amount_wan: number | null; signed_date: string; commissioned_date: string; material_category: string; voltage_level: string; evidence: string[]
+}
+export interface FinancialYear extends KbItem { year: string; revenue_wan: number | null; net_profit_wan: number | null; asset_wan: number | null; liability_ratio: string }
+export interface Product extends KbItem { model: string; name: string; category: string; params: Record<string, string>; features: string[]; test_reports: string[]; spec_ids: string[] }
+export interface TestReport extends KbItem { name: string; report_type: string; agency: string; number: string; issued_date: string; valid_until: string; covered_models: string[] }
+export interface Boilerplate extends KbItem { topic: string; title: string; text: string; applicable_types: string[]; approved: boolean }
+export interface Attachment { id: string; kind: string; filename: string; content_type: string; size: number; sha256: string; storage_path: string; uploaded_at: string }
+export type KbKind = 'certificates' | 'personnel' | 'performances' | 'financials' | 'products' | 'test_reports' | 'boilerplates'
 export interface CompanyProfile {
-  name: string; credit_code: string; registered_capital_wan: number | null; staff_total: number | null
-  certificates: { name: string; cert_type: string; valid_until: string }[]
-  personnel: { name: string; title: string; credentials: string[] }[]
-  performances: Performance[]
+  name: string; credit_code: string; legal_person: string; legal_or_admin: string; authorized_rep: string; authorized_rep_title: string
+  founded: string; registered_capital_wan: number | null; company_type: string; address: string; bank: string
+  contact: string; phone: string; email: string; website: string; business_scope: string
+  staff_total: number | null; staff_technical: number | null; senior_engineers: number | null; engineers: number | null
+  certificates: Certificate[]; personnel: Person[]; performances: Performance[]; financials: FinancialYear[]
+  products: Product[]; test_reports: TestReport[]; boilerplates: Boilerplate[]; sources: string[]
   [k: string]: unknown
 }
+export interface ProfileSummary { name: string; credit_code: string; updated_at: string; counts: Record<KbKind, number> }
+export interface ExpiryItem { kind: string; id: string; name: string; number: string; valid_until: string; days_left: number | null; level: 'expired' | 'd30' | 'd60' | 'd90' | 'ok' | 'unknown' }
+export interface ExpiryReport { items: ExpiryItem[]; summary: Record<string, number> }
 
 export interface Finding { rule_id: string; level: string; title: string; message: string; location: string; source: string }
 export interface ItemScore { element: string; kind: string; score_min: number; score_max: number; predicted: number | null; method: string; basis: string; missing: string[] }
@@ -107,7 +125,25 @@ export const api = {
   task: (id: string) => req<Task>(`/api/tasks/${id}`),
   trm: (id: string, confirmed = false) => req<TRM>(`/api/projects/${id}/trm?confirmed=${confirmed}`),
   confirmTrm: (id: string, trm: TRM) => req<{ ok: boolean }>(`/api/projects/${id}/trm`, json(trm)),
-  profiles: () => req<{ name: string; credit_code: string }[]>('/api/profiles'),
+  profiles: () => req<ProfileSummary[]>('/api/profiles'),
+  saveMain: (name: string, fields: Partial<CompanyProfile>) => req<CompanyProfile>(`/api/profiles/${encodeURIComponent(name)}/main`, json(fields)),
+  deleteProfile: (name: string) => req<{ ok: boolean }>(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  expiry: (name: string, days = 90, on?: string) =>
+    req<ExpiryReport>(`/api/profiles/${encodeURIComponent(name)}/expiry?days=${days}${on ? `&on=${on}` : ''}`),
+  kbList: <T extends KbItem>(name: string, kind: KbKind) => req<T[]>(`/api/profiles/${encodeURIComponent(name)}/${kind}`),
+  kbCreate: <T extends KbItem>(name: string, kind: KbKind, item: Partial<T>) =>
+    req<T>(`/api/profiles/${encodeURIComponent(name)}/${kind}`, json(item, 'POST')),
+  kbUpdate: <T extends KbItem>(name: string, kind: KbKind, id: string, item: Partial<T>) =>
+    req<T>(`/api/profiles/${encodeURIComponent(name)}/${kind}/${id}`, json(item)),
+  kbDelete: (name: string, kind: KbKind, id: string) =>
+    req<{ ok: boolean }>(`/api/profiles/${encodeURIComponent(name)}/${kind}/${id}`, { method: 'DELETE' }),
+  attachments: (name: string, kind = '') => req<Attachment[]>(`/api/profiles/${encodeURIComponent(name)}/attachments${kind ? `?kind=${kind}` : ''}`),
+  uploadAttachment: (name: string, kind: string, file: File) => {
+    const form = new FormData(); form.append('file', file)
+    return req<Attachment>(`/api/profiles/${encodeURIComponent(name)}/attachments?kind=${kind}`, { method: 'POST', body: form })
+  },
+  deleteAttachment: (name: string, id: string) => req<{ ok: boolean }>(`/api/profiles/${encodeURIComponent(name)}/attachments/${id}`, { method: 'DELETE' }),
+  attachmentUrl: (id: string) => `/api/attachments/${id}`,
   qualify: (id: string, profile: string, llm: boolean) =>
     req<{ report: FeasibilityReport; markdown: string }>(
       `/api/projects/${id}/qualify?profile=${encodeURIComponent(profile)}&llm=${llm}`, { method: 'POST' }),

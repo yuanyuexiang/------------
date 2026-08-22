@@ -14,7 +14,7 @@ apps/jb-web/          前端 React SPA（Vite + AntD + TanStack Query），dev �
 apps/jb_api/          后端 FastAPI（只做路由/校验/调度，不写业务逻辑），端口 8000，导入名 jb_api
 packages/jb_parser/   S1 解析器：ECP 招标文件包 → TRM（招标要求模型）；--llm 启用 LLM 兜底
 packages/jb_llm/      LLM 客户端（OpenAI 兼容；配置走 .env：LLM_BASE_URL/LLM_API_KEY/LLM_MODEL）
-packages/jb_kb/       企业知识库：档案模型 + 从历史投标文件建档（scripts/build_profile_baiente.py）
+packages/jb_kb/       企业知识库：档案模型、多表仓储（repo）、有效期预警（expiry）、附件（attachments）、从历史投标文件建档
 packages/jb_agents/   业务 Agent：资格自检（jb-qualify）→ 可投性矩阵
 packages/jb_store/    持久层：SQLAlchemy（本地 SQLite jinbang.db / compose PostgreSQL），Alembic 迁移在 deploy/alembic
 packages/jb_docgen/   文档引擎：数值比较、技术参数自动填写、商务/技术文件生成、【待补充】阻断、导出加固
@@ -40,7 +40,7 @@ jb-qualify <包.zip> --profile data/company_profiles/xxx.json --llm   # 资格�
 pytest -q                                     # 回归测试
 
 alembic -c deploy/alembic.ini upgrade head     # 建表/迁移（本地 SQLite；compose 启动时自动执行）
-python scripts/import_profiles.py             # 把 data/company_profiles/*.json 导入 profiles 表
+python scripts/import_profiles.py             # 把 data/company_profiles/*.json 导入知识库（主档 + 子表）
 uvicorn jb_api.main:app --reload --port 8000  # 后端（无 CELERY_BROKER_URL 时任务进程内执行）
 cd apps/jb-web && npm install && npm run dev  # 前端（localhost:5173）
 ```

@@ -27,7 +27,11 @@ docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；-
 
 **薄 API + 厚领域包**（六边形架构）：`apps/jb_api` 只做路由/校验/调度，业务逻辑全部在 `packages/`。铁律：`packages/` 不得 import `apps/` 或任何 Web 框架；删掉 `apps/` 后 `pytest` 必须照样全绿。前后端分离是另一维度：`apps/jb-web`（React/Vite/AntD，kebab-case 是 npm 惯例）独立于 `apps/jb_api`（snake_case 是 Python 惯例），REST 通信。
 
-**持久层 `jb_store`**：Pydantic 对象是真源，数据库只做落盘（TRM/档案以 JSON 列整体存取，需检索的列单独冗余）。表结构改动必须走 Alembic（`alembic -c deploy/alembic.ini revision --autogenerate`），字段只增不删。`Project.trm` 是机器解析版，`trm_confirmed` 是确认页人工版，下游一律优先用后者。
+**持久层 `jb_store`**：Pydantic 对象是真源，数据库只做落盘（TRM 以 JSON 列整体存取；知识库每类条目一张 `kb_*` 表，每行 `data` 存条目完整 JSON + 需检索的列冗余）。表结构改动必须走 Alembic（`alembic -c deploy/alembic.ini revision --autogenerate`），字段只增不删。`Project.trm` 是机器解析版，`trm_confirmed` 是确认页人工版，下游一律优先用后者。
+
+**知识库 `jb_kb`**：`CompanyProfile` 仍是下游 Agent 的唯一接口（聚合），`repo.load_profile/save_profile` 负责与多表互转，`repo.upsert_item/delete_item` 供管理页单条维护；新增 Pydantic 字段不需要迁移，只有新增"需检索"的列才加。旧格式整体 JSON 行首次读取时自动迁入子表（`_ensure_split`）。有效期预警在 `expiry.py`，扫描件在 `attachments.py`（本地共享卷，接口留给 MinIO）。
+
+**前端 `apps/jb-web`**：管理后台外壳 `layout/AdminLayout.tsx`（侧边栏：投标项目 / 企业知识库 / 配置中心 / 用户权限，后两者占位）。知识库页面由 `pages/kb/fields.ts` 的字段规格驱动通用表格+表单（`KbItemsTab`）——后端加字段时在规格里加一行即可出现在页面。
 
 **流水线全景**：`jb_parser`（解析→TRM）→ `jb_agents.qualify`（资格自检）→ `jb_agents.writer`（LLM 起草，带溯源）→ `jb_docgen`（参数自动填 + 商务/技术文件 + 导出加固）→ `jb_rules`（否决规则引擎）→ `jb_agents.scorer`（模拟评分）→ `jb_agents.price`（价格校验/基准价模拟）。`jb_kb` 提供档案与检索，`jb_llm` 是唯一的模型出口，`jb_store` 落盘。`scripts/demo.py` 一键跑全链路。
 
@@ -55,6 +59,7 @@ TRM Schema 演进规则：**字段只增不改名**（下游 Agent、前端、�
 
 ## 当前欠债（有意为之，接手时按计划还，勿提前"顺手修"）
 
-- 知识库目前以 CompanyProfile 整体 JSON 存 `profiles` 表，S2 后半拆为多表（证照/人员/业绩）后才能做字段级检索与有效期预警
+- 知识库已拆多表（证照/人员/业绩/财务/产品/检测报告/话术/附件）；总方案 4.2 剩余 4 表（国网档案 sgcc_profile、高质量发展证据 hq_evidence、知识产权 ip_assets、历史标书 bid_history）按需追加。附件仍存本地共享卷，切 MinIO 时只改 `jb_kb.attachments`
+- P2 管理系统按 P0 知识库 → P0 投标项目管理（截止日/状态流/详情）→ P1 配置中心 → P1 用户权限 → P2 仪表盘 推进；侧边栏已留占位
 - Celery 模式只在 compose（Redis）下生效，本地/测试为进程内 BackgroundTasks；两者共用 `jb_api.tasks.run_parse`，改任务逻辑只改这一处
 - LLM 兜底已接（`jb_llm`，配置在 .env，key 绝不入库）；golden 标注集未建（等业务专家），建成后放 `tests/golden/`

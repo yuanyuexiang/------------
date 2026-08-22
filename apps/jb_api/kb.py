@@ -57,6 +57,13 @@ def upsert_profile(name: str, profile: dict):
     return {"ok": True}
 
 
+@router.put("/profiles/{name}/main")
+def update_main(name: str, fields: dict):
+    """只更新主档标量字段（名称/法人/注册资本/联系方式…），子表不受影响；主档不存在则新建。"""
+    with session() as s:
+        return repo.save_main(s, name, fields).model_dump()
+
+
 @router.delete("/profiles/{name}")
 def delete_profile(name: str):
     with session() as s:

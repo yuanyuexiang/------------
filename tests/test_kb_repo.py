@@ -64,18 +64,21 @@ def test_resave_keeps_ids_and_removes_dropped(db):
         assert [c.id for c in cp.certificates] == [keep_id] and cp.certificates[0].valid_until == "2028-01-01"
 
 
-def test_legacy_json_profile_is_readable_then_split(db):
-    """拆表前整体 JSON 行：读取回退到 JSON 列表；整体保存后迁入子表。"""
+def test_legacy_json_profile_is_split_on_first_read(db):
+    """拆表前整体 JSON 行：首次读取就地迁入子表（幂等），之后聚合/单条/计数口径一致。"""
     legacy = _profile().model_dump()
+    for x in legacy["certificates"]:
+        x.pop("id")                                   # 旧数据没有 id
     with session() as s:
         s.add(Profile(name="旧企业", credit_code="x", data=legacy))
     with session() as s:
-        cp = repo.load_profile(s, "旧企业")
-        assert len(cp.certificates) == 2 and repo.counts(s, "旧企业")["certificates"] == 0
-        repo.save_profile(s, "旧企业", cp)
-    with session() as s:
-        assert repo.counts(s, "旧企业")["certificates"] == 2
+        items = repo.list_items(s, "旧企业", "certificates")
+        assert len(items) == 2 and all(i.id for i in items)
         assert "certificates" not in s.get(Profile, "旧企业").data
+        assert repo.counts(s, "旧企业")["certificates"] == 2
+        assert len(repo.load_profile(s, "旧企业").boilerplates) == 2
+    with session() as s:                              # 再读不重复迁入
+        assert repo.counts(s, "旧企业")["certificates"] == 2
 
 
 def test_item_crud(db):

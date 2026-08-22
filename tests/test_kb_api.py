@@ -23,6 +23,10 @@ def test_kb_flow(client):
     assert r.status_code == 200
     lst = client.get("/api/profiles").json()
     assert lst[0]["name"] == name and lst[0]["counts"]["certificates"] == 1
+    # 主档标量单独更新，不影响子表；传入列表字段被忽略
+    r = client.put(f"/api/profiles/{name}/main", json={"legal_person": "张三", "registered_capital_wan": 3000, "certificates": []})
+    assert r.json()["legal_person"] == "张三" and len(r.json()["certificates"]) == 1
+    assert client.put("/api/profiles/新企业/main", json={"credit_code": "NEW"}).json()["credit_code"] == "NEW"
 
     # 条目 CRUD
     r = client.post(f"/api/profiles/{name}/certificates", json={"name": "高新技术企业证书", "valid_until": "2026-08-30"})

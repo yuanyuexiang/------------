@@ -31,10 +31,10 @@ export default function QualifyPage() {
             options={profiles.map((p) => ({ value: p.name, label: `${p.name}（${p.credit_code || '无信用代码'}）` }))} />
           <span>LLM 业绩语义匹配 <Switch checked={llm} onChange={setLlm} /></span>
           <Button type="primary" loading={running} onClick={run}>运行资格自检</Button>
-          {profile && <Button onClick={() => nav(`/profiles/${encodeURIComponent(profile)}`)}>编辑档案</Button>}
+          {profile && <Button onClick={() => nav(`/kb/${encodeURIComponent(profile)}?tab=performances`)}>补全档案</Button>}
           <Button onClick={() => nav('/')}>返回</Button>
         </Space>
-        {profiles.length === 0 && <Alert style={{ marginTop: 8 }} type="info" message="暂无企业档案：运行 scripts/import_profiles.py 导入，或通过 PUT /api/profiles/{name} 建档" />}
+        {profiles.length === 0 && <Alert style={{ marginTop: 8 }} type="info" message="暂无企业档案：到左侧「企业知识库」新建，或运行 scripts/import_profiles.py 从历史投标文件导入" />}
       </Card>
       {report && report.packages.map((p) => (
         <Card key={p.pkg_no + p.sub_no} size="small"
