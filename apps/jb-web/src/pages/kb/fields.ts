@@ -119,7 +119,7 @@ export const KIND_SPECS: KindSpec[] = [
     fields: [
       { key: 'topic', label: '主题', type: 'select', options: ['售后服务', '质量保证', '培训', '保密', '应急', '实施方案', '其他'], required: true, width: 110 },
       { key: 'title', label: '标题', required: true, width: 200 },
-      { key: 'text', label: '正文', type: 'textarea', width: 380 },
+      { key: 'text', label: '正文', type: 'textarea', width: 330 },
       { key: 'applicable_types', label: '适用类型', type: 'tags', options: ['物资', '服务'], width: 120 },
       { key: 'approved', label: '已审核', type: 'bool3', width: 90 },
       SOURCE,
