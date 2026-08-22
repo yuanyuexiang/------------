@@ -46,7 +46,7 @@ TRM Schema 演进规则：**字段只增不改名**（下游 Agent、前端、�
 ## 工程约定与已知坑
 
 - **Python 3.9 兼容**：Pydantic 在运行时求值注解，PEP 604 的 `X | None` 会崩——用 `Optional[X]`；ruff 已禁 UP007/UP045（pyproject 有注明），不要"顺手现代化"。
-- **Docker 构建路径不能含中文**：仓库目录名是中文，BuildKit 会报 sharedkey 非 ASCII 错误；用 `~/jinbang` 符号链接作为 compose 工作目录（README 有说明）。
+- **Docker 构建路径不能含中文**：仓库目录已改名 `jinbang`（ASCII）；不要再把仓库放回中文路径，BuildKit 会报 sharedkey 非 ASCII 错误。
 - **ECP zip 文件名是 GBK**：必须走 `unpack.fix_zip_name()`（cp437→gbk），直接 `unzip` 会乱码。
 - **ECP 生成的 xlsx 缺 dimension 元数据**：openpyxl read_only 模式只读出 1 行，必须 `ws.reset_dimensions()`（见 `extract._load_ws`）。
 - 附件类 xlsx 表头通常在第 3 行，货物清单在第 1 行——用 `_detect_header` 探测，不要写死行号。
