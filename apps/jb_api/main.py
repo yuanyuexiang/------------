@@ -16,12 +16,12 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from jb_agents import qualify
-from jb_kb.models import CompanyProfile
+from jb_kb import repo as kb_repo
 from jb_parser.trm import TRM
-from jb_store import Profile, Project, Task, init_db, session
+from jb_store import Project, Task, init_db, session
 from sqlalchemy import select
 
-from . import tasks
+from . import kb, tasks
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.getcwd(), "uploads"))
 
@@ -40,6 +40,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(kb.router)   # 企业知识库：/api/profiles/*、/api/attachments/*
 
 
 def _project_out(p: Project) -> dict:
@@ -128,52 +129,12 @@ def get_task(task_id: str):
                 "progress": t.progress, "message": t.message, "result": t.result}
 
 
-# ---------- 企业档案 / 资格自检 ----------
-
-@app.get("/api/profiles")
-def list_profiles():
-    with session() as s:
-        rows = s.execute(select(Profile).order_by(Profile.name)).scalars().all()
-        return [{"name": r.name, "credit_code": r.credit_code, "updated_at": r.updated_at.isoformat()}
-                for r in rows]
-
-
-@app.get("/api/profiles/{name}")
-def get_profile(name: str):
-    with session() as s:
-        row = s.get(Profile, name)
-        if row is None:
-            raise HTTPException(404, "企业档案不存在")
-        return row.data
-
-
-@app.put("/api/profiles/{name}")
-def upsert_profile(name: str, profile: dict):
-    cp = CompanyProfile.model_validate(profile)
-    with session() as s:
-        row = s.get(Profile, name)
-        if row is None:
-            s.add(Profile(name=name, credit_code=cp.credit_code, data=cp.model_dump()))
-        else:
-            row.credit_code, row.data = cp.credit_code, cp.model_dump()
-    return {"ok": True}
-
+# ---------- 资格自检（企业档案路由见 kb.py） ----------
 
 @app.post("/api/projects/{project_id}/qualify")
 def qualify_project(project_id: str, profile: str, llm: bool = False):
     """资格自检：优先用人工确认版 TRM。"""
-    with session() as s:
-        p = s.get(Project, project_id)
-        if not p:
-            raise HTTPException(404, "项目不存在")
-        data = p.trm_confirmed or p.trm
-        if data is None:
-            raise HTTPException(409, "TRM 尚未就绪")
-        prow = s.get(Profile, profile)
-        if prow is None:
-            raise HTTPException(404, "企业档案不存在")
-        trm = TRM.model_validate(data)
-        cp = CompanyProfile.model_validate(prow.data)
+    trm, cp = _load_trm_profile(project_id, profile)
     if llm:
         from jb_parser.llm_fallback import enrich
         enrich(trm)
@@ -191,10 +152,10 @@ def _load_trm_profile(project_id: str, profile: str):
         data = p.trm_confirmed or p.trm
         if data is None:
             raise HTTPException(409, "TRM 尚未就绪")
-        prow = s.get(Profile, profile)
-        if prow is None:
+        cp = kb_repo.load_profile(s, profile)
+        if cp is None:
             raise HTTPException(404, "企业档案不存在")
-        return TRM.model_validate(data), CompanyProfile.model_validate(prow.data)
+        return TRM.model_validate(data), cp
 
 
 @app.post("/api/projects/{project_id}/generate", status_code=202)

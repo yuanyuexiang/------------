@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import os
 
-from jb_kb.models import CompanyProfile
+from jb_kb import repo as kb_repo
 from jb_parser import parse
 from jb_parser.trm import TRM
-from jb_store import Profile, Project, Task, session
+from jb_store import Project, Task, session
 
 BROKER = os.environ.get("CELERY_BROKER_URL", "")
 
@@ -59,12 +59,11 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
     _update(task_id, status="running", progress=0.05, message="加载 TRM 与档案")
     with session() as s:
         p = s.get(Project, project_id)
-        prow = s.get(Profile, profile_name)
-        if not p or not prow or not (p.trm_confirmed or p.trm):
+        cp = kb_repo.load_profile(s, profile_name)
+        if not p or cp is None or not (p.trm_confirmed or p.trm):
             _update(task_id, status="failed", message="项目/档案/TRM 不存在")
             return
         trm = TRM.model_validate(p.trm_confirmed or p.trm)
-        cp = CompanyProfile.model_validate(prow.data)
         zip_dir = os.path.dirname(p.zip_path)
     if not (0 <= pkg_index < len(trm.packages)):
         _update(task_id, status="failed", message="pkg_index 越界")

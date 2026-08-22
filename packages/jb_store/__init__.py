@@ -14,7 +14,20 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, Profile, Project, Task  # noqa: F401
+from .models import (  # noqa: F401
+    Base,
+    KbAttachment,
+    KbBoilerplate,
+    KbCertificate,
+    KbFinancial,
+    KbPerformance,
+    KbPerson,
+    KbProduct,
+    KbTestReport,
+    Profile,
+    Project,
+    Task,
+)
 
 DEFAULT_SQLITE = "sqlite:///" + os.path.join(os.getcwd(), "jinbang.db")
 
