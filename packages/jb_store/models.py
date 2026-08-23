@@ -159,3 +159,57 @@ class KbAttachment(Base):
     sha256: Mapped[str] = mapped_column(String(64), default="", index=True)
     storage_path: Mapped[str] = mapped_column(Text)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ---------- 配置中心（P1）：评分模板库 / 否决规则设置 / 通用设置 / LLM 用量 ----------
+
+class ScoringTemplateRow(Base):
+    """评分模板库：按名称被各包的评审办法前附表引用。items 存 ScoringItem 列表 JSON。
+    origin：parsed（解析招标文件时自动入库）| upload（上传 xlsx）| manual（页面编辑）。"""
+    __tablename__ = "scoring_templates"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_uid)
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="other", index=True)   # tech | biz | price | other
+    source: Mapped[str] = mapped_column(Text, default="")                         # 来源文件/批次
+    origin: Mapped[str] = mapped_column(String(16), default="parsed")
+    items: Mapped[list] = mapped_column(JSON, default=list)
+    note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RuleSettingRow(Base):
+    """否决规则运行设置：启停 / 级别覆盖 / 参数；规则本体在 jb_rules.RULES（代码），这里只存配置。"""
+    __tablename__ = "rule_settings"
+
+    rule_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    level_override: Mapped[str] = mapped_column(String(8), default="")
+    params: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Setting(Base):
+    """通用键值设置（如 llm：{base_url, model, temperature, timeout}）。密钥永远不放这里。"""
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class LlmUsage(Base):
+    """LLM 调用记账（每次调用一行；用量看板按天/按用途汇总）。"""
+    __tablename__ = "llm_usage"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_uid)
+    model: Mapped[str] = mapped_column(String(64), default="")
+    purpose: Mapped[str] = mapped_column(String(32), default="", index=True)   # parse|qualify|draft|score|test
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

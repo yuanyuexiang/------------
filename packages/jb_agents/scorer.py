@@ -195,29 +195,45 @@ def _llm_soft(item: ScoringItem, text: str, lo: float, hi: float) -> Optional[fl
     for role in ("技术专家", "商务专家", "挑剔的评标委员"):
         data = jb_llm.chat_json(
             f"你是国网评标委员会的{role}。按评审标准对下面投标文件章节打分，只输出 JSON {{\"score\": 数字, \"reason\": \"一句话\"}}。\n"
-            f"评审要素：{item.element}\n评审标准：{item.content}\n分值范围：{lo:g}~{hi:g}\n\n章节内容：\n{text[:3500]}")
+            f"评审要素：{item.element}\n评审标准：{item.content}\n分值范围：{lo:g}~{hi:g}\n\n章节内容：\n{text[:3500]}", purpose="score")
         if isinstance(data, dict) and isinstance(data.get("score"), (int, float)):
             scores.append(max(lo, min(hi, float(data["score"]))))
     return round(sum(scores) / len(scores), 2) if scores else None
 
 
-def _template(trm: TRM, pkg: PackageTRM, kind: str) -> Optional[ScoringTemplate]:
+def _name_match(name: str, other: str) -> bool:
+    """模板名松匹配：前附表引用名（如"FWSW01服务类通用商务详评细则"）与文件名（"FWSW01：…"）首 6 字互含。"""
+    return bool(name) and bool(other) and (name[:6] in other or other[:6] in name)
+
+
+def _template(trm: TRM, pkg: PackageTRM, kind: str,
+              library: Optional[list[ScoringTemplate]] = None) -> Optional[ScoringTemplate]:
+    """本包应用的评分模板：优先 TRM 内带细则条目的；TRM 里只有名字（docx 封面）或没有时，按名称到模板库兜底。
+    模板库只按名称匹配，不按类别乱配——配错模板比没有模板更危险。"""
     name = pkg.scoring_ref.tech_template if kind == "tech" else pkg.scoring_ref.biz_template
-    for t in trm.scoring_templates:
-        if t.kind == kind and (not name or name[:6] in t.name or t.name[:6] in name):
+    own = [t for t in trm.scoring_templates if t.kind == kind]
+    hit = next((t for t in own if not name or _name_match(name, t.name)), None) or (own[0] if own else None)
+    if hit is not None and hit.items:
+        return hit
+    ref = name or (hit.name if hit else "")
+    for t in library or []:
+        if t.items and t.kind == kind and _name_match(ref, t.name):
             return t
-    return next((t for t in trm.scoring_templates if t.kind == kind), None)
+    return hit
 
 
 def score_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, draft_sections: Optional[list] = None,
-                  use_llm: bool = True) -> ScoreReport:
+                  use_llm: bool = True, library: Optional[list[ScoringTemplate]] = None) -> ScoreReport:
+    """library：配置中心的评分模板库（按名称兜底 TRM 里缺细则的模板）。"""
     rep = ScoreReport(pkg_no=pkg.pkg_no)
     drafts = {s.title: s.text for s in (draft_sections or [])}
     for kind in ("tech", "biz"):
-        tpl = _template(trm, pkg, kind)
-        if tpl is None:
-            rep.notes.append(f"缺少{ '技术' if kind == 'tech' else '商务'}评分模板（{getattr(pkg.scoring_ref, kind + '_template', '')}）")
+        tpl = _template(trm, pkg, kind, library)
+        if tpl is None or not tpl.items:
+            rep.notes.append(f"缺少{ '技术' if kind == 'tech' else '商务'}评分模板细则（{getattr(pkg.scoring_ref, kind + '_template', '') or (tpl.name if tpl else '')}），请到配置中心·评分模板库补录")
             continue
+        if tpl not in trm.scoring_templates:
+            rep.notes.append(f"{'技术' if kind == 'tech' else '商务'}评分使用模板库《{tpl.name}》")
         for it in tpl.items:
             lo, hi = _range_of(it)
             if hi <= 0 and lo >= 0:

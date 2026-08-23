@@ -18,7 +18,7 @@ packages/jb_kb/       企业知识库：档案模型、多表仓储（repo）、
 packages/jb_agents/   业务 Agent：资格自检（jb-qualify）→ 可投性矩阵
 packages/jb_store/    持久层：SQLAlchemy（本地 SQLite jinbang.db / compose PostgreSQL），Alembic 迁移在 deploy/alembic；projects.py 投标项目阶段/事件/截止日
 packages/jb_docgen/   文档引擎：数值比较、技术参数自动填写、商务/技术文件生成、【待补充】阻断、导出加固
-packages/jb_rules/    否决规则引擎（否决情形表 + 典型案例库 SG 规则）
+packages/jb_rules/    否决规则引擎（否决情形表 + 典型案例库 SG 规则；可按配置中心设置启停/调级/调参）
 packages/jb_agents/   资格自检 / 起草 writer / 价格 price / 评分 scorer
   unpack.py           递归 zip 解压 + GBK 文件名修复
   classify.py         包内文件分类（主文件/公告/规范书/清单/评分细则…）

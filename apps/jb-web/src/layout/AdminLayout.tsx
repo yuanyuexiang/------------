@@ -23,7 +23,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           items={[
             { key: '/', icon: <FileSearchOutlined />, label: <Link to="/">投标项目</Link> },
             { key: '/kb', icon: <DatabaseOutlined />, label: <Link to="/kb">企业知识库</Link> },
-            { key: '/settings', icon: <SettingOutlined />, label: '配置中心', disabled: true },
+            { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">配置中心</Link> },
             { key: '/users', icon: <TeamOutlined />, label: '用户与权限', disabled: true },
           ]} />
       </Sider>

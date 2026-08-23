@@ -23,6 +23,7 @@ from jb_store import Project, ProjectEvent, Task, init_db, session
 from jb_store import projects as pm
 from sqlalchemy import select
 
+from . import config as config_api
 from . import kb, tasks
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.getcwd(), "uploads"))
@@ -32,6 +33,8 @@ UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.getcwd(), "uploads"))
 async def lifespan(_: FastAPI):
     init_db()  # 开发便利；生产以 alembic upgrade head 为准
     os.makedirs(UPLOAD_DIR, exist_ok=True)
+    config_api.install_usage_hook()     # LLM 调用记账
+    config_api.load_llm_settings()      # 配置中心保存的端点/模型覆盖
     yield
 
 
@@ -43,6 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(kb.router)   # 企业知识库：/api/profiles/*、/api/attachments/*
+app.include_router(config_api.router)   # 配置中心：/api/config/*
 
 
 def _project_out(p: Project) -> dict:
@@ -291,7 +295,7 @@ def review_docs(project_id: str, profile: str, pkg_index: int = 0):
     product = pick_product(cp, pkg)
     tech_params = [fill_spec(sd, product) for sd in pkg.spec_docs]
     ctx = Context(trm=trm, pkg=pkg, profile=cp, tech_params=tech_params, docx_todos=docx_todos, doc_texts=doc_texts)
-    rep = review(ctx)
+    rep = review(ctx, settings=config_api.rule_settings_models())
     with session() as s:
         p = _get_project(s, project_id)
         pm.set_result(p, "review", {"blocked": rep.blocked, "counts": rep.counts(), "profile": profile}, pkg.pkg_no)
@@ -370,7 +374,10 @@ def score_project(project_id: str, profile: str, pkg_index: int = 0, llm: bool =
             import re as _re
             drafts = [DraftSection(title=m.group(1).strip(), text=m.group(2))
                       for m in _re.finditer(r"## (.+?)\n(.*?)(?=\n## |\Z)", md, _re.S)]
-    rep = score_package(trm, pkg, cp, draft_sections=drafts, use_llm=llm)
+    from jb_store import config as cfg
+    with session() as s:
+        library = cfg.library(s)
+    rep = score_package(trm, pkg, cp, draft_sections=drafts, use_llm=llm, library=library)
     with session() as s:
         p = _get_project(s, project_id)
         summary = {"weighted": rep.weighted, "tech_total": rep.tech_total, "tech_max": rep.tech_max,

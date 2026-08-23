@@ -13,6 +13,7 @@ from jb_kb import repo as kb_repo
 from jb_parser import parse
 from jb_parser.trm import TRM
 from jb_store import Project, Task, session
+from jb_store import config as cfg
 from jb_store import projects as pm
 
 BROKER = os.environ.get("CELERY_BROKER_URL", "")
@@ -53,11 +54,13 @@ def run_parse(task_id: str, project_id: str) -> None:
             p.deadline = trm.key_terms.bid_deadline or p.deadline
             p.open_time = trm.key_terms.bid_open_time or p.open_time
         pm.advance(p, "parsed")
+        n_tpl = cfg.import_parsed_templates(s, trm.scoring_templates, source_hint=f"{trm.batch_name or trm.batch_no} 招标文件包")
         pkg_nos = [k.pkg_no for k in trm.packages]
         pm.log_event(s, project_id, "parsed",
                      f"解析完成：{len(pkg_nos)} 个包（{'、'.join(pkg_nos)}）"
                      + (f"，投标截止 {p.deadline}" if p.deadline else "，公告未抽到截止时间，请人工录入")
-                     + (f"，{len(trm.warnings)} 条告警" if trm.warnings else ""),
+                     + (f"，{len(trm.warnings)} 条告警" if trm.warnings else "")
+                     + (f"，{n_tpl} 个评分模板入库" if n_tpl else ""),
                      {"packages": pkg_nos, "deadline": p.deadline, "summary": trm.summary(), "warnings": trm.warnings})
     _update(task_id, status="done", progress=1.0, message=trm.summary(),
             result={"packages": len(trm.packages), "warnings": trm.warnings})
@@ -67,6 +70,10 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
                  with_draft: bool, product_model: str = "") -> None:
     """生成商务/技术文件；with_draft=True 时先由写作 Agent 起草技术方案（LLM，分钟级）。"""
     from jb_docgen import generate
+
+    from . import config as config_api
+    config_api.install_usage_hook()      # Celery worker 进程内也记账、也读配置中心的 LLM 覆盖
+    config_api.load_llm_settings()
     _update(task_id, status="running", progress=0.05, message="加载 TRM 与档案")
     with session() as s:
         p = s.get(Project, project_id)

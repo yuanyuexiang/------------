@@ -24,9 +24,13 @@ from .models import (  # noqa: F401
     KbPerson,
     KbProduct,
     KbTestReport,
+    LlmUsage,
     Profile,
     Project,
     ProjectEvent,
+    RuleSettingRow,
+    ScoringTemplateRow,
+    Setting,
     Task,
 )
 

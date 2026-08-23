@@ -7,6 +7,7 @@ import QualifyPage from './pages/QualifyPage'
 import WorkbenchPage from './pages/WorkbenchPage'
 import KbListPage from './pages/kb/KbListPage'
 import KbCompanyPage from './pages/kb/KbCompanyPage'
+import SettingsPage from './pages/settings/SettingsPage'
 
 /** 旧链接 /profiles/:name → 知识库企业页。 */
 function ProfileRedirect() {
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/kb" element={<KbListPage />} />
         <Route path="/kb/:name" element={<KbCompanyPage />} />
         <Route path="/profiles/:name" element={<ProfileRedirect />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </AdminLayout>
   )

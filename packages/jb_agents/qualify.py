@@ -71,7 +71,7 @@ def _llm_match_performances(scope: str, titles: list[str]) -> Optional[list[bool
         "判断下列业绩项目是否属于招标要求的业绩类型。只输出 JSON 数组，元素为 true/false，顺序与输入一致。\n"
         f"要求的业绩类型：{scope}\n业绩项目：\n" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(titles))
     )
-    data = jb_llm.chat_json(prompt)
+    data = jb_llm.chat_json(prompt, purpose="qualify")
     if isinstance(data, list) and len(data) == len(titles) and all(isinstance(x, bool) for x in data):
         return data
     return None

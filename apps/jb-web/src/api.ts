@@ -126,7 +126,45 @@ export interface GenResult {
   tech_params: { spec_id: string; responses: { row: number; name: string; required: string; star: boolean; response: string; verdict: string; reason: string }[] }[]
 }
 
+// ---- 配置中心 ----
+export interface ScoringTemplateSummary { id: string; name: string; kind: string; source: string; origin: string; note: string; item_count: number; updated_at: string }
+export interface ScoringTemplateFull extends ScoringTemplateSummary { items: { group: string; element: string; content: string; score_min: number | null; score_max: number | null }[] }
+export interface RuleEntry {
+  rule_id: string; level: string; title: string; source: string; doc: string; default_params: Record<string, unknown>
+  enabled: boolean; level_override: string; params: Record<string, unknown>; note: string; updated_at: string | null
+}
+export interface LlmConfig {
+  effective: { base_url: string; model: string; temperature: number; timeout: number; key_configured: boolean }
+  saved: { base_url: string | null; model: string | null; temperature: number | null; timeout: number | null }
+  env: { base_url: string; model: string }
+  available: boolean
+  usage: {
+    days: number; calls: number; failed: number; prompt_tokens: number; completion_tokens: number; avg_latency_ms: number
+    by_purpose: { purpose: string; calls: number; prompt_tokens: number; completion_tokens: number }[]
+    by_day: { day: string; calls: number; tokens: number }[]
+    recent: { created_at: string; model: string; purpose: string; ok: boolean; latency_ms: number; prompt_tokens: number | null; completion_tokens: number | null; error: string }[]
+  }
+}
+
 export const api = {
+  scoringTemplates: () => req<ScoringTemplateSummary[]>('/api/config/scoring-templates'),
+  scoringTemplate: (id: string) => req<ScoringTemplateFull>(`/api/config/scoring-templates/${id}`),
+  createScoringTemplate: (body: Partial<ScoringTemplateFull>) => req<ScoringTemplateFull>('/api/config/scoring-templates', json(body, 'POST')),
+  updateScoringTemplate: (id: string, body: Partial<ScoringTemplateFull>) => req<ScoringTemplateFull>(`/api/config/scoring-templates/${id}`, json(body)),
+  deleteScoringTemplate: (id: string) => req<{ ok: boolean }>(`/api/config/scoring-templates/${id}`, { method: 'DELETE' }),
+  uploadScoringTemplate: (file: File, overwrite: boolean) => {
+    const form = new FormData(); form.append('file', file)
+    return req<ScoringTemplateFull>(`/api/config/scoring-templates/upload?overwrite=${overwrite}`, { method: 'POST', body: form })
+  },
+  rules: () => req<{ levels: string[]; rules: RuleEntry[] }>('/api/config/rules'),
+  updateRule: (id: string, body: Partial<Pick<RuleEntry, 'enabled' | 'level_override' | 'params' | 'note'>>) => req<{ ok: boolean }>(`/api/config/rules/${id}`, json(body)),
+  resetRule: (id: string) => req<{ ok: boolean }>(`/api/config/rules/${id}`, { method: 'DELETE' }),
+  llmConfig: (days = 30) => req<LlmConfig>(`/api/config/llm?days=${days}`),
+  saveLlm: (body: Record<string, unknown>) => req<{ saved: Record<string, unknown>; effective: LlmConfig['effective'] }>('/api/config/llm', json(body)),
+  testLlm: (base_url?: string, model?: string) => {
+    const q = new URLSearchParams(); if (base_url) q.set('base_url', base_url); if (model) q.set('model', model)
+    return req<{ ok: boolean; latency_ms: number; model: string; reply?: string; error?: string }>(`/api/config/llm/test${q.toString() ? `?${q}` : ''}`, { method: 'POST' })
+  },
   generate: (id: string, profile: string, pkgIndex: number, withDraft: boolean) =>
     req<{ task_id: string; mode: string }>(`/api/projects/${id}/generate?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&with_draft=${withDraft}`, { method: 'POST' }),
   review: (id: string, profile: string, pkgIndex: number) =>

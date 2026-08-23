@@ -156,7 +156,7 @@ def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: b
             sec.todos.append(sec.title)
         else:
             try:
-                text = llm.chat(_prompt(sec, pkg, facts, chunks), temperature=0.3, timeout=120)
+                text = llm.chat(_prompt(sec, pkg, facts, chunks), temperature=0.3, timeout=120, purpose="draft")
             except Exception as exc:  # 网络/模型错误：降级为骨架，不中断
                 text = f"【待补充：{sec.title}——起草失败：{exc}】"
             text, viol = _check_numbers(text, allowed)

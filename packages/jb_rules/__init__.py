@@ -35,6 +35,7 @@ class Context:
     doc_texts: dict = field(default_factory=dict)            # 文件名 → 全文（雷同/名称检查）
     other_pkg_texts: dict = field(default_factory=dict)      # 同批次其他包技术文件全文（多包雷同）
     open_date: Optional[str] = None                          # YYYY-MM-DD
+    params: dict = field(default_factory=dict)               # 当前规则的参数（review() 按 RuleSetting 注入）
 
 
 Rule = tuple[str, str, str, str, Callable[[Context], list[Finding]]]
@@ -48,16 +49,19 @@ def _f(rule_id: str, level: str, title: str, msg: str, loc: str = "", src: str =
 # ---------- 技术参数 ----------
 
 def r_param_forbidden(ctx: Context) -> list[Finding]:
+    """技术参数响应以“完全响应/满足要求”等套话代替具体值 → 否决（前附表 1.11.2，案例 11）。"""
     out = []
+    phrases = tuple(ctx.params.get("phrases") or _FORBIDDEN)
     for r in ctx.tech_params:
         for x in r.responses:
-            if any(w == x.response.strip() or x.response.strip().endswith(w) for w in _FORBIDDEN):
+            if any(w == x.response.strip() or x.response.strip().endswith(w) for w in phrases):
                 out.append(_f("SG-16", "否决", "技术参数以套话代替具体值",
                               f"第{x.row}行响应「{x.response}」", f"规范书{r.spec_id}", "前附表1.11.2/案例11(2)"))
     return out
 
 
 def r_param_missing(ctx: Context) -> list[Finding]:
+    """技术参数表有行未填响应值（含★项）→ 否决；数量按规范书汇总。"""
     out = []
     for r in ctx.tech_params:
         miss = [x for x in r.responses if x.verdict == "missing"]
@@ -69,6 +73,7 @@ def r_param_missing(ctx: Context) -> list[Finding]:
 
 
 def r_param_deviation(ctx: Context) -> list[Finding]:
+    """响应值不满足要求值：★项否决，非★项扣分（前附表 1.11.4，案例 11）。"""
     out = []
     for r in ctx.tech_params:
         for x in r.deviations:
@@ -79,6 +84,7 @@ def r_param_deviation(ctx: Context) -> list[Finding]:
 
 
 def r_param_unknown_star(ctx: Context) -> list[Finding]:
+    """★功能描述项由产品特性匹配、无法数值比较 → 须人工逐项核对。"""
     out = []
     for r in ctx.tech_params:
         n = sum(1 for x in r.unknowns if x.star)
@@ -89,6 +95,7 @@ def r_param_unknown_star(ctx: Context) -> list[Finding]:
 
 
 def r_unstructured_spec(ctx: Context) -> list[Finding]:
+    """非 9999 结构化规范书须在投标工具以附件逐项响应 → 提醒人工。"""
     us = [s for s in ctx.pkg.spec_docs if not s.structured]
     return [_f("SG-17", "需人工", "非结构化技术规范须以附件形式逐项响应",
                f"{len(us)} 本非 9999 规范（{', '.join(s.spec_id for s in us)}）须在投标工具以附件上传逐项响应",
@@ -98,6 +105,7 @@ def r_unstructured_spec(ctx: Context) -> list[Finding]:
 # ---------- 文件完整性 / 待补充 ----------
 
 def r_todos(ctx: Context) -> list[Finding]:
+    """生成文件中仍有【待补充】标记 → 否决并阻断导出（事实字段缺失）。"""
     out = []
     for fn, todos in ctx.docx_todos.items():
         if todos:
@@ -125,6 +133,7 @@ def r_name_consistency(ctx: Context) -> list[Finding]:
 # ---------- 资格 / 档案 ----------
 
 def r_cert_validity(ctx: Context) -> list[Finding]:
+    """档案证书有效期早于开标日 → 否决（案例 9）；未录入有效期提醒补录。"""
     out = []
     for c in ctx.profile.certificates:
         if not c.valid_until:
@@ -135,6 +144,7 @@ def r_cert_validity(ctx: Context) -> list[Finding]:
 
 
 def r_performance_evidence(ctx: Context) -> list[Finding]:
+    """业绩证据不全（合同+发票）或买方非最终用户 → 否决/扣分（案例 2）。"""
     out = []
     for x in ctx.profile.performances:
         if not {"合同", "发票"} <= set(x.evidence):
@@ -147,12 +157,14 @@ def r_performance_evidence(ctx: Context) -> list[Finding]:
 
 
 def r_consortium(ctx: Context) -> list[Finding]:
+    """招标文件不接受联合体时提示人工确认投标主体（招标公告）。"""
     if ctx.pkg.allow_consortium is False:
         return [_f("Q-01", "需人工", "本包不接受联合体", "确认以独立投标人身份投标，不提交联合体协议", "商务文件", "招标公告")]
     return []
 
 
 def r_general_credit(ctx: Context) -> list[Finding]:
+    """信用中国/失信名单/经营异常等核查须在截止前 20 天内完成 → 提醒人工（否决表）。"""
     return [_f("SG-21", "需人工", "信用/不良行为核查",
                "投标前查询：信用中国、国家企业信用信息公示系统、中国裁判文书网、国网不良行为名单，并截图编入商务文件",
                "商务文件-查询报告及截图", "否决表-资格评审")]
@@ -161,6 +173,7 @@ def r_general_credit(ctx: Context) -> list[Finding]:
 # ---------- 价格 ----------
 
 def r_price(ctx: Context) -> list[Finding]:
+    """报价单校验：零单价/超限价/算术错/税率缺失等 → 否决（案例 6/7/8）。"""
     return [_f(f"PRICE-{i.rule}", i.level, i.rule, i.message + (f"（行 {i.rows}）" if i.rows else ""), "价格文件", "案例6/7/8")
             for i in ctx.price_issues]
 
@@ -183,12 +196,13 @@ def r_similarity(ctx: Context) -> list[Finding]:
         b = _shingles(text)
         if a and b:
             j = len(a & b) / len(a | b)
-            if j > 0.9:
+            if j > float(ctx.params.get("threshold", 0.9)):
                 out.append(_f("SIM-01", "扣分", "与同批次其他包技术文件高度雷同", f"与 {other} 相似度 {j:.0%}，专用部分应差异化", "技术文件"))
     return out
 
 
 def r_submission_matrix(ctx: Context) -> list[Finding]:
+    """提交方式表每项须有产出或人工挂载，按递交矩阵逐项核对（第六章）。"""
     """提交方式表每一项都应有对应产出或人工勾选（递交矩阵）。"""
     req = [s for s in ctx.trm.submission_table if s.item]
     if not req:
@@ -214,6 +228,30 @@ RULES: list[Rule] = [
 ]
 
 
+# 可配置参数（配置中心展示/编辑）：规则 ID → {参数名: 默认值}
+RULE_PARAMS: dict[str, dict] = {
+    "SG-16": {"phrases": list(_FORBIDDEN)},
+    "SIM-01": {"threshold": 0.9},
+}
+LEVELS = ("否决", "扣分", "建议", "需人工")
+
+
+class RuleSetting(BaseModel):
+    """一条规则的运行设置（配置中心维护，落 rule_settings 表）。"""
+    rule_id: str
+    enabled: bool = True
+    level_override: str = ""     # 空=用规则自带级别；否则该规则所有发现统一为此级别
+    params: dict = Field(default_factory=dict)
+    note: str = ""
+
+
+def catalog() -> list[dict]:
+    """规则目录：ID / 默认级别 / 名称 / 依据 / 说明 / 可配参数，供配置中心展示。"""
+    return [{"rule_id": rid, "level": lvl, "title": title, "source": src,
+             "doc": (fn.__doc__ or "").strip().split("\n")[0], "params": RULE_PARAMS.get(rid, {})}
+            for rid, lvl, title, src, fn in RULES]
+
+
 class ReviewReport(BaseModel):
     pkg_no: str = ""
     findings: list[Finding] = Field(default_factory=list)
@@ -237,8 +275,19 @@ class ReviewReport(BaseModel):
         return "\n".join(lines)
 
 
-def review(ctx: Context) -> ReviewReport:
+def review(ctx: Context, settings: Optional[dict[str, RuleSetting]] = None) -> ReviewReport:
+    """跑全部规则；settings（rule_id → RuleSetting）可停用规则、统一覆盖级别、注入参数。"""
     rep = ReviewReport(pkg_no=ctx.pkg.pkg_no)
-    for _id, _lvl, _title, _src, fn in RULES:
-        rep.findings.extend(fn(ctx))
+    settings = settings or {}
+    for rid, _lvl, _title, _src, fn in RULES:
+        st = settings.get(rid)
+        if st is not None and not st.enabled:
+            continue
+        ctx.params = {**RULE_PARAMS.get(rid, {}), **((st.params if st else None) or {})}
+        found = fn(ctx)
+        if st is not None and st.level_override in LEVELS:
+            for f in found:
+                f.level = st.level_override
+        rep.findings.extend(found)
+    ctx.params = {}
     return rep

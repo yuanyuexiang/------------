@@ -30,7 +30,7 @@ def enrich(trm: TRM, max_qual_items: int = 20) -> int:
     todo = [q for p in trm.packages for q in p.qualification if not q.llm_extracted][:max_qual_items]
     for q in todo:
         data = jb_llm.chat_json(_QUAL_PROMPT.format(perf=q.performance_req or "无",
-                                                    report=q.test_report_req or "无"))
+                                                    report=q.test_report_req or "无"), purpose="parse")
         if not isinstance(data, dict):
             continue
         years = data.get("perf_years")
@@ -47,7 +47,7 @@ def enrich(trm: TRM, max_qual_items: int = 20) -> int:
         text = "\n".join(f"{c.clause_no} {c.name}: {c.content[:200]}"
                          for c in trm.prenotice
                          if any(k in c.name + c.content for k in ("有效期", "保证金", "纸质", "担保")))[:4000]
-        data = jb_llm.chat_json(_KEYTERM_PROMPT.format(text=text or "（无相关条款）"))
+        data = jb_llm.chat_json(_KEYTERM_PROMPT.format(text=text or "（无相关条款）"), purpose="parse")
         if isinstance(data, dict):
             for f in missing:
                 v = data.get(f)

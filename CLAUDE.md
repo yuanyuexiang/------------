@@ -33,6 +33,8 @@ docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；-
 
 **投标项目管理 `jb_store.projects`**：`Project.stage` 是"到达的最远阶段"（parsed→confirmed→qualified→generated→reviewed→submitted，只前进），`outcome` 是人工标的结果（submitted/won/lost/abandoned），`results` 存各环节最近摘要（按包分桶），`project_events` 是时间线。API 各环节完成时调 `pm.advance / pm.set_result / pm.log_event` 回写——新增环节照此三步。投标截止时间由解析器从招标公告 5.1 抽取（`KeyTerms.bid_deadline`，四样本实测写法一致），人工改过（`deadline_manual`）后重新解析不覆盖。
 
+**配置中心 `jb_store.config` + `apps/jb_api/config.py`**：评分模板库 `scoring_templates`（解析时带细则的模板自动入库、不覆盖人工维护；评分器 `score_package(library=…)` 只按名称兜底，绝不按类别乱配）；否决规则本体仍在 `jb_rules.RULES` 代码里，`rule_settings` 只存启停/级别覆盖/参数（`RULE_PARAMS` 声明哪些规则可配），`review(ctx, settings)` 应用；LLM 端点/模型/温度/超时覆盖存 `settings` 表并经 `jb_llm.configure()` 生效（API 启动与每个 Celery 任务开头 `load_llm_settings()`），**密钥只在环境变量，任何路由不接收 key**；每次调用经 `jb_llm.set_usage_hook` 落 `llm_usage`，调用点传 `purpose` 记账。
+
 **建表规则**：`init_db()` 只在"没有 `alembic_version` 表"的空库上 create_all（测试/首次本地起服务）；已由 Alembic 管理的库一律 `alembic upgrade head`，否则 create_all 会抢先建表导致后续迁移冲突。
 
 **前端 `apps/jb-web`**：管理后台外壳 `layout/AdminLayout.tsx`（侧边栏：投标项目 / 企业知识库 / 配置中心 / 用户权限，后两者占位）。知识库页面由 `pages/kb/fields.ts` 的字段规格驱动通用表格+表单（`KbItemsTab`）——后端加字段时在规格里加一行即可出现在页面。
@@ -64,7 +66,8 @@ TRM Schema 演进规则：**字段只增不改名**（下游 Agent、前端、�
 ## 当前欠债（有意为之，接手时按计划还，勿提前"顺手修"）
 
 - 知识库已拆多表（证照/人员/业绩/财务/产品/检测报告/话术/附件）；总方案 4.2 剩余 4 表（国网档案 sgcc_profile、高质量发展证据 hq_evidence、知识产权 ip_assets、历史标书 bid_history）按需追加。附件仍存本地共享卷，切 MinIO 时只改 `jb_kb.attachments`
-- P2 管理系统：P0 知识库、P0 投标项目管理已完成；下一步 P1 配置中心（评分模板库/否决规则库/LLM 设置）→ P1 用户权限（事件表的 actor 列等用户表建好后补）→ P2 仪表盘；侧边栏已留占位
+- P2 管理系统：P0 知识库、P0 投标项目管理、P1 配置中心已完成；下一步 P1 用户权限（JWT+角色，价格数据仅财务可见，事件表/规则设置的 actor 列等用户表建好后补）→ P2 仪表盘；侧边栏已留占位
+- 否决规则暂不支持页面新增自定义规则（只能启停/调级/调参），新规则仍进 `jb_rules.RULES`；价格评分模板（docx 公式）只登记名称，参数化在 `jb_agents.price`
 - 后端时间戳是 naive UTC（`datetime.utcnow`），前端统一经 `fmtUtc` 转本地显示；投标截止/开标是墙钟字符串不转换
 - Celery 模式只在 compose（Redis）下生效，本地/测试为进程内 BackgroundTasks；两者共用 `jb_api.tasks.run_parse`，改任务逻辑只改这一处
 - LLM 兜底已接（`jb_llm`，配置在 .env，key 绝不入库）；golden 标注集未建（等业务专家），建成后放 `tests/golden/`
