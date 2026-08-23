@@ -20,7 +20,7 @@ python scripts/demo.py [--llm]   # 端到端 Demo（真实样本）
 jb-parse <招标文件包.zip> -o trm.json          # CLI 解析
 uvicorn jb_api.main:app --reload --port 8000  # 后端
 cd apps/jb-web && npm install && npm run dev  # 前端（5173，/api 代理到 8000）
-docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；--profile docgen|llm 追加
+docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；--profile docgen|llm 追加；首次登录 admin/admin
 ```
 
 ## 架构（读代码前必须知道的）
@@ -34,6 +34,8 @@ docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；-
 **投标项目管理 `jb_store.projects`**：`Project.stage` 是"到达的最远阶段"（parsed→confirmed→qualified→generated→reviewed→submitted，只前进），`outcome` 是人工标的结果（submitted/won/lost/abandoned），`results` 存各环节最近摘要（按包分桶），`project_events` 是时间线。API 各环节完成时调 `pm.advance / pm.set_result / pm.log_event` 回写——新增环节照此三步。投标截止时间由解析器从招标公告 5.1 抽取（`KeyTerms.bid_deadline`，四样本实测写法一致），人工改过（`deadline_manual`）后重新解析不覆盖。
 
 **配置中心 `jb_store.config` + `apps/jb_api/config.py`**：评分模板库 `scoring_templates`（解析时带细则的模板自动入库、不覆盖人工维护；评分器 `score_package(library=…)` 只按名称兜底，绝不按类别乱配）；否决规则本体仍在 `jb_rules.RULES` 代码里，`rule_settings` 只存启停/级别覆盖/参数（`RULE_PARAMS` 声明哪些规则可配），`review(ctx, settings)` 应用；LLM 端点/模型/温度/超时覆盖存 `settings` 表并经 `jb_llm.configure()` 生效（API 启动与每个 Celery 任务开头 `load_llm_settings()`），**密钥只在环境变量，任何路由不接收 key**；每次调用经 `jb_llm.set_usage_hook` 落 `llm_usage`，调用点传 `purpose` 记账。
+
+**用户与权限 `jb_store.auth` + `apps/jb_api/auth.py`**：有意只做两种角色（admin / member）+ 一个按人的 `can_view_price` 开关——投标组就两三个人，细分业务角色只会天天"没权限"。纯标准库（pbkdf2 密码、HMAC 令牌，密钥 `JB_SECRET_KEY`，未设置时用开发默认值并在页面告警）。中间件对除 `/api/health`、`/api/auth/login` 外的所有 `/api/*` 要求 Bearer（下载链接用 `?token=`），并把用户名写入 `set_actor()` 上下文，`log_event` 与配置中心写操作自动记 actor；后台任务记在 `Task.actor`，worker 开头 `_as_actor()`。价格接口 `require_price()`，管理接口 `require_admin()`。首次启动空库自动建 `admin/admin`（`JB_ADMIN_PASSWORD` 可指定）并强制改密。
 
 **建表规则**：`init_db()` 只在"没有 `alembic_version` 表"的空库上 create_all（测试/首次本地起服务）；已由 Alembic 管理的库一律 `alembic upgrade head`，否则 create_all 会抢先建表导致后续迁移冲突。
 
@@ -67,7 +69,7 @@ TRM Schema 演进规则：**字段只增不改名**（下游 Agent、前端、�
 ## 当前欠债（有意为之，接手时按计划还，勿提前"顺手修"）
 
 - 知识库已拆多表（证照/人员/业绩/财务/产品/检测报告/话术/附件）；总方案 4.2 剩余 4 表（国网档案 sgcc_profile、高质量发展证据 hq_evidence、知识产权 ip_assets、历史标书 bid_history）按需追加。附件仍存本地共享卷，切 MinIO 时只改 `jb_kb.attachments`
-- P2 管理系统：P0 知识库、P0 投标项目管理、P1 配置中心已完成；下一步 P1 用户权限（JWT+角色，价格数据仅财务可见，事件表/规则设置的 actor 列等用户表建好后补）→ P2 仪表盘；侧边栏已留占位
+- P2 管理系统：P0 知识库、P0 投标项目管理、P1 配置中心、P1 用户与权限已完成；下一步 P2 仪表盘（在投项目/临近截止/证书到期/待处理任务）。不做 SSO；知识库条目暂无 updated_by（需要时加列即可）
 - 否决规则暂不支持页面新增自定义规则（只能启停/调级/调参），新规则仍进 `jb_rules.RULES`；价格评分模板（docx 公式）只登记名称，参数化在 `jb_agents.price`
 - 后端时间戳是 naive UTC（`datetime.utcnow`），前端统一经 `fmtUtc` 转本地显示；投标截止/开标是墙钟字符串不转换
 - Celery 模式只在 compose（Redis）下生效，本地/测试为进程内 BackgroundTasks；两者共用 `jb_api.tasks.run_parse`，改任务逻辑只改这一处

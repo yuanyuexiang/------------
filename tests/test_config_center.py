@@ -74,22 +74,6 @@ def test_llm_configure_and_hook(monkeypatch):
         jb_llm.configure(base_url=None, model=None, temperature=None, timeout=None)
 
 
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
-    monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
-    monkeypatch.delenv("LLM_API_KEY", raising=False)
-    import jb_store
-    jb_store.reset_engine()
-    from fastapi.testclient import TestClient
-    from jb_api.main import app
-    with TestClient(app) as c:
-        yield c
-    jb_store.reset_engine()
-    jb_llm.set_usage_hook(None)
-    jb_llm.configure(base_url=None, model=None, temperature=None, timeout=None)
-
 
 def test_config_api(client):
     # 规则

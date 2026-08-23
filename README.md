@@ -41,7 +41,8 @@ pytest -q                                     # 回归测试
 
 alembic -c deploy/alembic.ini upgrade head     # 建表/迁移（本地 SQLite；compose 启动时自动执行）
 python scripts/import_profiles.py             # 把 data/company_profiles/*.json 导入知识库（主档 + 子表）
-uvicorn jb_api.main:app --reload --port 8000  # 后端（无 CELERY_BROKER_URL 时任务进程内执行）
+uvicorn jb_api.main:app --reload --port 8000  # 后端（无 CELERY_BROKER_URL 时任务进程内执行）；首次启动建 admin/admin
+# 部署前设置 JB_SECRET_KEY（令牌签名）与 JB_ADMIN_PASSWORD（初始管理员密码），LLM_* 见 .env
 cd apps/jb-web && npm install && npm run dev  # 前端（localhost:5173）
 ```
 

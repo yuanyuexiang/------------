@@ -7,19 +7,6 @@ WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAMPLE = os.path.join(WS, "服务/1/国网江苏省电力有限公司2026年服务第四次公开招标采购_招标文件包.zip")
 
 
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
-    monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
-    import jb_store
-    jb_store.reset_engine()
-    from fastapi.testclient import TestClient
-    from jb_api.main import app
-    with TestClient(app) as c:
-        yield c
-    jb_store.reset_engine()
-
 
 def test_health_reports_task_mode(client):
     r = client.get("/api/health").json()
@@ -73,6 +60,7 @@ def test_full_flow(client):
     assert d["results"]["qualify"]["verdicts"]["包147"] and d["results"]["generate"]["包147"]["export_blocked"] is True
     assert d["results"]["review"]["包147"]["blocked"] is True
     assert [e["kind"] for e in d["events"]][::-1] == ["parsed", "confirmed", "qualified", "generated", "reviewed"]
+    assert all(e["actor"] == "admin" for e in d["events"])       # 含后台任务（parsed/generated）也记到发起人
     assert len(d["files"]) >= 2 and len(d["package_list"]) == 2
     # 人工改截止时间（之后重新解析不覆盖）、标记结果、列表排序/过滤、删除
     assert client.patch(f"/api/projects/{pid}", json={"deadline": "bad"}).status_code == 400

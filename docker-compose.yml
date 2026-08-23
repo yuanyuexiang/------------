@@ -23,6 +23,9 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      # 登录：令牌签名密钥（生产必设）、初始管理员密码（不设则 admin 并强制改密）
+      JB_SECRET_KEY: ${JB_SECRET_KEY:-}
+      JB_ADMIN_PASSWORD: ${JB_ADMIN_PASSWORD:-}
     volumes: ["uploads:/data/uploads"]   # api 与 worker 共享上传目录
     command: sh -c "alembic -c deploy/alembic.ini upgrade head && uvicorn jb_api.main:app --host 0.0.0.0 --port 8000"
     depends_on:
@@ -45,6 +48,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      JB_SECRET_KEY: ${JB_SECRET_KEY:-}
     volumes: ["uploads:/data/uploads"]
     depends_on:
       db: { condition: service_healthy }

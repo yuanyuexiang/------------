@@ -13,16 +13,18 @@ import shutil
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from jb_agents import qualify
 from jb_kb import repo as kb_repo
 from jb_parser.trm import TRM
 from jb_store import Project, ProjectEvent, Task, init_db, session
+from jb_store import auth as au
 from jb_store import projects as pm
 from sqlalchemy import select
 
+from . import auth as auth_api
 from . import config as config_api
 from . import kb, tasks
 
@@ -35,6 +37,8 @@ async def lifespan(_: FastAPI):
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     config_api.install_usage_hook()     # LLM 调用记账
     config_api.load_llm_settings()      # 配置中心保存的端点/模型覆盖
+    if auth_api.bootstrap():
+        print("[jb-api] 已创建默认管理员 admin（密码 admin，首次登录请修改）")
     yield
 
 
@@ -45,6 +49,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.middleware("http")(auth_api.auth_middleware)   # 除 health/login 外全部要求登录
+app.include_router(auth_api.router)     # 登录 / 用户管理：/api/auth/*、/api/users/*
 app.include_router(kb.router)   # 企业知识库：/api/profiles/*、/api/attachments/*
 app.include_router(config_api.router)   # 配置中心：/api/config/*
 
@@ -90,7 +96,7 @@ async def create_project(file: UploadFile, background: BackgroundTasks):
         p.zip_path = os.path.join(pdir, file.filename)
         with open(p.zip_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
-        t = Task(project_id=p.id, kind="parse")
+        t = Task(project_id=p.id, kind="parse", actor=au.current_actor())
         s.add(t)
         s.flush()
         pid, tid = p.id, t.id
@@ -162,7 +168,7 @@ def project_detail(project_id: str):
                                 "project_name": k.get("project_name"), "budget_yuan": k.get("budget_yuan"),
                                 "max_price": k.get("max_price"), "materials": len(k.get("materials") or []),
                                 "spec_docs": len(k.get("spec_docs") or [])} for k in trm.get("packages") or []]
-        out["events"] = [{"id": e.id, "kind": e.kind, "message": e.message, "data": e.data,
+        out["events"] = [{"id": e.id, "kind": e.kind, "message": e.message, "data": e.data, "actor": e.actor,
                           "created_at": e.created_at.isoformat()} for e in pm.events(s, project_id)]
         tasks_rows = s.execute(select(Task).where(Task.project_id == project_id).order_by(Task.created_at.desc())).scalars()
         out["tasks"] = [{"id": t.id, "kind": t.kind, "status": t.status, "progress": t.progress,
@@ -265,7 +271,7 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
     """生成商务/技术文件（异步任务；with_draft 时先由写作 Agent 起草）。轮询 /api/tasks/{id}。"""
     _load_trm_profile(project_id, profile)  # 参数校验（404/409）
     with session() as s:
-        t = Task(project_id=project_id, kind="generate")
+        t = Task(project_id=project_id, kind="generate", actor=au.current_actor())
         s.add(t)
         s.flush()
         tid = t.id
@@ -308,15 +314,17 @@ def review_docs(project_id: str, profile: str, pkg_index: int = 0):
 
 
 @app.post("/api/projects/{project_id}/price/validate")
-def price_validate(project_id: str, sheet: dict, peer_avg: Optional[float] = None, over_limit_pct: Optional[float] = None):
+def price_validate(request: Request, project_id: str, sheet: dict, peer_avg: Optional[float] = None, over_limit_pct: Optional[float] = None):
+    auth_api.require_price(request)
     from jb_agents.price import PriceSheet, validate
     issues = validate(PriceSheet.model_validate(sheet), peer_avg=peer_avg, over_limit_pct=over_limit_pct)
     return {"issues": [i.model_dump() for i in issues], "blocked": any(i.level == "否决" for i in issues)}
 
 
 @app.post("/api/price/simulate")
-def price_simulate(my_price: float, peer_prices: list[float], c_candidates: Optional[list[float]] = None,
+def price_simulate(request: Request, my_price: float, peer_prices: list[float], c_candidates: Optional[list[float]] = None,
                    weight: float = 30.0):
+    auth_api.require_price(request)
     from jb_agents.price import simulate_interval_avg
     sim = simulate_interval_avg(my_price, peer_prices, c_candidates or [0.0, 0.01, 0.02, 0.03, 0.05], weight=weight)
     return {"benchmark_range": sim.benchmark_range, "score_range": sim.score_range, "detail": sim.detail}

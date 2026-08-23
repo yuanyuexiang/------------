@@ -51,6 +51,7 @@ class ProjectEvent(Base):
     kind: Mapped[str] = mapped_column(String(32))
     message: Mapped[str] = mapped_column(Text, default="")
     data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    actor: Mapped[str] = mapped_column(String(64), default="")          # 操作人用户名（系统任务为 system）
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -65,6 +66,7 @@ class Task(Base):
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     message: Mapped[str] = mapped_column(Text, default="")
     result: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    actor: Mapped[str] = mapped_column(String(64), default="")          # 发起人（worker 里据此记事件 actor）
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -175,6 +177,7 @@ class ScoringTemplateRow(Base):
     origin: Mapped[str] = mapped_column(String(16), default="parsed")
     items: Mapped[list] = mapped_column(JSON, default=list)
     note: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(64), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -188,6 +191,7 @@ class RuleSettingRow(Base):
     level_override: Mapped[str] = mapped_column(String(8), default="")
     params: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(64), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -197,6 +201,7 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    updated_by: Mapped[str] = mapped_column(String(64), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -213,3 +218,21 @@ class LlmUsage(Base):
     completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+# ---------- 用户与权限（P1）：两种角色 + 一个价格开关，够用就好 ----------
+
+class User(Base):
+    """本地账号。role：admin（管用户/配置中心）| member（做投标、维护知识库）；can_view_price 按人开。"""
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_uid)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(64), default="")
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(16), default="member")
+    can_view_price: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)   # 初始密码/管理员重置后提示改密
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

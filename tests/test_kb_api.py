@@ -1,19 +1,5 @@
 """知识库 API：主档整体存取 → 条目 CRUD → 附件上传/下载 → 有效期看板。独立临时 SQLite。"""
-import pytest
 
-
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path}/t.db")
-    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
-    monkeypatch.delenv("CELERY_BROKER_URL", raising=False)
-    import jb_store
-    jb_store.reset_engine()
-    from fastapi.testclient import TestClient
-    from jb_api.main import app
-    with TestClient(app) as c:
-        yield c
-    jb_store.reset_engine()
 
 
 def test_kb_flow(client):

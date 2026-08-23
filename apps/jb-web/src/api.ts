@@ -1,7 +1,20 @@
 /** jb-api 客户端：所有请求走 /api（dev 由 Vite 代理到 8000，部署由 Nginx 反代）。 */
 
+const TOKEN_KEY = 'jb_token'
+export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) ?? '' } catch { return '' } }
+export const setToken = (t: string) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY) } catch { /* ignore */ } }
+/** 下载链接（<a href>）带不了 header，用 ?token= 传令牌。 */
+export const withToken = (url: string) => `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(getToken())}`
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init)
+  const headers = new Headers(init?.headers)
+  const token = getToken()
+  if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
+  const res = await fetch(url, { ...init, headers })
+  if (res.status === 401 && !url.startsWith('/api/auth/login')) {
+    setToken('')
+    if (!window.location.pathname.startsWith('/login')) window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+  }
   if (!res.ok) {
     let detail = res.statusText
     try { detail = (await res.json()).detail ?? detail } catch { /* ignore */ }
@@ -36,7 +49,7 @@ export interface Project {
     score?: Record<string, { weighted: number | null; tech_total: number | null; tech_max: number; biz_total: number | null; biz_max: number; llm: boolean }>
   }
 }
-export interface ProjectEvent { id: string; kind: string; message: string; data: Record<string, unknown> | null; created_at: string }
+export interface ProjectEvent { id: string; kind: string; message: string; data: Record<string, unknown> | null; actor: string; created_at: string }
 export interface ProjectDetail extends Project {
   key_terms: Partial<KeyTerms> & { bid_deadline?: string | null; bid_deadline_text?: string; bid_open_time?: string | null; bid_open_note?: string }
   package_list: { pkg_no: string; sub_no: string; sub_name: string; project_name: string; budget_yuan: number | null; max_price: string; materials: number; spec_docs: number }[]
@@ -127,7 +140,7 @@ export interface GenResult {
 }
 
 // ---- 配置中心 ----
-export interface ScoringTemplateSummary { id: string; name: string; kind: string; source: string; origin: string; note: string; item_count: number; updated_at: string }
+export interface ScoringTemplateSummary { id: string; name: string; kind: string; source: string; origin: string; note: string; item_count: number; updated_at: string; updated_by: string }
 export interface ScoringTemplateFull extends ScoringTemplateSummary { items: { group: string; element: string; content: string; score_min: number | null; score_max: number | null }[] }
 export interface RuleEntry {
   rule_id: string; level: string; title: string; source: string; doc: string; default_params: Record<string, unknown>
@@ -146,7 +159,20 @@ export interface LlmConfig {
   }
 }
 
+// ---- 用户与权限 ----
+export interface User {
+  id: string; username: string; display_name: string; role: 'admin' | 'member'; role_cn: string
+  can_view_price: boolean; active: boolean; must_change_password: boolean; created_at: string; last_login_at: string | null
+}
+
 export const api = {
+  login: (username: string, password: string) => req<{ token: string; user: User; dev_secret: boolean }>('/api/auth/login', json({ username, password }, 'POST')),
+  me: () => req<{ user: User; dev_secret: boolean }>('/api/auth/me'),
+  changePassword: (old_password: string, new_password: string) => req<{ ok: boolean }>('/api/auth/password', json({ old_password, new_password })),
+  users: () => req<User[]>('/api/users'),
+  createUser: (body: { username: string; password: string; display_name?: string; role?: string; can_view_price?: boolean }) => req<User>('/api/users', json(body, 'POST')),
+  updateUser: (id: string, body: Partial<Pick<User, 'display_name' | 'role' | 'can_view_price' | 'active'>> & { reset_password?: string }) => req<User>(`/api/users/${id}`, json(body)),
+  deleteUser: (id: string) => req<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
   scoringTemplates: () => req<ScoringTemplateSummary[]>('/api/config/scoring-templates'),
   scoringTemplate: (id: string) => req<ScoringTemplateFull>(`/api/config/scoring-templates/${id}`),
   createScoringTemplate: (body: Partial<ScoringTemplateFull>) => req<ScoringTemplateFull>('/api/config/scoring-templates', json(body, 'POST')),
@@ -176,7 +202,7 @@ export const api = {
     req<{ ok: boolean; blocked_count: number; blocked_by: string[]; pdf: string | null; notes: string[] }>(`/api/projects/${id}/export?filename=${encodeURIComponent(filename)}&force=${force}`, { method: 'POST' }),
   submissionMatrix: (id: string, pkgIndex: number) =>
     req<{ rows: { section: string; seq: string; item: string; channels: string[]; port: string; generated_file: string | null; status: string }[] }>(`/api/projects/${id}/submission-matrix?pkg_index=${pkgIndex}`),
-  fileUrl: (id: string, filename: string) => `/api/projects/${id}/files/${encodeURIComponent(filename)}`,
+  fileUrl: (id: string, filename: string) => withToken(`/api/projects/${id}/files/${encodeURIComponent(filename)}`),
   profile: (name: string) => req<CompanyProfile>(`/api/profiles/${encodeURIComponent(name)}`),
   saveProfile: (name: string, p: CompanyProfile) => req<{ ok: boolean }>(`/api/profiles/${encodeURIComponent(name)}`, json(p)),
   health: () => req<{ status: string; task_mode: string }>('/api/health'),
@@ -211,7 +237,7 @@ export const api = {
     return req<Attachment>(`/api/profiles/${encodeURIComponent(name)}/attachments?kind=${kind}`, { method: 'POST', body: form })
   },
   deleteAttachment: (name: string, id: string) => req<{ ok: boolean }>(`/api/profiles/${encodeURIComponent(name)}/attachments/${id}`, { method: 'DELETE' }),
-  attachmentUrl: (id: string) => `/api/attachments/${id}`,
+  attachmentUrl: (id: string) => withToken(`/api/attachments/${id}`),
   qualify: (id: string, profile: string, llm: boolean) =>
     req<{ report: FeasibilityReport; markdown: string }>(
       `/api/projects/${id}/qualify?profile=${encodeURIComponent(profile)}&llm=${llm}`, { method: 'POST' }),

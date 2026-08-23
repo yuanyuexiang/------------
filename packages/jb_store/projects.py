@@ -7,6 +7,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .auth import current_actor
 from .models import Project, ProjectEvent
 
 # 到达的最远阶段（单向前进；回退只会发生在重新解析）
@@ -28,8 +29,10 @@ def advance(p: Project, stage: str) -> bool:
 
 
 def log_event(s: Session, project_id: str, kind: str, message: str = "",
-              data: Optional[dict[str, Any]] = None) -> ProjectEvent:
-    ev = ProjectEvent(project_id=project_id, kind=kind, message=message, data=data)
+              data: Optional[dict[str, Any]] = None, actor: str = "") -> ProjectEvent:
+    """actor 不传时取当前操作人上下文（请求中间件 / worker 任务设置），都没有记 system。"""
+    ev = ProjectEvent(project_id=project_id, kind=kind, message=message, data=data,
+                      actor=actor or current_actor() or "system")
     s.add(ev)
     return ev
 

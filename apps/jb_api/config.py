@@ -10,12 +10,15 @@ import tempfile
 from typing import Optional
 
 import jb_llm
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, Request, UploadFile
 from jb_parser import scoring as scoring_parser
 from jb_parser.trm import ScoringItem, ScoringTemplate
 from jb_rules import LEVELS, RULE_PARAMS, RuleSetting, catalog
-from jb_store import ScoringTemplateRow, session
+from jb_store import ScoringTemplateRow, Setting, session
+from jb_store import auth as au
 from jb_store import config as cfg
+
+from .auth import require_admin
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
@@ -53,7 +56,7 @@ def rule_settings_models() -> dict[str, RuleSetting]:
 
 def _tpl_out(r: ScoringTemplateRow, with_items: bool = True) -> dict:
     out = {"id": r.id, "name": r.name, "kind": r.kind, "source": r.source, "origin": r.origin, "note": r.note,
-           "item_count": len(r.items or []), "updated_at": r.updated_at.isoformat()}
+           "item_count": len(r.items or []), "updated_at": r.updated_at.isoformat(), "updated_by": r.updated_by}
     if with_items:
         out["items"] = r.items or []
     return out
@@ -79,7 +82,8 @@ def _validate_items(items: list) -> list[dict]:
 
 
 @router.post("/scoring-templates", status_code=201)
-def create_scoring_template(body: dict):
+def create_scoring_template(request: Request, body: dict):
+    require_admin(request)
     name = (body.get("name") or "").strip()
     if not name:
         raise HTTPException(400, "模板名称必填")
@@ -89,11 +93,13 @@ def create_scoring_template(body: dict):
         tpl = ScoringTemplate(name=name, kind=body.get("kind") or "other", source=body.get("source") or "手工录入",
                               items=[ScoringItem.model_validate(i) for i in body.get("items") or []])
         r = cfg.upsert_template(s, tpl, origin="manual", note=body.get("note") or "")
+        r.updated_by = au.current_actor()
         return _tpl_out(r)
 
 
 @router.put("/scoring-templates/{template_id}")
-def update_scoring_template(template_id: str, body: dict):
+def update_scoring_template(request: Request, template_id: str, body: dict):
+    require_admin(request)
     with session() as s:
         r = s.get(ScoringTemplateRow, template_id)
         if r is None:
@@ -107,13 +113,14 @@ def update_scoring_template(template_id: str, body: dict):
             r.items = _validate_items(body["items"])
         if "note" in body:
             r.note = body["note"] or ""
-        r.origin = "manual"
+        r.origin, r.updated_by = "manual", au.current_actor()
         s.flush()
         return _tpl_out(r)
 
 
 @router.delete("/scoring-templates/{template_id}")
-def delete_scoring_template(template_id: str):
+def delete_scoring_template(request: Request, template_id: str):
+    require_admin(request)
     with session() as s:
         r = s.get(ScoringTemplateRow, template_id)
         if r is None:
@@ -123,8 +130,9 @@ def delete_scoring_template(template_id: str):
 
 
 @router.post("/scoring-templates/upload", status_code=201)
-async def upload_scoring_template(file: UploadFile, kind: str = "", overwrite: bool = False):
+async def upload_scoring_template(request: Request, file: UploadFile, kind: str = "", overwrite: bool = False):
     """上传评分细则 xlsx（国网模板库格式：首行模板名、次行表头），解析后入库。"""
+    require_admin(request)
     fn = file.filename or "template.xlsx"
     if not fn.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "请上传评分细则 xlsx")
@@ -145,6 +153,7 @@ async def upload_scoring_template(file: UploadFile, kind: str = "", overwrite: b
         if exists and not overwrite:
             raise HTTPException(409, f"同名模板已存在：{tpl.name}（可勾选覆盖）")
         r = cfg.upsert_template(s, tpl, origin="upload", overwrite=True)
+        r.updated_by = au.current_actor()
         return _tpl_out(r)
 
 
@@ -160,12 +169,14 @@ def list_rules():
         st = saved.get(c["rule_id"], {})
         out.append({**c, "default_params": c.pop("params"),
                     "enabled": st.get("enabled", True), "level_override": st.get("level_override", ""),
-                    "params": st.get("params", {}), "note": st.get("note", ""), "updated_at": st.get("updated_at")})
+                    "params": st.get("params", {}), "note": st.get("note", ""), "updated_at": st.get("updated_at"),
+                    "updated_by": st.get("updated_by", "")})
     return {"levels": list(LEVELS), "rules": out}
 
 
 @router.put("/rules/{rule_id}")
-def update_rule(rule_id: str, body: dict):
+def update_rule(request: Request, rule_id: str, body: dict):
+    require_admin(request)
     if rule_id not in {c["rule_id"] for c in catalog()}:
         raise HTTPException(404, "规则不存在")
     level = body.get("level_override") or ""
@@ -177,14 +188,16 @@ def update_rule(rule_id: str, body: dict):
     if unknown:
         raise HTTPException(400, f"该规则不支持参数：{', '.join(sorted(unknown))}")
     with session() as s:
-        cfg.save_rule_setting(s, rule_id, enabled=bool(body.get("enabled", True)), level_override=level,
-                              params=params, note=body.get("note") or "")
+        row = cfg.save_rule_setting(s, rule_id, enabled=bool(body.get("enabled", True)), level_override=level,
+                                    params=params, note=body.get("note") or "")
+        row.updated_by = au.current_actor()
     return {"ok": True}
 
 
 @router.delete("/rules/{rule_id}")
-def reset_rule(rule_id: str):
+def reset_rule(request: Request, rule_id: str):
     """恢复默认（删除设置行）。"""
+    require_admin(request)
     from jb_store import RuleSettingRow
     with session() as s:
         r = s.get(RuleSettingRow, rule_id)
@@ -208,8 +221,9 @@ def get_llm(days: int = 30):
 
 
 @router.put("/llm")
-def put_llm(body: dict):
+def put_llm(request: Request, body: dict):
     """保存端点/模型/温度/超时覆盖（空值=清除，回到环境变量）；密钥不接收。"""
+    require_admin(request)
     if "api_key" in body or "key" in body:
         raise HTTPException(400, "密钥只能通过环境变量 LLM_API_KEY（.env）配置，不接收、不入库")
     val: dict = {}
@@ -229,13 +243,15 @@ def put_llm(body: dict):
         val[k] = v
     with session() as s:
         cfg.set_setting(s, LLM_SETTING_KEY, val)
+        s.get(Setting, LLM_SETTING_KEY).updated_by = au.current_actor()
     jb_llm.configure(**{k: val.get(k) for k in LLM_FIELDS})
     return {"saved": val, "effective": jb_llm.settings()}
 
 
 @router.post("/llm/test")
-def test_llm(base_url: Optional[str] = None, model: Optional[str] = None):
+def test_llm(request: Request, base_url: Optional[str] = None, model: Optional[str] = None):
     """测试连接：可临时指定端点/模型（不保存）。"""
+    require_admin(request)
     if base_url or model:
         backup = dict(jb_llm.settings()["overrides"])
         jb_llm.configure(base_url=base_url, model=model)

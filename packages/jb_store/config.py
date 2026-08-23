@@ -63,7 +63,8 @@ def import_parsed_templates(s: Session, templates: list[ScoringTemplate], source
 def rule_settings(s: Session) -> dict[str, dict]:
     """rule_id → {enabled, level_override, params, note}（调用方转成 jb_rules.RuleSetting）。"""
     return {r.rule_id: {"rule_id": r.rule_id, "enabled": r.enabled, "level_override": r.level_override,
-                        "params": r.params or {}, "note": r.note, "updated_at": r.updated_at.isoformat()}
+                        "params": r.params or {}, "note": r.note, "updated_at": r.updated_at.isoformat(),
+                        "updated_by": r.updated_by}
             for r in s.execute(select(RuleSettingRow)).scalars()}
 
 

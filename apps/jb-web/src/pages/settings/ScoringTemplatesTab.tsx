@@ -59,7 +59,7 @@ export default function ScoringTemplatesTab() {
           { title: '要素数', dataIndex: 'item_count', width: 80 },
           { title: '来源', dataIndex: 'origin', width: 90, render: (o: string) => ORIGIN_CN[o] ?? o },
           { title: '出处', dataIndex: 'source', ellipsis: true },
-          { title: '更新', dataIndex: 'updated_at', width: 150, render: fmtUtc },
+          { title: '更新', dataIndex: 'updated_at', width: 200, render: (v: string, r) => `${fmtUtc(v)}${r.updated_by ? ` · ${r.updated_by}` : ''}` },
           { title: '操作', width: 120, render: (_, r) => (
             <Space size="small">
               <Button size="small" type="link" onClick={() => open(r)}>编辑</Button>

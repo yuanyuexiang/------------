@@ -32,6 +32,7 @@ from .models import (  # noqa: F401
     ScoringTemplateRow,
     Setting,
     Task,
+    User,
 )
 
 DEFAULT_SQLITE = "sqlite:///" + os.path.join(os.getcwd(), "jinbang.db")

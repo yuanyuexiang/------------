@@ -125,7 +125,7 @@ export default function ProjectDetailPage() {
             ))}
             <Timeline items={p.events.map((e: ProjectEvent) => ({
               color: EVENT_COLOR[e.kind] ?? 'gray',
-              children: <span><Typography.Text type="secondary">{fmt(e.created_at)}</Typography.Text> <Tag style={{ marginLeft: 6 }}>{EVENT_CN[e.kind] ?? e.kind}</Tag>{e.message}</span>,
+              children: <span><Typography.Text type="secondary">{fmt(e.created_at)} · {e.actor || 'system'}</Typography.Text> <Tag style={{ marginLeft: 6 }}>{EVENT_CN[e.kind] ?? e.kind}</Tag>{e.message}</span>,
             }))} />
             {p.events.length === 0 && <Typography.Text type="secondary">暂无事件</Typography.Text>}
           </Card>

@@ -13,6 +13,7 @@ from jb_kb import repo as kb_repo
 from jb_parser import parse
 from jb_parser.trm import TRM
 from jb_store import Project, Task, session
+from jb_store import auth as au
 from jb_store import config as cfg
 from jb_store import projects as pm
 
@@ -32,7 +33,15 @@ def _update(task_id: str, **fields) -> None:
             setattr(t, k, v)
 
 
+def _as_actor(task_id: str) -> None:
+    """worker 进程里没有请求上下文：把任务发起人设为操作人，事件 actor 才能记对。"""
+    with session() as s:
+        t = s.get(Task, task_id)
+        au.set_actor(t.actor if t else "")
+
+
 def run_parse(task_id: str, project_id: str) -> None:
+    _as_actor(task_id)
     _update(task_id, status="running", progress=0.1, message="解压并分类文件")
     with session() as s:
         p = s.get(Project, project_id)
@@ -74,6 +83,7 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
     from . import config as config_api
     config_api.install_usage_hook()      # Celery worker 进程内也记账、也读配置中心的 LLM 覆盖
     config_api.load_llm_settings()
+    _as_actor(task_id)
     _update(task_id, status="running", progress=0.05, message="加载 TRM 与档案")
     with session() as s:
         p = s.get(Project, project_id)
