@@ -61,6 +61,7 @@ TRM Schema 演进规则：**字段只增不改名**（下游 Agent、前端、�
 - **ECP 生成的 xlsx 缺 dimension 元数据**：openpyxl read_only 模式只读出 1 行，必须 `ws.reset_dimensions()`（见 `extract._load_ws`）。
 - 附件类 xlsx 表头通常在第 3 行，货物清单在第 1 行——用 `_detect_header` 探测，不要写死行号。
 - 测试样本（`物资/`、`服务/`，约 1.4GB）被 gitignore，是冻结的固定测试集：**不要修改、不要提交、不要在测试外的代码里引用其绝对路径**。
+- compose：LLM 三个变量由宿主机 `.env` 透传进 api/worker（`${LLM_API_KEY:-}`），不进镜像；Nginx 上游用 `resolver 127.0.0.11` + 变量 `proxy_pass`，否则 jb-api 重建换 IP 后 web 会一直 502。
 - 提交信息用中文，正文列条目；提交前 `ruff check` 与 `pytest` 必须通过。
 
 ## 当前欠债（有意为之，接手时按计划还，勿提前"顺手修"）

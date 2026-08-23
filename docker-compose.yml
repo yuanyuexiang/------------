@@ -19,6 +19,10 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-jinbang}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-jinbang-dev-only}
       UPLOAD_DIR: /data/uploads
+      # LLM：从宿主机 .env 透传（密钥只在 .env，不进镜像）；端点/模型可在配置中心覆盖
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
     volumes: ["uploads:/data/uploads"]   # api 与 worker 共享上传目录
     command: sh -c "alembic -c deploy/alembic.ini upgrade head && uvicorn jb_api.main:app --host 0.0.0.0 --port 8000"
     depends_on:
@@ -38,6 +42,9 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jinbang}:${POSTGRES_PASSWORD:-jinbang-dev-only}@db:5432/${POSTGRES_DB:-jinbang}
       CELERY_BROKER_URL: redis://redis:6379/0
       UPLOAD_DIR: /data/uploads
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
     volumes: ["uploads:/data/uploads"]
     depends_on:
       db: { condition: service_healthy }
