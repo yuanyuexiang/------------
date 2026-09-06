@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 
 MARK = "【待补充：{}】"
-MARK_PAT = re.compile(r"【待补充：([^】]*)】")
+MARK_PAT = re.compile(r"【待补充(?:[：:]([^】]*))?】")
 
 
 def todo(what: str) -> str:
@@ -12,18 +12,21 @@ def todo(what: str) -> str:
 
 
 def find_all(text: str) -> list[str]:
-    return MARK_PAT.findall(text)
+    return [value or "未说明的待补充项" for value in MARK_PAT.findall(text)]
 
 
 def scan_docx(path: str) -> list[str]:
-    """扫描 docx 全文（段落+表格）中的待补充标记。"""
-    import docx
-    d = docx.Document(path)
+    """扫描正文、嵌套表格、文本框、页眉页脚与注释中的标记（包括跨 run 标记）。"""
+    from zipfile import ZipFile
+
+    from lxml import etree
+
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
     found: list[str] = []
-    for p in d.paragraphs:
-        found += find_all(p.text)
-    for t in d.tables:
-        for r in t.rows:
-            for c in r.cells:
-                found += find_all(c.text)
+    with ZipFile(path) as archive:
+        for name in archive.namelist():
+            if name.startswith("word/") and name.endswith(".xml"):
+                root = etree.fromstring(archive.read(name), etree.XMLParser(resolve_entities=False))
+                for p in root.xpath("//w:p", namespaces=ns):
+                    found += find_all("".join(p.xpath(".//w:t/text()", namespaces=ns)))
     return found

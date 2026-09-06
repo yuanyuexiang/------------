@@ -8,10 +8,10 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 from jb_kb import repo as kb_repo
 from jb_parser import parse
-from jb_parser.trm import TRM
 from jb_store import Project, Task, session
 from jb_store import auth as au
 from jb_store import config as cfg
@@ -79,6 +79,7 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
                  with_draft: bool, product_model: str = "") -> None:
     """生成商务/技术文件；with_draft=True 时先由写作 Agent 起草技术方案（LLM，分钟级）。"""
     from jb_docgen import generate
+    from jb_docgen.workflow import file_hash, inputs, save_artifact
 
     from . import config as config_api
     config_api.install_usage_hook()      # Celery worker 进程内也记账、也读配置中心的 LLM 覆盖
@@ -91,7 +92,7 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
         if not p or cp is None or not (p.trm_confirmed or p.trm):
             _update(task_id, status="failed", message="项目/档案/TRM 不存在")
             return
-        trm = TRM.model_validate(p.trm_confirmed or p.trm)
+        trm, cp, input_hash = inputs(s, p, profile_name)
         zip_dir = os.path.dirname(p.zip_path)
     if not (0 <= pkg_index < len(trm.packages)):
         _update(task_id, status="failed", message="pkg_index 越界")
@@ -99,20 +100,35 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
     pkg = trm.packages[pkg_index]
     drafts = None
     draft_md = ""
-    if with_draft:
-        from jb_agents.writer import draft_package
-        _update(task_id, progress=0.15, message="写作 Agent 起草技术方案（按评分项逐节，约 3-5 分钟）")
-        d = draft_package(trm, pkg, cp, use_llm=True)
-        drafts, draft_md = d.sections, d.markdown()
-    _update(task_id, progress=0.8, message="装配商务/技术文件")
     try:
-        res = generate(trm, pkg, cp, os.path.join(zip_dir, "out"), product_model or None, drafts=drafts)
+        if with_draft:
+            from jb_agents.writer import draft_package
+            _update(task_id, progress=0.15, message="写作 Agent 起草技术方案（按评分项逐节，约 3-5 分钟）")
+            d = draft_package(trm, pkg, cp, use_llm=True)
+            drafts, draft_md = d.sections, d.markdown()
+        _update(task_id, progress=0.8, message="装配商务/技术文件")
+        out_dir = os.path.join(zip_dir, "out")
+        os.makedirs(out_dir, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=zip_dir) as staging:
+            res = generate(trm, pkg, cp, staging, product_model or None, drafts=drafts)
+            for field in ("commercial_path", "technical_path"):
+                old = getattr(res, field)
+                name = f"{task_id}_{os.path.basename(old)}"
+                dest = os.path.join(out_dir, name)
+                os.replace(old, dest)
+                setattr(res, field, dest)
+            res.docx_todos = {f"{task_id}_{name}": todos for name, todos in res.docx_todos.items()}
     except Exception as exc:
         _update(task_id, status="failed", message=f"生成失败: {exc}"[:2000])
         return
     with session() as s:
         p = s.get(Project, project_id)
         summary = res.summary()
+        save_artifact(p, {"id": task_id, "created_at": s.get(Task, task_id).created_at.isoformat(),
+                          "pkg_index": pkg_index, "pkg_no": pkg.pkg_no, "profile": profile_name,
+                          "product_model": product_model, "input_hash": input_hash,
+                          "files": {os.path.basename(path): file_hash(path)
+                                    for path in (res.commercial_path, res.technical_path)}})
         pm.set_result(p, "generate", {"todo_count": summary.get("todo_count"), "export_blocked": summary.get("export_blocked"),
                                       "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],
                                       "with_draft": with_draft, "profile": profile_name}, pkg.pkg_no)

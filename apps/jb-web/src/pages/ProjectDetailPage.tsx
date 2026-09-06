@@ -100,7 +100,7 @@ export default function ProjectDetailPage() {
             { title: '预算(元)', dataIndex: 'budget_yuan', width: 120, render: (v: number | null) => v ? v.toLocaleString() : '—' },
             { title: '自检', width: 90, render: (_, row) => { const v = r.qualify?.verdicts?.[row.pkg_no]; return v ? <Tag color={VERDICT_COLOR[v]}>{v}</Tag> : '—' } },
             { title: '生成', width: 150, render: (_, row) => { const g = r.generate?.[row.pkg_no]; return g ? <Tag color={g.export_blocked ? 'orange' : 'green'}>待补充 {g.todo_count}{g.with_draft ? ' · 含起草' : ''}</Tag> : '—' } },
-            { title: '审查', width: 170, render: (_, row) => { const v = r.review?.[row.pkg_no]; return v ? <Tag color={v.blocked ? 'red' : 'green'}>{v.blocked ? '有否决项' : '无否决项'} {Object.entries(v.counts).map(([k, n]) => `${k}${n}`).join(' ')}</Tag> : '—' } },
+            { title: '上次审查（当前状态见工作台）', width: 210, render: (_, row) => { const v = r.review?.[row.pkg_no]; return v ? <Tag>{v.blocked ? '有否决项' : '无否决项'} {Object.entries(v.counts).map(([k, n]) => `${k}${n}`).join(' ')}</Tag> : '—' } },
             { title: '模拟评分', width: 190, render: (_, row) => { const v = r.score?.[row.pkg_no]; return v ? <span>技 {v.tech_total ?? '—'}/{v.tech_max} · 商 {v.biz_total ?? '—'}/{v.biz_max}{v.weighted !== null ? ` · 加权 ${v.weighted}` : ''}</span> : '—' } },
           ]} />
       </Card>
@@ -108,10 +108,11 @@ export default function ProjectDetailPage() {
       <Row gutter={16}>
         <Col span={12}>
           <Card size="small" title={`产出文件（${p.files.length}）`}>
+            <Typography.Paragraph type="secondary">草稿用于核对和整改；正式件需在工作台通过检查后导出，资料变化后需重新生成或复查。</Typography.Paragraph>
             {p.files.length === 0 ? <Typography.Text type="secondary">尚未生成，到"生成与审查"工作台生成商务/技术文件</Typography.Text> : (
               <Table size="small" rowKey="name" pagination={false} dataSource={p.files}
                 columns={[
-                  { title: '文件', dataIndex: 'name', ellipsis: true, render: (v: string) => <a href={api.fileUrl(id, v)}>{v}</a> },
+                  { title: '文件', dataIndex: 'name', ellipsis: true, render: (v: string) => <a href={api.fileUrl(id, v)}>{v.startsWith('正式_') ? '正式件：' : '草稿：'}{v}</a> },
                   { title: '大小', dataIndex: 'size', width: 90, render: (n: number) => `${Math.ceil(n / 1024)} KB` },
                   { title: '修改', dataIndex: 'modified', width: 150, render: fmt },
                 ]} />

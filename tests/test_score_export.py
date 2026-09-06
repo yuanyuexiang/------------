@@ -63,3 +63,17 @@ def test_clean_metadata(tmp_path):
     clean_metadata(str(p))
     cp = docx.Document(str(p)).core_properties
     assert cp.author == "" and cp.comments == ""
+
+
+def test_export_rejects_force_and_header_nested_placeholders(tmp_path):
+    p = tmp_path / "hidden.docx"
+    d = docx.Document()
+    header = d.sections[0].header.paragraphs[0]
+    header.add_run("【待补")
+    header.add_run("充：页眉信息】")
+    nested = d.add_table(rows=1, cols=1).cell(0, 0).add_table(rows=1, cols=1)
+    nested.cell(0, 0).text = "【待补充】"
+    d.save(p)
+    result = export(str(p), want_pdf=False)
+    assert not result.ok and {"页眉信息", "未说明的待补充项"} <= set(result.blocked_by)
+    assert not export(str(p), want_pdf=False, force=True).ok

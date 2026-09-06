@@ -75,11 +75,13 @@ def to_pdf(path: str, out_dir: Optional[str] = None) -> tuple[Optional[str], str
 
 def export(path: str, want_pdf: bool = True, force: bool = False) -> ExportResult:
     todos = scan_docx(path)
-    if todos and not force:
+    if force:
+        return ExportResult(ok=False, docx_path=path, blocked_by=["不允许强制绕过导出检查"])
+    if todos:
         return ExportResult(ok=False, docx_path=path, blocked_by=todos,
                             notes=[f"{len(todos)} 处【待补充】未清零，禁止导出"])
     clean_metadata(path)
-    res = ExportResult(ok=True, docx_path=path, notes=["元数据已清理"] + (["强制导出：仍含待补充"] if todos else []))
+    res = ExportResult(ok=True, docx_path=path, notes=["元数据已清理"])
     if want_pdf:
         pdf, note = to_pdf(path)
         res.pdf_path = pdf

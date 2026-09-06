@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
-import { api, Finding, GenResult, ItemScore, Task } from '../api'
+import { api, Finding, ItemScore } from '../api'
 
 const LEVEL: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
 const VERDICT: Record<string, string> = { satisfied: 'green', deviation: 'red', unknown: 'orange', missing: 'default' }
@@ -17,48 +17,74 @@ export default function WorkbenchPage() {
   const [profile, setProfile] = useState<string>()
   const [pkgIndex, setPkgIndex] = useState(0)
   const [withDraft, setWithDraft] = useState(false)
-  const [task, setTask] = useState<Task | null>(null)
-  const [gen, setGen] = useState<GenResult | null>(null)
-  const [review, setReview] = useState<{ blocked: boolean; counts: Record<string, number>; findings: Finding[] } | null>(null)
+  const [taskId, setTaskId] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const { data: flow, refetch: refreshFlow, error: flowError } = useQuery({
+    queryKey: ['workflow', id, profile, pkgIndex],
+    queryFn: () => api.workflow(id, profile ?? '', pkgIndex), refetchInterval: 5000,
+  })
+  const effectiveTaskId = flow?.active_task_id ?? taskId
+  const { data: task } = useQuery({
+    queryKey: ['task', effectiveTaskId], queryFn: () => api.task(effectiveTaskId!), enabled: !!effectiveTaskId,
+    refetchInterval: (q) => ['done', 'failed'].includes(q.state.data?.status ?? '') ? false : 2000,
+  })
+  const gen = flow?.generation
+  const review = flow?.review
+  const running = busy || (!!effectiveTaskId && !['done', 'failed'].includes(task?.status ?? ''))
   const [score, setScore] = useState<{ items: ItemScore[]; tech_total: number | null; tech_max: number; biz_total: number | null; biz_max: number; weighted: number | null } | null>(null)
   const [matrix, setMatrix] = useState<{ section: string; seq: string; item: string; channels: string[]; port: string; status: string }[]>([])
-  const timer = useRef<number | null>(null)
-  useEffect(() => () => { if (timer.current) window.clearInterval(timer.current) }, [])
+  useEffect(() => { if (!profile && flow?.profile) setProfile(flow.profile) }, [profile, flow?.profile])
+  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]) }, [id, profile, pkgIndex])
+  useEffect(() => {
+    if (task?.status === 'done' || task?.status === 'failed') void refreshFlow()
+  }, [task?.status, refreshFlow])
 
   const run = async () => {
     if (!profile) return message.warning('请选择企业档案')
+    setBusy(true)
+    setScore(null)
     try {
       const { task_id } = await api.generate(id, profile, pkgIndex, withDraft)
-      setGen(null)
-      timer.current = window.setInterval(async () => {
-        const t = await api.task(task_id)
-        setTask(t)
-        if (t.status === 'done' || t.status === 'failed') {
-          if (timer.current) window.clearInterval(timer.current)
-          if (t.status === 'done') { setGen(t.result as unknown as GenResult); message.success('生成完成') } else message.error(t.message)
-        }
-      }, 2000)
-    } catch (e) { message.error(String(e)) }
+      setTaskId(task_id)
+      await refreshFlow()
+    } catch (e) { message.error(String(e)) } finally { setBusy(false) }
   }
-  const doReview = async () => { if (profile) setReview(await api.review(id, profile, pkgIndex)) }
-  const doScore = async () => { if (profile) setScore((await api.score(id, profile, pkgIndex, withDraft, task?.id)).report) }
-  const doMatrix = async () => setMatrix((await api.submissionMatrix(id, pkgIndex)).rows)
+  const doReview = async () => {
+    if (!profile) return
+    setBusy(true)
+    try { await api.review(id, profile, pkgIndex); await refreshFlow() }
+    catch (e) { message.error(String(e)) } finally { setBusy(false) }
+  }
+  const doScore = async () => {
+    if (!profile) return
+    try { setScore((await api.score(id, profile, pkgIndex, withDraft, flow?.generation_id ?? undefined)).report) }
+    catch (e) { message.error(String(e)) }
+  }
+  const doMatrix = async () => {
+    try { setMatrix((await api.submissionMatrix(id, pkgIndex)).rows) }
+    catch (e) { message.error(String(e)) }
+  }
   const doExport = async (fn: string) => {
-    const r = await api.exportFile(id, fn)
-    r.ok ? message.success(`已导出：${r.notes.join('；')}`) : message.error(`阻断：${r.blocked_count} 处待补充，如「${r.blocked_by[0]}」`)
+    setBusy(true)
+    try {
+      const r = await api.exportFile(id, fn)
+      if (r.ok) message.success(r.pdf ? '正式 Word 和 PDF 已生成，请使用下方链接下载' : `正式 Word 已生成；${r.notes.join('；')}`)
+      else message.error(`导出被阻断：${r.blocked_by.join('；')}`)
+      await refreshFlow()
+    } catch (e) { message.error(String(e)) } finally { setBusy(false) }
   }
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       <Card size="small">
         <Space wrap>
-          <Select placeholder="企业档案" style={{ width: 260 }} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} />
-          <Select style={{ width: 320 }} value={pkgIndex} onChange={setPkgIndex}
+          <Select placeholder="企业档案" style={{ width: 260 }} disabled={running} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} />
+          <Select style={{ width: 320 }} disabled={running} value={pkgIndex} onChange={setPkgIndex}
             options={(trm?.packages ?? []).map((p, i) => ({ value: i, label: `${p.sub_no} ${p.sub_name} ${p.pkg_no}`.trim() }))} />
           <span>LLM 起草技术方案 <Switch checked={withDraft} onChange={setWithDraft} /></span>
-          <Button type="primary" onClick={run} disabled={task?.status === 'running'}>生成商务/技术文件</Button>
-          <Button onClick={doReview} disabled={!gen}>合规审查</Button>
-          <Button onClick={doScore} disabled={!gen}>模拟评分</Button>
+          <Button type="primary" onClick={run} disabled={running || !profile}>生成商务/技术文件</Button>
+          <Button onClick={doReview} disabled={!gen || !profile || running}>合规审查 / 复查</Button>
+          <Button onClick={doScore} disabled={!gen || !profile || running}>模拟评分</Button>
           <Button onClick={doMatrix}>递交矩阵</Button>
           <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
         </Space>
@@ -70,16 +96,33 @@ export default function WorkbenchPage() {
         )}
       </Card>
 
+      {flowError && <Alert type="error" message="无法读取当前审查状态" description={String(flowError)} />}
+      {flow && <Card size="small" title="整改与正式导出">
+        <Alert showIcon type={flow.blockers.length ? 'warning' : 'success'}
+          message={flow.blockers.length ? '正式导出尚未就绪' : '本版本审查有效，可以正式导出'}
+          description={flow.blockers.length ? <ul>{flow.blockers.map((reason) => <li key={reason}>{reason}</li>)}</ul> : '导出前仍会重新核对资料、规则和文件版本。'} />
+        <Space wrap style={{ marginTop: 12 }}>
+          <Button onClick={() => nav(`/projects/${id}/trm`)}>1. 核对招标要求</Button>
+          <Button disabled={!profile} onClick={() => nav(`/kb/${encodeURIComponent(profile ?? '')}`)}>2. 补齐企业资料</Button>
+          <Button disabled={running || !profile} onClick={run}>3. 重新生成</Button>
+          <Button disabled={running || !gen || !profile} onClick={doReview}>4. 复查本版本</Button>
+        </Space>
+        {flow.exports.map((item) => <div key={item.docx} style={{ marginTop: 8 }}>
+          <Space><a href={api.fileUrl(id, item.docx)}>下载正式 Word</a>
+            {item.pdf && <a href={api.fileUrl(id, item.pdf)}>下载正式 PDF</a>}</Space>
+        </div>)}
+      </Card>}
+
       {gen && (
         <Tabs items={[
           { key: 'f', label: '文件与待补充', children: (
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert type={gen.summary.export_blocked ? 'warning' : 'success'}
-                message={gen.summary.export_blocked ? `共 ${gen.summary.todo_count} 处【待补充】，补齐前禁止导出` : '无待补充，可导出'} />
+                message={gen.summary.export_blocked ? `共 ${gen.summary.todo_count} 处【待补充】，请补齐后重新生成` : '无待补充；正式导出还需通过本版本合规审查'} />
               {gen.files.map((f) => (
                 <Space key={f}>
-                  <a href={api.fileUrl(id, f)} target="_blank" rel="noreferrer">{f}</a>
-                  <Button size="small" onClick={() => doExport(f)}>导出（清元数据+PDF）</Button>
+                  <a href={api.fileUrl(id, f)} target="_blank" rel="noreferrer">下载草稿：{f}</a>
+                  <Button size="small" disabled={running || !!flowError || !flow || flow.blockers.length > 0} onClick={() => doExport(f)}>正式导出（Word / PDF）</Button>
                   <Typography.Text type="secondary">待补充 {(gen.todos[f] ?? []).length} 处</Typography.Text>
                 </Space>
               ))}
@@ -111,7 +154,7 @@ export default function WorkbenchPage() {
       )}
 
       {review && (
-        <Card size="small" title={<Space><span>合规审查</span><Tag color={review.blocked ? 'red' : 'green'}>{review.blocked ? '存在否决项' : '无否决项'}</Tag>{Object.entries(review.counts).map(([k, v]) => <Tag key={k} color={LEVEL[k]}>{k} {v}</Tag>)}</Space>}>
+        <Card size="small" title={<Space><span>合规审查</span><Tag color={review.blocked ? 'red' : 'green'}>{review.blocked ? '存在否决项' : '无否决项'}</Tag><Typography.Text type="secondary">生成版本 {review.generation_id}</Typography.Text>{Object.entries(review.counts).map(([k, v]) => <Tag key={k} color={LEVEL[k]}>{k} {v}</Tag>)}</Space>}>
           <Table<Finding> size="small" rowKey={(_, i) => String(i)} pagination={{ pageSize: 15 }} dataSource={review.findings}
             columns={[
               { title: '级别', dataIndex: 'level', width: 80, render: (v: string) => <Tag color={LEVEL[v]}>{v}</Tag> },

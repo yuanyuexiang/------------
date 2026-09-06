@@ -17,6 +17,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from jb_agents import qualify
+from jb_docgen import workflow
 from jb_kb import repo as kb_repo
 from jb_parser.trm import TRM
 from jb_store import Project, ProjectEvent, Task, init_db, session
@@ -269,8 +270,16 @@ def _load_trm_profile(project_id: str, profile: str):
 def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pkg_index: int = 0,
                   product_model: Optional[str] = None, with_draft: bool = False):
     """生成商务/技术文件（异步任务；with_draft 时先由写作 Agent 起草）。轮询 /api/tasks/{id}。"""
-    _load_trm_profile(project_id, profile)  # 参数校验（404/409）
+    trm, _ = _load_trm_profile(project_id, profile)
+    if not 0 <= pkg_index < len(trm.packages):
+        raise HTTPException(400, "pkg_index 越界")
     with session() as s:
+        s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
+        active = s.scalar(select(Task.id).where(Task.project_id == project_id,
+                                               Task.kind == "generate",
+                                               Task.status.in_(["queued", "running"])).limit(1))
+        if active:
+            raise HTTPException(409, "项目已有生成任务，请等待任务完成")
         t = Task(project_id=project_id, kind="generate", actor=au.current_actor())
         s.add(t)
         s.flush()
@@ -281,36 +290,22 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
 
 @app.post("/api/projects/{project_id}/review")
 def review_docs(project_id: str, profile: str, pkg_index: int = 0):
-    """合规审查：规则引擎扫描最近一次生成结果 + 档案 + TRM。"""
-    import docx as _docx
-    from jb_docgen.placeholders import scan_docx
-    from jb_docgen.techparams import fill_spec
-    from jb_rules import Context, review
-    trm, cp = _load_trm_profile(project_id, profile)
-    pkg = trm.packages[pkg_index]
-    out_dir = os.path.join(UPLOAD_DIR, project_id, "out")
-    docx_todos, doc_texts = {}, {}
-    if os.path.isdir(out_dir):
-        for fn in os.listdir(out_dir):
-            if fn.endswith(".docx") and pkg.pkg_no in fn:
-                path = os.path.join(out_dir, fn)
-                docx_todos[fn] = scan_docx(path)
-                d = _docx.Document(path)
-                doc_texts[fn] = "\n".join(p.text for p in d.paragraphs) + "\n".join(c.text for t in d.tables for r in t.rows for c in r.cells)
-    from jb_docgen import pick_product
-    product = pick_product(cp, pkg)
-    tech_params = [fill_spec(sd, product) for sd in pkg.spec_docs]
-    ctx = Context(trm=trm, pkg=pkg, profile=cp, tech_params=tech_params, docx_todos=docx_todos, doc_texts=doc_texts)
-    rep = review(ctx, settings=config_api.rule_settings_models())
+    """审查当前包的最新生成版本，并保留完整问题清单。"""
     with session() as s:
         p = _get_project(s, project_id)
-        pm.set_result(p, "review", {"blocked": rep.blocked, "counts": rep.counts(), "profile": profile}, pkg.pkg_no)
-        pm.advance(p, "reviewed")
-        pm.log_event(s, project_id, "reviewed",
-                     f"{pkg.pkg_no} 合规审查：{'存在否决项' if rep.blocked else '无否决项'}，" + "，".join(f"{k} {v}" for k, v in rep.counts().items()),
-                     {"pkg_no": pkg.pkg_no, "blocked": rep.blocked, "counts": rep.counts()})
-    return {"blocked": rep.blocked, "counts": rep.counts(), "findings": [f.model_dump() for f in rep.findings],
-            "markdown": rep.markdown()}
+        try:
+            return workflow.review_generation(s, p, pkg_index, profile,
+                                              os.path.join(UPLOAD_DIR, project_id, "out"))
+        except workflow.WorkflowError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/api/projects/{project_id}/workflow")
+def workflow_state(project_id: str, profile: str = "", pkg_index: int = 0):
+    with session() as s:
+        p = _get_project(s, project_id)
+        return workflow.workflow_state(s, p, pkg_index, profile,
+                                       os.path.join(UPLOAD_DIR, project_id, "out"))
 
 
 @app.post("/api/projects/{project_id}/price/validate")
@@ -338,8 +333,12 @@ def submission_matrix(project_id: str, profile: str = "", pkg_index: int = 0):
         if not p or not (p.trm_confirmed or p.trm):
             raise HTTPException(404, "项目/TRM 不存在")
         trm = TRM.model_validate(p.trm_confirmed or p.trm)
+        if not 0 <= pkg_index < len(trm.packages):
+            raise HTTPException(400, "pkg_index 越界")
+        generation = workflow.latest(p, pkg_index)
     out_dir = os.path.join(UPLOAD_DIR, project_id, "out")
-    produced = os.listdir(out_dir) if os.path.isdir(out_dir) else []
+    produced = [name for name in (generation or {}).get("files", {})
+                if os.path.isfile(os.path.join(out_dir, name))]
     rows = []
     for it in trm.submission_table:
         if not it.item:
@@ -360,8 +359,16 @@ def download_file(project_id: str, filename: str):
     path = os.path.join(UPLOAD_DIR, project_id, "out", os.path.basename(filename))
     if not os.path.exists(path):
         raise HTTPException(404, "文件不存在")
+    with session() as s:
+        p = _get_project(s, project_id)
+        try:
+            workflow.validate_download(s, p, os.path.basename(filename),
+                                       os.path.join(UPLOAD_DIR, project_id, "out"))
+        except workflow.WorkflowError as exc:
+            raise HTTPException(409, str(exc)) from exc
     return FileResponse(path, filename=filename,
-                        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                        media_type="application/pdf" if filename.endswith(".pdf") else
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 # ---------- 模拟评分 / 导出 ----------
@@ -398,14 +405,8 @@ def score_project(project_id: str, profile: str, pkg_index: int = 0, llm: bool =
 
 @app.post("/api/projects/{project_id}/export")
 def export_project(project_id: str, filename: str, pdf: bool = True, force: bool = False):
-    """导出加固：待补充阻断 → 元数据清理 → PDF（有转换服务时）。"""
-    from jb_docgen.export import export
-    path = os.path.join(UPLOAD_DIR, project_id, "out", os.path.basename(filename))
-    if not os.path.exists(path):
-        raise HTTPException(404, "文件不存在")
-    res = export(path, want_pdf=pdf, force=force)
+    """正式导出：确认、版本一致、审查通过、待补充清零；不接受 force 绕过。"""
     with session() as s:
-        pm.log_event(s, project_id, "exported", f"导出 {os.path.basename(filename)}：{'成功' if res.ok else f'被阻断（待补充 {len(res.blocked_by)} 处）'}",
-                     {"filename": os.path.basename(filename), "ok": res.ok, "blocked_count": len(res.blocked_by), "force": force})
-    return {"ok": res.ok, "blocked_by": res.blocked_by[:20], "blocked_count": len(res.blocked_by),
-            "pdf": os.path.basename(res.pdf_path) if res.pdf_path else None, "notes": res.notes}
+        p = _get_project(s, project_id)
+        return workflow.formal_export(s, p, os.path.basename(filename),
+                                      os.path.join(UPLOAD_DIR, project_id, "out"), pdf, force)

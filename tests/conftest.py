@@ -12,7 +12,9 @@ def client(tmp_path, monkeypatch):
     import jb_store
     jb_store.reset_engine()
     from fastapi.testclient import TestClient
-    from jb_api.main import app
+    from jb_api import main
+    monkeypatch.setattr(main, "UPLOAD_DIR", str(tmp_path / "uploads"))
+    app = main.app
     with TestClient(app) as c:
         r = c.post("/api/auth/login", json={"username": "admin", "password": "admin"})
         assert r.status_code == 200, r.text
