@@ -10,7 +10,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "deploy" / "deploy.sh"
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="bash unavailable")
-@pytest.mark.parametrize("failure", ["", "pull", "migration", "health", "first-health"])
+@pytest.mark.parametrize("failure", ["", "pull", "migration", "health", "first-health", "startup"])
 def test_deploy_failure_boundaries(tmp_path, failure):
     root = tmp_path / "production"
     release = root / "releases" / "new"
@@ -20,7 +20,7 @@ def test_deploy_failure_boundaries(tmp_path, failure):
         (directory / "release.env").write_text("JB_API_IMAGE=example:test\n")
         (directory / "compose.prod.yml").write_text("name: jinbang\n")
     (root / ".env").write_text("DEPLOY_DOMAIN=example.test\n")
-    if failure != "first-health":
+    if failure not in ("first-health", "startup"):
         (root / "current").symlink_to(previous)
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -33,6 +33,8 @@ printf '%s\\n' "$*" >> "$COMMAND_LOG"
 case " $* " in
   *" pull "*) test "$FAILURE" != pull || exit 11 ;;
   *" upgrade head "*) test "$FAILURE" != migration || exit 12 ;;
+  *" --wait-timeout 360 "*) test "$FAILURE" != startup || exit 13 ;;
+  *" ps -aq "*) printf 'worker-container\\n' ;;
 esac
 exit 0
 ''',
@@ -58,9 +60,13 @@ exit 0
         assert (root / "previous").resolve() == previous
         assert commands.index("pg_dump") < commands.index("upgrade head")
         assert commands.index("upgrade head") < commands.index("curl")
-    elif failure == "first-health":
+    elif failure in ("first-health", "startup"):
         assert not (root / "current").exists()
         assert "stop jb-web jb-worker jb-api" in commands
+        assert "worker-container" in commands
+        assert commands.index("inspect --format") < commands.index("stop jb-web")
+        if failure == "startup":
+            assert "curl" not in commands
     else:
         assert (root / "current").resolve() == previous
         if failure == "pull":

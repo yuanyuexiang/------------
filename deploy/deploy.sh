@@ -22,6 +22,13 @@ failed() {
   local status=$?
   trap - ERR
   echo "Deployment failed during $phase" >&2
+  # Capture health failures before rollback/stop changes the container state.
+  compose ps -a || true
+  local container
+  for container in $(compose ps -aq); do
+    docker inspect --format '{{.Name}} state={{.State.Status}} oom={{.State.OOMKilled}} health={{json .State.Health}}' \
+      "$container" || true
+  done
   if [[ "$phase" == app && -n "$previous" && -f "$previous/release.env" ]]; then
     echo 'Restoring previous application images; database migrations are NOT reverted.' >&2
     docker compose --project-name jinbang --env-file "$root/.env" \
@@ -48,7 +55,7 @@ phase=migration
 compose exec -T db pg_dump -U jinbang -d jinbang -Fc > "$root/backups/$(basename "$release").dump"
 compose run --rm --no-deps jb-api alembic -c deploy/alembic.ini upgrade head
 phase=app
-compose up -d --no-build --pull never --wait --wait-timeout 240
+compose up -d --no-build --pull never --wait --wait-timeout 360
 domain=$(sed -n 's/^DEPLOY_DOMAIN=//p' "$root/.env")
 domain=${domain:-jinbang.matrix-net.tech}
 # Allow time for the existing Traefik DNS challenge to issue the first certificate.
