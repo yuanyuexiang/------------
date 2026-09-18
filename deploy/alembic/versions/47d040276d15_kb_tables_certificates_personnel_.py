@@ -5,15 +5,14 @@ Revises: 9d5b301eb596
 Create Date: 2026-08-22 23:21:24.551387
 
 """
-from typing import Sequence, Union
-
 import datetime as dt
 import json
 import uuid
+from collections.abc import Sequence
+from typing import Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '47d040276d15'

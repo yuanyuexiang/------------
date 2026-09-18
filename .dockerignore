@@ -1,0 +1,17 @@
+**
+!pyproject.toml
+!packages/
+!packages/**
+!apps/
+!apps/jb_api/
+!apps/jb_api/**
+!apps/jb-web/
+!apps/jb-web/**
+!deploy/
+!deploy/**
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+**/.env*

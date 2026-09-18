@@ -49,6 +49,21 @@ cd apps/jb-web && npm install && npm run dev  # 前端（localhost:5173）
 命名约定：Python 包用 snake_case（`jb_api`、`jb_parser`），npm 工程用 kebab-case（`jb-web`）——
 分别遵循各生态惯例，属有意为之。
 
+## GitHub Actions
+
+`.github/workflows/ci.yml` 在 push、pull request 和手动触发时运行：
+
+- Python 静态检查：`ruff check .`。
+- Python 3.9（最低支持版本）和 3.11（后端容器版本）的完整 `pytest -q -ra` 回归。
+- Node.js 22 下通过锁文件安装依赖（`npm ci`），执行 TypeScript 检查及 Vite 生产构建。
+
+CI 只需要仓库读取权限，无需 Secrets；主分支运行不会被新提交自动取消，以保护部署过程。
+GitHub runner 不包含 `物资/`、`服务/` 中的客户样本，对应测试按现有 `skipif` 跳过；
+涉及解析器的变更仍需在本地运行真实样本回归。
+`main` 的 push 或手动运行在 CI 全部通过后发布镜像并部署生产，其他分支和 PR 只运行 CI。
+CD 所需 Secrets、主机初始化及恢复步骤见 [生产部署说明](deploy/README.md)。
+推送配置到 GitHub 后可在 Actions → CI 查看结果；手动运行需先将配置合入默认分支。
+
 ## Docker Compose 部署
 
 ```bash

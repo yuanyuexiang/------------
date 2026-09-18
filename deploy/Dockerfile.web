@@ -1,7 +1,7 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
-COPY apps/jb-web/package.json ./
-RUN npm install --registry=https://registry.npmmirror.com
+COPY apps/jb-web/package.json apps/jb-web/package-lock.json ./
+RUN npm ci
 COPY apps/jb-web/ .
 RUN npm run build
 

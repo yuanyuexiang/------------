@@ -1,0 +1,98 @@
+name: jinbang
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql+psycopg://jinbang:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/jinbang
+  CELERY_BROKER_URL: redis://redis:6379/0
+  UPLOAD_DIR: /data/uploads
+  JB_SECRET_KEY: ${JB_SECRET_KEY:?Set JB_SECRET_KEY}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-}
+
+services:
+  jb-web:
+    image: ${JB_WEB_IMAGE:?Set JB_WEB_IMAGE}
+    restart: unless-stopped
+    networks: [default, matrix-network]
+    depends_on:
+      jb-api: { condition: service_healthy }
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: matrix-network
+      traefik.http.routers.jinbang.rule: Host(`${DEPLOY_DOMAIN:-jinbang.matrix-net.tech}`)
+      traefik.http.routers.jinbang.entrypoints: websecure
+      traefik.http.routers.jinbang.tls: 'true'
+      traefik.http.routers.jinbang.tls.certresolver: aliyunresolver
+      traefik.http.routers.jinbang.service: jinbang
+      traefik.http.services.jinbang.loadbalancer.server.port: '80'
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1/api/health']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  jb-api:
+    image: ${JB_API_IMAGE:?Set JB_API_IMAGE}
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      JB_ADMIN_PASSWORD: ${JB_ADMIN_PASSWORD:?Set JB_ADMIN_PASSWORD}
+    volumes: [uploads:/data/uploads]
+    command: [uvicorn, 'jb_api.main:app', --host, 0.0.0.0, --port, '8000']
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  jb-worker:
+    image: ${JB_API_IMAGE:?Set JB_API_IMAGE}
+    restart: unless-stopped
+    environment: *app-env
+    volumes: [uploads:/data/uploads]
+    command: [celery, -A, jb_api.tasks, worker, -l, info, '--concurrency=2']
+    depends_on:
+      jb-api: { condition: service_healthy }
+    healthcheck:
+      test: [CMD-SHELL, 'celery -A jb_api.tasks inspect ping -d celery@$$HOSTNAME --timeout 5 | grep -q pong']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  db:
+    image: pgvector/pgvector:pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jinbang
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: jinbang
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U jinbang -d jinbang']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: [redis-server, --appendonly, 'yes']
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+networks:
+  matrix-network:
+    external: true
+
+volumes:
+  uploads:
+  pgdata:
+  redisdata:

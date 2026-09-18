@@ -10,6 +10,7 @@ __pycache__/
 node_modules/
 dist/
 .env
+ci-cd.md
 .pytest_cache/
 .ruff_cache/
 data/

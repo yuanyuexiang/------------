@@ -1,15 +1,15 @@
 """init: projects/tasks/profiles
 
 Revision ID: 9d5b301eb596
-Revises: 
+Revises:
 Create Date: 2026-08-21 23:22:02.992413
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = '9d5b301eb596'
