@@ -97,7 +97,6 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
-      packages: write
     environment:
       name: production
       url: https://jinbang.matrix-net.tech
@@ -105,7 +104,8 @@ jobs:
       group: jinbang-production
       cancel-in-progress: false
     env:
-      REGISTRY: ghcr.io
+      REGISTRY: ${{ vars.REGISTRY || 'registry.cn-hangzhou.aliyuncs.com' }}
+      REGISTRY_NAMESPACE: ${{ vars.REGISTRY_NAMESPACE || 'yuanyuexiang' }}
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
     steps:
@@ -113,16 +113,18 @@ jobs:
         with:
           persist-credentials: false
       - name: Set image namespace
-        run: echo "IMAGE_PREFIX=$REGISTRY/${GITHUB_REPOSITORY_OWNER,,}/jinbang" >> "$GITHUB_ENV"
+        run: echo "IMAGE_PREFIX=$REGISTRY/$REGISTRY_NAMESPACE/jinbang" >> "$GITHUB_ENV"
       - name: Validate credentials and configure SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          REGISTRY_USER: ${{ github.actor }}
-          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           : "${DEPLOY_HOST:?Missing production secret DEPLOY_HOST}"
           : "${DEPLOY_USER:?Missing production secret DEPLOY_USER}"
           : "${SSH_KEY:?Missing production secret DEPLOY_SSH_KEY}"
+          : "${REGISTRY_USERNAME:?Missing production secret REGISTRY_USERNAME}"
+          : "${REGISTRY_PASSWORD:?Missing production secret REGISTRY_PASSWORD}"
           install -d -m 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
@@ -132,7 +134,7 @@ jobs:
             echo '::error::DEPLOY_HOST has no trusted key in deploy/known_hosts'
             exit 1
           }
-          printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+          printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             'docker compose version && docker network inspect matrix-network >/dev/null && command -v python3 && command -v flock && command -v curl'
       - name: Initialize production environment (preserve existing configuration)
@@ -150,8 +152,8 @@ jobs:
           docker push "$IMAGE_PREFIX-web:$GITHUB_SHA"
       - name: Upload release and deploy
         env:
-          REGISTRY_USER: ${{ github.actor }}
-          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           release="/opt/jinbang/releases/$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           printf 'JB_API_IMAGE=%s-api:%s\nJB_WEB_IMAGE=%s-web:%s\n' \
@@ -160,7 +162,7 @@ jobs:
             "mkdir -p '$release'"
           scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
             deploy/compose.prod.yml deploy/deploy.sh release.env "$DEPLOY_USER@$DEPLOY_HOST:$release/"
-          # Keep the job token in an isolated config only for this SSH session.
+          # Keep registry credentials in an isolated config only for this SSH session.
           printf -v remote_deploy '%q ' bash -c '
             set -Eeuo pipefail
             umask 077
@@ -170,7 +172,7 @@ jobs:
             trap cleanup EXIT
             docker login "$1" -u "$2" --password-stdin
             bash "$3/deploy.sh" "$3"
-          ' bash "$REGISTRY" "$REGISTRY_USER" "$release"
+          ' bash "$REGISTRY" "$REGISTRY_USERNAME" "$release"
           printf '%s' "$REGISTRY_PASSWORD" | ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" "$remote_deploy"
       - name: Remove runner credentials

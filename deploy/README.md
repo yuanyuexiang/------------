@@ -13,10 +13,12 @@
    它创建 `/opt/jinbang/.env`，生成随机数据库密码、令牌密钥和管理员初始密码，权限为 600；
    已存在的文件保持不变。变量说明见 `production.env.example`。
    `JB_ADMIN_PASSWORD` 仅用于空库首次创建 admin；后续修改此变量不会重置现有账号。
-2. 镜像使用 GitHub Container Registry（GHCR）：`ghcr.io/<仓库所有者>/jinbang-api` 和
-   `ghcr.io/<仓库所有者>/jinbang-web`，由工作流首次推送时创建，默认私有。
-   确保部署机能访问 `ghcr.io`，并拉取 `pgvector/pgvector:pg15` 和 `redis:7-alpine`。
-   如果同名 GHCR 包已存在，需在包设置中授予本仓库 Actions 访问权限。
+2. 镜像使用阿里云容器镜像服务 ACR，默认仓库地址为 `registry.cn-hangzhou.aliyuncs.com`，
+   命名空间为 `yuanyuexiang`，需创建私有仓库 `jinbang-api` 和 `jinbang-web`。
+   以 ACR 控制台提供的公网登录地址为准；若与默认值不同，在 GitHub `production` 环境
+   Variables 中设置 `REGISTRY`（仅主机名，不含协议），命名空间可用 `REGISTRY_NAMESPACE` 覆盖。
+   新版个人实例地址通常为 `crpi-xxx.cn-<region>.personal.cr.aliyuncs.com`。
+   确保 runner 和部署机能访问该仓库，部署机能拉取 `pgvector/pgvector:pg15` 和 `redis:7-alpine`。
 3. 在 GitHub 仓库 Settings → Environments 创建 `production`，添加下列 Secrets：
 
    | Secret | 内容 |
@@ -24,9 +26,11 @@
    | `DEPLOY_HOST` | 目标服务器 IP：`36.151.147.66` |
    | `DEPLOY_USER` | SSH 用户：`root` |
    | `DEPLOY_SSH_KEY` | 可登录目标主机 root 的完整 SSH 私钥 |
+   | `REGISTRY_USERNAME` | ACR 控制台「访问凭证」中的登录用户名 |
+   | `REGISTRY_PASSWORD` | ACR「访问凭证」中设置的镜像仓库登录密码 |
 
-   镜像推送和本次部署拉取使用 GitHub 自动生成的 `GITHUB_TOKEN`，无需另建镜像仓库 Secrets。
-   只有部署任务授予 `packages: write` 权限。
+   镜像推送和部署拉取均使用上述 ACR 凭据。`REGISTRY_PASSWORD` 是独立设置的仓库密码，
+   不是阿里云控制台账号登录密码；无需 GitHub Packages 写入权限。
 
    `deploy/known_hosts` 固定当前目标主机的 SSH 公钥，主机重装后需核对并更新。
    本地 `ci-cd.md` 含私钥，已加入 Git 忽略；Docker 构建上下文使用白名单，排除凭据和客户样本。
@@ -36,15 +40,15 @@
 
 ## 发布过程
 
-CI 完整通过 → 在 GitHub Linux runner 构建 amd64 镜像 → 以完整提交 SHA 为标签推送 GHCR →
+CI 完整通过 → 在 GitHub Linux runner 构建 amd64 镜像 → 以完整提交 SHA 为标签推送阿里云 ACR →
 SSH 上传本次 Compose 和镜像引用 → 拉取镜像 → 停止 API/worker → 备份数据库 → 执行 Alembic →
 启动并等待容器健康 → 检查 HTTPS 首页及 `/api/health` → 更新 `current` 和 `previous` 链接。
 
 应用发布期间会有短暂不可用。主分支发布串行执行，服务器另用 flock 防止并发部署。
 Secrets 不写入镜像或发布文件；业务环境变量始终从目标主机 `/opt/jinbang/.env` 读取。
-部署通过 SSH 标准输入传入本次任务的临时令牌，使用独立的临时 Docker 配置目录，
-部署结束后删除；不会覆盖服务器已有 Docker 登录配置。工作流结束后令牌失效。
-日后手动拉取私有镜像需另行登录 GHCR，或重新运行工作流；本地已有镜像的回退不需要登录。
+部署通过 SSH 标准输入传入镜像仓库密码，使用独立的临时 Docker 配置目录，
+部署结束后删除；不会覆盖服务器已有 Docker 登录配置。
+日后手动拉取私有镜像需另行登录 ACR，或重新运行工作流；本地已有镜像的回退不需要登录。
 
 ## 故障与恢复
 
@@ -71,4 +75,4 @@ docker compose --env-file .env --env-file current/release.env -f current/compose
 配置依据：[Traefik Docker 路由](https://doc.traefik.io/traefik/reference/routing-configuration/other-providers/docker/)、
 [Compose 健康等待](https://docs.docker.com/reference/cli/docker/compose/up/)。
 
-镜像认证依据：[GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)。
+镜像认证依据：[阿里云 ACR 访问凭证](https://www.alibabacloud.com/help/en/acr/user-guide/configure-access-credentials)。
