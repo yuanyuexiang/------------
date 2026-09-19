@@ -12,6 +12,7 @@ flock -n 9 || { echo 'Another deployment is running' >&2; exit 1; }
 docker network inspect matrix-network >/dev/null
 previous=$(readlink -f "$root/current" || true)
 phase=prepare
+step=prepare
 
 compose() {
   docker compose --project-name jinbang --env-file "$root/.env" \
@@ -21,7 +22,15 @@ compose() {
 failed() {
   local status=$?
   trap - ERR
-  echo "Deployment failed during $phase" >&2
+  echo "Deployment failed during $phase (step=$step, exit=$status)" >&2
+  # Diagnose host-wide stalls without printing environment variables or credentials.
+  free -m >&2 || true
+  for pressure in /proc/pressure/memory /proc/pressure/io; do
+    if [[ -r "$pressure" ]]; then
+      echo "$pressure" >&2
+      cat "$pressure" >&2 || true
+    fi
+  done
   # Capture health failures before rollback/stop changes the container state.
   compose ps -a || true
   local container
@@ -55,13 +64,24 @@ phase=migration
 compose exec -T db pg_dump -U jinbang -d jinbang -Fc > "$root/backups/$(basename "$release").dump"
 compose run --rm --no-deps jb-api alembic -c deploy/alembic.ini upgrade head
 phase=app
+step=container-startup
 compose up -d --no-build --pull never --wait --wait-timeout 360
 domain=$(sed -n 's/^DEPLOY_DOMAIN=//p' "$root/.env")
 domain=${domain:-jinbang.matrix-net.tech}
-# Allow time for the existing Traefik DNS challenge to issue the first certificate.
-curl --fail --silent --show-error --retry 24 --retry-all-errors --retry-delay 10 \
-  --connect-timeout 5 --max-time 15 "https://$domain/api/health"
-curl --fail --silent --show-error --connect-timeout 5 --max-time 15 "https://$domain/" >/dev/null
+check_https() {
+  local url=$1
+  echo "Checking $step: $url"
+  # Both endpoints can see transient TLS/network failures during first issuance.
+  # Keep certificate verification enabled and bound the retry budget.
+  curl --fail --silent --show-error --retry 24 --retry-all-errors --retry-delay 10 \
+    --retry-max-time 300 --connect-timeout 5 --max-time 15 --output /dev/null "$url"
+  echo "Passed $step"
+}
+step=https-api
+check_https "https://$domain/api/health"
+step=https-homepage
+check_https "https://$domain/"
+step=activate-release
 if [[ -n "$previous" && -d "$previous" ]]; then
   ln -sfn "$previous" "$root/previous"
 fi
