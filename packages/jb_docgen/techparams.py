@@ -161,8 +161,13 @@ def fill_spec(spec: SpecDoc, product: Optional[Product]) -> TechParamResult:
     return res
 
 
+def star_text(row: SpecParamRow) -> str:
+    """要求值原文带★就不重复加（规范书里★在正文开头）。"""
+    return row.required if row.required.startswith("★") or not row.star else "★" + row.required
+
+
 def deviation_rows(result: TechParamResult) -> list[dict]:
     """技术偏差表行（无偏差时调用方按国网格式填"无偏差"）。"""
-    return [{"序号": i + 1, "对应条款": f"参数表第{r.row}行", "招标文件要求": r.required,
+    return [{"序号": i + 1, "对应条款": f"参数表第{r.row}行 {r.name}".rstrip(), "招标文件要求": r.required,
              "投标响应": r.response, "偏差说明": r.reason}
             for i, r in enumerate(result.deviations)]

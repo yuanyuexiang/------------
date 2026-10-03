@@ -137,3 +137,29 @@ def parse(zip_path: str, workdir: Optional[str] = None) -> TRM:
         parse_package_dir(workdir, res.files, trm,
                           sub_no=sub_no, sub_name=sub_name, pkg_no=pkg_no)
     return trm
+
+
+def main_doc_for_package(zip_path: str, sub_no: str = "", pkg_no: str = "",
+                         workdir: Optional[str] = None) -> Optional[str]:
+    """解压招标文件包，返回指定分标/包的六章主文件绝对路径（文档引擎母版用）。
+
+    批次级 zip 含多个包时按 分标号 > 包号 匹配，匹配不到退回第一个主文件；无主文件返回 None。
+    workdir 的生命周期由调用方管理（主文件要在生成期间一直可读）。
+    """
+    workdir = workdir or tempfile.mkdtemp(prefix="jb_master_")
+    res = unpack.unpack(zip_path, workdir)
+    cands = [f for f in res.files if classify.classify_file(f) == classify.MAIN_DOC]
+    if not cands:
+        return None
+
+    def score(rel: str) -> int:
+        s = 0
+        msub = SUB_DIR_PAT.search(rel)
+        if msub and sub_no and "分标" + msub.group(1) == sub_no:
+            s += 2
+        mpkg = PKG_ZIP_PAT.search(rel)
+        if mpkg and pkg_no and "包" + mpkg.group(1) == pkg_no:
+            s += 1
+        return s
+
+    return os.path.join(workdir, max(cands, key=score))

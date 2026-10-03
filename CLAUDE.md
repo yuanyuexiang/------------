@@ -41,7 +41,9 @@ docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；-
 
 **前端 `apps/jb-web`**：管理后台外壳 `layout/AdminLayout.tsx`（侧边栏：投标项目 / 企业知识库 / 配置中心 / 用户权限，后两者占位）。知识库页面由 `pages/kb/fields.ts` 的字段规格驱动通用表格+表单（`KbItemsTab`）——后端加字段时在规格里加一行即可出现在页面。
 
-**流水线全景**：`jb_parser`（解析→TRM）→ `jb_agents.qualify`（资格自检）→ `jb_agents.writer`（LLM 起草，带溯源）→ `jb_docgen`（参数自动填 + 商务/技术文件 + 导出加固）→ `jb_rules`（否决规则引擎）→ `jb_agents.scorer`（模拟评分）→ `jb_agents.price`（价格校验/基准价模拟）。`jb_kb` 提供档案与检索，`jb_llm` 是唯一的模型出口，`jb_store` 落盘。`scripts/demo.py` 一键跑全链路。
+**流水线全景**：`jb_parser`（解析→TRM）→ `jb_agents.qualify`（资格自检）→ `jb_agents.writer`（LLM 起草，带溯源）→ `jb_docgen`（母版切片原位填空 + 参数自动填 + 导出加固）→ `jb_rules`（否决规则引擎）→ `jb_agents.scorer`（模拟评分）→ `jb_agents.price`（价格校验/基准价模拟）。`jb_kb` 提供档案与检索，`jb_llm` 是唯一的模型出口，`jb_store` 落盘。`scripts/demo.py` 一键跑全链路。
+
+**jb_docgen 母版机制**：商务/技术文件不是从空白 docx 重画，而是把招标文件自身"文件格式"章（物资第六章 / 服务竞谈第五章）按 价格/商务/技术 三段切片当母版（`master.carve`），在原段落/原表格上填空（`master_builder`），国网原版式、样式、表格一字不改；母版来自 `Project.zip_path` 重新解压（`jb_parser.main_doc_for_package`）。切不出段或装配异常时该文件退回 `builder` 自建版式，`GenResult.mode/notes` 说明原因，生成绝不因母版失败而中断。填空规则：段落先合并 run 再整段正则（投标函开头一句被 Word 切成十几个 run）；"标签："行只在值为空时补；清单表按表头关键词映射列、克隆模板行；多本规范书整表克隆。合同模板（合同文件.zip 的 `&token&`）是中标后 ECP 套填的，投标阶段不生成。
 
 **jb_parser 流水线**（`pipeline.parse()` 为唯一入口）：
 `unpack`（递归 zip + GBK 文件名修复）→ `classify`（按实测命名规律分类文件）→ `docx_utils`（六章切分/表格结构化）→ `extract` + `scoring` + `normalize`（前附表/否决表/提交方式表/技术参数表/评分模板/关键条件）→ `trm`（Pydantic Schema，全流程唯一真源）。

@@ -80,6 +80,8 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
     """生成商务/技术文件；with_draft=True 时先由写作 Agent 起草技术方案（LLM，分钟级）。"""
     from jb_docgen import generate
     from jb_docgen.workflow import file_hash, inputs, save_artifact
+    from jb_kb.attachments import absolute_path, list_attachments
+    from jb_parser import main_doc_for_package
 
     from . import config as config_api
     config_api.install_usage_hook()      # Celery worker 进程内也记账、也读配置中心的 LLM 覆盖
@@ -94,6 +96,8 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
             return
         trm, cp, input_hash = inputs(s, p, profile_name)
         zip_dir = os.path.dirname(p.zip_path)
+        zip_path = p.zip_path
+        att_paths = {a.id: absolute_path(a) for a in list_attachments(s, profile_name)}
     if not (0 <= pkg_index < len(trm.packages)):
         _update(task_id, status="failed", message="pkg_index 越界")
         return
@@ -110,7 +114,19 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
         out_dir = os.path.join(zip_dir, "out")
         os.makedirs(out_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=zip_dir) as staging:
-            res = generate(trm, pkg, cp, staging, product_model or None, drafts=drafts)
+            master, master_note = None, ""
+            if zip_path and os.path.exists(zip_path):
+                _update(task_id, progress=0.82, message="解压招标文件包，提取第六章母版")
+                try:
+                    master = main_doc_for_package(zip_path, pkg.sub_no, pkg.pkg_no, os.path.join(staging, "src"))
+                    if master is None:
+                        master_note = "招标文件包内未找到六章主文件，使用自建版式"
+                except Exception as exc:
+                    master_note = f"提取母版失败，使用自建版式：{exc!r}"
+            res = generate(trm, pkg, cp, staging, product_model or None, drafts=drafts,
+                           master_docx=master, attachment_paths=att_paths)
+            if master_note:
+                res.notes.append(master_note)
             for field in ("commercial_path", "technical_path"):
                 old = getattr(res, field)
                 name = f"{task_id}_{os.path.basename(old)}"
@@ -131,10 +147,14 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
                                     for path in (res.commercial_path, res.technical_path)}})
         pm.set_result(p, "generate", {"todo_count": summary.get("todo_count"), "export_blocked": summary.get("export_blocked"),
                                       "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],
-                                      "with_draft": with_draft, "profile": profile_name}, pkg.pkg_no)
+                                      "with_draft": with_draft, "profile": profile_name,
+                                      "mode": summary.get("mode"), "notes": summary.get("notes")}, pkg.pkg_no)
         pm.advance(p, "generated")
-        pm.log_event(s, project_id, "generated", f"{pkg.pkg_no} 生成商务/技术文件，待补充 {summary.get('todo_count')} 处",
-                     {"pkg_no": pkg.pkg_no, "with_draft": with_draft})
+        modes = summary.get("mode") or {}
+        layout = "母版版式" if all(v == "master" for v in modes.values()) else "自建版式"
+        pm.log_event(s, project_id, "generated",
+                     f"{pkg.pkg_no} 生成商务/技术文件（{layout}），待补充 {summary.get('todo_count')} 处",
+                     {"pkg_no": pkg.pkg_no, "with_draft": with_draft, "mode": modes, "notes": summary.get("notes")})
     _update(task_id, status="done", progress=1.0, message="生成完成",
             result={"summary": res.summary(), "todos": res.docx_todos,
                     "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],

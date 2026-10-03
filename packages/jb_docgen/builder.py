@@ -19,6 +19,7 @@ from jb_parser.trm import TRM, PackageTRM
 
 from .placeholders import todo
 from .techparams import TechParamResult, deviation_rows, fill_spec
+from .techparams import star_text as _star
 
 
 @dataclass
@@ -28,12 +29,15 @@ class GenContext:
     profile: CompanyProfile
     product: Optional[Product] = None
     drafts: Optional[list] = None               # writer Agent 的 DraftSection 列表（可选）
+    attachment_paths: dict = field(default_factory=dict)   # 知识库附件 id → 本地绝对路径（扫描件插图用）
     todos: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)          # 生成过程说明（母版回退原因等）
 
     def need(self, value: Optional[str], what: str) -> str:
         if value:
             return str(value)
-        self.todos.append(what)
+        if what not in self.todos:
+            self.todos.append(what)
         return todo(what)
 
 
@@ -98,8 +102,9 @@ def _table(d, header: list[str], rows: list[list[str]]):
 _SRC_TAG = re.compile(r"\s*\[来源:[^\]]+\]")
 
 
-def _markdown_to_doc(d, md: str, keep_sources: bool = False):
-    """极简 Markdown → docx：#→标题，-/数字列表→项目段落，**粗体**去标记；来源标注默认剥离（审阅版保留）。"""
+def iter_markdown(md: str, keep_sources: bool = False):
+    """极简 Markdown 流：产出 ("h", level, text) / ("li", 0, text) / ("p", 0, text)；
+    **粗体**去标记，来源标注默认剥离（审阅版保留）。母版装配与自建版式共用。"""
     for raw in md.split("\n"):
         line = raw.rstrip()
         if not line.strip():
@@ -109,13 +114,23 @@ def _markdown_to_doc(d, md: str, keep_sources: bool = False):
         line = line.replace("**", "")
         m = re.match(r"^(#{1,6})\s*(.+)$", line)
         if m:
-            _h(d, m.group(2).strip(), min(3, 1 + len(m.group(1))))
+            yield "h", min(3, 1 + len(m.group(1))), m.group(2).strip()
             continue
         m = re.match(r"^\s*(?:[-*]|\d+[.、])\s+(.+)$", line)
         if m:
-            d.add_paragraph(m.group(1).strip(), style="List Bullet")
+            yield "li", 0, m.group(1).strip()
             continue
-        _p(d, line.strip())
+        yield "p", 0, line.strip()
+
+
+def _markdown_to_doc(d, md: str, keep_sources: bool = False):
+    for kind, level, text in iter_markdown(md, keep_sources):
+        if kind == "h":
+            _h(d, text, level)
+        elif kind == "li":
+            d.add_paragraph(text, style="List Bullet")
+        else:
+            _p(d, text)
 
 
 def _cover(d, ctx: GenContext, kind: str):
@@ -257,7 +272,7 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
             _p(d, "（非结构化技术规范：以下为逐项响应，另以附件形式上传）")
         if sd.param_rows:
             _table(d, ["序号", "参数名称", "单位", "项目需求值或表述", "投标人保证值"],
-                   [[row.row, row.name, row.unit, ("★" if row.star else "") + row.required, resp.response]
+                   [[row.row, row.name, row.unit, _star(row), resp.response]
                     for row, resp in zip(sd.param_rows, r.responses)])
         else:
             _p(d, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，需按需求逐条响应）"))

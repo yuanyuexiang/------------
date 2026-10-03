@@ -22,7 +22,8 @@ PRICE_SHEET = "price_sheet"      # 报价表 xls/xlsx（规范书随附）
 SIGN = "sign"                    # 签名文件（忽略）
 OTHER = "other"
 
-_MAIN_PAT = re.compile(r"(招标文件\(|招标文件（|招标文件分册|采购文件\.docx$|采购文件（)")
+# 江西 2026 物资样本主文件名为"…招标采购项目招标文件.docx"（无括号编号）→ 追加 招标文件.docx 结尾分支
+_MAIN_PAT = re.compile(r"(招标文件\(|招标文件（|招标文件分册|招标文件\.docx$|采购文件\.docx$|采购文件（)")
 
 
 @dataclass

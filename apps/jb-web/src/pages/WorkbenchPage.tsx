@@ -119,6 +119,12 @@ export default function WorkbenchPage() {
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert type={gen.summary.export_blocked ? 'warning' : 'success'}
                 message={gen.summary.export_blocked ? `共 ${gen.summary.todo_count} 处【待补充】，请补齐后重新生成` : '无待补充；正式导出还需通过本版本合规审查'} />
+              {gen.summary.mode && (
+                <Typography.Text type="secondary">
+                  版式：{Object.values(gen.summary.mode).every((m) => m === 'master') ? '招标文件第六章母版（原版式）' : Object.values(gen.summary.mode).every((m) => m === 'plain') ? '系统自建版式（未取到母版）' : `商务 ${gen.summary.mode.commercial === 'master' ? '母版' : '自建'} / 技术 ${gen.summary.mode.technical === 'master' ? '母版' : '自建'}`}
+                  {(gen.summary.notes ?? []).length > 0 && <>；{gen.summary.notes!.join('；')}</>}
+                </Typography.Text>
+              )}
               {gen.files.map((f) => (
                 <Space key={f}>
                   <a href={api.fileUrl(id, f)} target="_blank" rel="noreferrer">下载草稿：{f}</a>
