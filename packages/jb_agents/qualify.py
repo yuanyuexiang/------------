@@ -166,11 +166,18 @@ def check_social_insurance(profile: CompanyProfile, deadline: Optional[str], mon
     if not deadline:
         return Check(item=item, status=MANUAL, reason="未取得投标截止时间，无法核社保连续性", evidence=[x.name for x in people])
     need = required_months(deadline, months)
+    if not need:
+        return Check(item=item, status=MANUAL, reason="截止时间或社保月份范围无效，无法核社保连续性",
+                     evidence=[x.name for x in people])
     gaps = {x.name: missing_months(x, deadline, months) for x in people if x.social_insurance_months}
     unknown = [x.name for x in people if not x.social_insurance_months]
     broken = {k: v for k, v in gaps.items() if v}
     if broken:
         return Check(item=item, status=FAILED, reason="；".join(f"{k} 缺 {'、'.join(v)}" for k, v in broken.items()),
+                     evidence=[f"要求月份 {'、'.join(need)}"], requirement=f"截止 {deadline}")
+    unknown_units = [x.name for x in people if not x.social_insurance_unit.strip()]
+    if unknown_units:
+        return Check(item=item, status=MANUAL, reason="未录入社保缴纳单位：" + "、".join(unknown_units),
                      evidence=[f"要求月份 {'、'.join(need)}"], requirement=f"截止 {deadline}")
     if unknown:
         return Check(item=item, status=MANUAL, reason="未录入社保月份：" + "、".join(unknown),

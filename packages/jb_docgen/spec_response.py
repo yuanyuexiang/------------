@@ -91,7 +91,7 @@ def analyse(src) -> list[Section]:
 
 def is_cover_only(src, sections: list[Section]) -> bool:
     """只有封面信息（"国家电网公司集中规模招标采购 / 工程概况 / 网省公司："）的 docx：没有可响应内容。"""
-    return not any(s.items or s.tables for s in sections)
+    return not src.tables and not any(s.items or s.prose for s in sections)
 
 
 # ---------- 响应生成 ----------

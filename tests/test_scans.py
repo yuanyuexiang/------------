@@ -51,3 +51,47 @@ def test_pdf_without_converter(tmp_path):
     pdf.write_bytes(_MINI_PDF)
     pages, reason = scans.images_for(str(pdf))
     assert pages == [] and "转图失败" in reason
+
+
+def test_long_pdf_keeps_all_pages_and_replaces_legacy_cache(tmp_path, monkeypatch):
+    pdf = tmp_path / "long.pdf"
+    pdf.write_bytes(b"pdf")
+    cache = tmp_path / "long.pdf.pages"
+    cache.mkdir()
+    (cache / "p-1.png").write_bytes(b"old partial cache")
+    monkeypatch.setattr(scans.shutil, "which", lambda _: "pdftoppm")
+
+    def convert(args, **kwargs):
+        assert "-l" not in args
+        for n in range(1, 26):
+            with open(args[-1] + f"-{n}.png", "wb") as f:
+                f.write(b"page")
+
+    monkeypatch.setattr(scans.subprocess, "run", convert)
+    pages, reason = scans.images_for(str(pdf))
+    assert not reason and len(pages) == 25
+    monkeypatch.setattr(scans.subprocess, "run", lambda *a, **kw: pytest.fail("cache missed"))
+    assert scans.images_for(str(pdf))[0] == pages
+
+
+def test_failed_conversion_does_not_cache_partial_pages(tmp_path, monkeypatch):
+    import sys
+
+    pdf = tmp_path / "broken.pdf"
+    pdf.write_bytes(b"pdf")
+    monkeypatch.setattr(scans.shutil, "which", lambda _: "pdftoppm")
+    monkeypatch.setitem(sys.modules, "fitz", None)
+    calls = []
+
+    def fail(args, **kwargs):
+        calls.append(args)
+        with open(args[-1] + "-1.png", "wb") as f:
+            f.write(b"partial")
+        raise scans.subprocess.TimeoutExpired(args, 120)
+
+    monkeypatch.setattr(scans.subprocess, "run", fail)
+    for _ in range(2):
+        pages, reason = scans.images_for(str(pdf))
+        assert not pages and "转图失败" in reason
+    assert len(calls) == 2
+    assert not (tmp_path / "broken.pdf.pages" / "complete.json").exists()

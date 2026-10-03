@@ -158,16 +158,19 @@ def r_performance_evidence(ctx: Context) -> list[Finding]:
 
 def r_social_insurance(ctx: Context) -> list[Finding]:
     """拟投入人员社保：缴纳单位须为投标人；截止/开标前连续 N 个月（默认 3）有记录（纪要 2026-09-10 客户流程）。"""
-    from jb_kb.social_insurance import missing_months, unit_mismatch
+    from jb_kb.social_insurance import missing_months, required_months, unit_mismatch
     n = int(ctx.params.get("months", 3))
     out = []
     people = [x for x in ctx.profile.personnel if x.available is not False]
-    if people and not ctx.open_date:
-        out.append(_f("SG-22b", "需人工", "无截止/开标日期，无法核社保连续性", "请在项目里录入投标截止时间", "企业档案"))
+    valid_date = bool(required_months(ctx.open_date or "", n))
+    if people and not valid_date:
+        out.append(_f("SG-22b", "需人工", "截止/开标日期缺失或无效，无法核社保连续性", "请在项目里录入投标截止时间", "企业档案"))
     for x in people:
         if unit_mismatch(x, ctx.profile.name):
             out.append(_f("SG-22", "否决", "社保缴纳单位与投标人不一致", f"{x.name}：{x.social_insurance_unit}", "人员文件", "资格审查"))
-        if not ctx.open_date:
+        if not x.social_insurance_unit.strip():
+            out.append(_f("SG-22b", "需人工", "社保缴纳单位未录入", x.name, "企业档案"))
+        if not valid_date:
             continue
         if not x.social_insurance_months:
             out.append(_f("SG-22b", "需人工", "社保月份未录入", f"{x.name} 需录入截止前 {n} 个月社保记录", "企业档案"))

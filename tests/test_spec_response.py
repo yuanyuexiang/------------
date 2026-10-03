@@ -109,3 +109,20 @@ def test_no_product_all_todo(tmp_path):
     text, _ = _all_text(res.technical_path)
     assert "FXS及FXO端口 | 端口数量 | 支持8路 | 【待补充：" in text
     assert "（1）【待补充：对「产品采用模块化设计" in text
+
+
+def test_unnumbered_parameter_table_is_not_cover(tmp_path):
+    src = docx.Document()
+    src.add_paragraph("技术参数")
+    table = src.add_table(rows=2, cols=3)
+    for row, vals in zip(table.rows, [["名称", "要求值", "保证值"], ["端口数量", "8路", ""]]):
+        for cell, val in zip(row.cells, vals):
+            cell.text = val
+    path = str(tmp_path / "spec.docx")
+    src.save(path)
+    assert not SR.is_cover_only(src, SR.analyse(src))
+    dst = docx.Document()
+    anchor = dst.add_paragraph("规范书")._p
+    _, count, skipped = SR.append_spec(dst, anchor, path, None, "技术规范")
+    assert not skipped and count == 1
+    assert "【待补充：" in dst.tables[0].rows[1].cells[2].text

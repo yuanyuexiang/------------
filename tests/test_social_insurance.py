@@ -67,3 +67,20 @@ def test_rule_sg22():
     # 单位不一致 → 否决（与日期无关）
     prof.personnel[0].social_insurance_unit = "别家公司"
     assert any(f.rule_id == "SG-22" and f.level == "否决" and "李晓波" in f.message for f in review(ctx).findings)
+
+
+def test_missing_unit_requires_manual_review():
+    prof = CompanyProfile(name="测试企业", personnel=[Person(
+        name="张三", social_insurance_months=["2026-07", "2026-08", "2026-09"])])
+    assert check_social_insurance(prof, "2026-09-10").status == "需人工"
+    ctx = Context(trm=TRM(), pkg=PackageTRM(), profile=prof, open_date="2026-09-10")
+    assert any(f.rule_id == "SG-22b" and "单位未录入" in f.title
+               for f in review(ctx).findings)
+
+
+def test_invalid_deadline_requires_manual_review():
+    prof = CompanyProfile(name="测试企业", personnel=[_people()[0]])
+    assert check_social_insurance(prof, "待确认").status == "需人工"
+    assert check_social_insurance(prof, "2026-09-10", months=0).status == "需人工"
+    ctx = Context(trm=TRM(), pkg=PackageTRM(), profile=prof, open_date="待确认")
+    assert any(f.rule_id == "SG-22b" for f in review(ctx).findings)
