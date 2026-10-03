@@ -152,6 +152,33 @@ def check_other(q: QualificationItem, profile: CompanyProfile) -> list[Check]:
     return out
 
 
+def check_social_insurance(profile: CompanyProfile, deadline: Optional[str], months: int = 3) -> Optional[Check]:
+    """拟投入人员社保：缴纳单位=投标人，截止前连续 months 个月有记录（客户流程，纪要 2026-09-10）。"""
+    from jb_kb.social_insurance import missing_months, required_months, unit_mismatch
+    people = [x for x in profile.personnel if x.available is not False]
+    if not people:
+        return None
+    item = f"人员社保（截止前 {months} 个月连续）"
+    bad_unit = [x.name for x in people if unit_mismatch(x, profile.name)]
+    if bad_unit:
+        return Check(item=item, status=FAILED, reason="社保缴纳单位与投标人不一致：" + "、".join(bad_unit),
+                     evidence=[f"{x.name}:{x.social_insurance_unit}" for x in people if x.social_insurance_unit])
+    if not deadline:
+        return Check(item=item, status=MANUAL, reason="未取得投标截止时间，无法核社保连续性", evidence=[x.name for x in people])
+    need = required_months(deadline, months)
+    gaps = {x.name: missing_months(x, deadline, months) for x in people if x.social_insurance_months}
+    unknown = [x.name for x in people if not x.social_insurance_months]
+    broken = {k: v for k, v in gaps.items() if v}
+    if broken:
+        return Check(item=item, status=FAILED, reason="；".join(f"{k} 缺 {'、'.join(v)}" for k, v in broken.items()),
+                     evidence=[f"要求月份 {'、'.join(need)}"], requirement=f"截止 {deadline}")
+    if unknown:
+        return Check(item=item, status=MANUAL, reason="未录入社保月份：" + "、".join(unknown),
+                     evidence=[f"要求月份 {'、'.join(need)}"], requirement=f"截止 {deadline}")
+    return Check(item=item, status=SATISFIED, reason=f"{len(people)} 人 {need[0]}~{need[-1]} 社保记录齐全",
+                 evidence=[x.name for x in people], requirement=f"截止 {deadline}")
+
+
 def check_general(pkg: PackageTRM, profile: CompanyProfile) -> list[Check]:
     out = [Check(item="通用资格（信用/不良行为/失信）", status=MANUAL,
                  reason="需查询信用中国/国家企业信用信息公示系统/国网不良行为名单并截图",
@@ -161,7 +188,8 @@ def check_general(pkg: PackageTRM, profile: CompanyProfile) -> list[Check]:
     return out
 
 
-def qualify_package(pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = True) -> PackageFeasibility:
+def qualify_package(pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = True,
+                    deadline: Optional[str] = None) -> PackageFeasibility:
     pf = PackageFeasibility(sub_no=pkg.sub_no, sub_name=pkg.sub_name, pkg_no=pkg.pkg_no,
                             project_name=pkg.project_name)
     if not pkg.qualification:
@@ -172,6 +200,9 @@ def qualify_package(pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = Tr
                 pf.checks.append(c)
         pf.checks.extend(check_other(q, profile))
     pf.checks.extend(check_general(pkg, profile))
+    si = check_social_insurance(profile, deadline)
+    if si:
+        pf.checks.append(si)
     statuses = {c.status for c in pf.checks}
     pf.verdict = "不可投" if FAILED in statuses else ("有风险" if statuses & {RISK, MANUAL} else "可投")
     return pf
@@ -180,5 +211,5 @@ def qualify_package(pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = Tr
 def qualify(trm: TRM, profile: CompanyProfile, use_llm: bool = True) -> FeasibilityReport:
     rep = FeasibilityReport(batch_name=trm.batch_name, company=profile.name)
     for pkg in trm.packages:
-        rep.packages.append(qualify_package(pkg, profile, use_llm))
+        rep.packages.append(qualify_package(pkg, profile, use_llm, deadline=trm.key_terms.bid_deadline))
     return rep

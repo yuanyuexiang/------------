@@ -156,6 +156,28 @@ def r_performance_evidence(ctx: Context) -> list[Finding]:
     return out
 
 
+def r_social_insurance(ctx: Context) -> list[Finding]:
+    """拟投入人员社保：缴纳单位须为投标人；截止/开标前连续 N 个月（默认 3）有记录（纪要 2026-09-10 客户流程）。"""
+    from jb_kb.social_insurance import missing_months, unit_mismatch
+    n = int(ctx.params.get("months", 3))
+    out = []
+    people = [x for x in ctx.profile.personnel if x.available is not False]
+    if people and not ctx.open_date:
+        out.append(_f("SG-22b", "需人工", "无截止/开标日期，无法核社保连续性", "请在项目里录入投标截止时间", "企业档案"))
+    for x in people:
+        if unit_mismatch(x, ctx.profile.name):
+            out.append(_f("SG-22", "否决", "社保缴纳单位与投标人不一致", f"{x.name}：{x.social_insurance_unit}", "人员文件", "资格审查"))
+        if not ctx.open_date:
+            continue
+        if not x.social_insurance_months:
+            out.append(_f("SG-22b", "需人工", "社保月份未录入", f"{x.name} 需录入截止前 {n} 个月社保记录", "企业档案"))
+        else:
+            miss = missing_months(x, ctx.open_date, n)
+            if miss:
+                out.append(_f("SG-22", "否决", f"社保不连续（截止前 {n} 个月）", f"{x.name} 缺 {'、'.join(miss)}", "人员文件", "资格审查"))
+    return out
+
+
 def r_consortium(ctx: Context) -> list[Finding]:
     """招标文件不接受联合体时提示人工确认投标主体（招标公告）。"""
     if ctx.pkg.allow_consortium is False:
@@ -220,6 +242,7 @@ RULES: list[Rule] = [
     ("DOC-02~04", "否决/扣分", "名称与编号一致性", "形式评审", r_name_consistency),
     ("SG-13", "否决", "证书有效期", "案例9", r_cert_validity),
     ("SG-05/06", "否决/扣分", "业绩认定", "案例2", r_performance_evidence),
+    ("SG-22", "否决", "人员社保", "资格审查/纪要0910", r_social_insurance),
     ("Q-01", "需人工", "联合体", "招标公告", r_consortium),
     ("SG-21", "需人工", "信用核查", "否决表", r_general_credit),
     ("PRICE", "否决", "价格校验", "案例6/7/8", r_price),
@@ -232,6 +255,7 @@ RULES: list[Rule] = [
 RULE_PARAMS: dict[str, dict] = {
     "SG-16": {"phrases": list(_FORBIDDEN)},
     "SIM-01": {"threshold": 0.9},
+    "SG-22": {"months": 3},
 }
 LEVELS = ("否决", "扣分", "建议", "需人工")
 

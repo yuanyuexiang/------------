@@ -45,6 +45,10 @@ docker compose up -d --build   # 部署：web(8080)/api/pgvector/redis/minio；-
 
 **jb_docgen 母版机制**：商务/技术文件不是从空白 docx 重画，而是把招标文件自身"文件格式"章（物资第六章 / 服务竞谈第五章）按 价格/商务/技术 三段切片当母版（`master.carve`），在原段落/原表格上填空（`master_builder`），国网原版式、样式、表格一字不改；母版来自 `Project.zip_path` 重新解压（`jb_parser.main_doc_for_package`）。切不出段或装配异常时该文件退回 `builder` 自建版式，`GenResult.mode/notes` 说明原因，生成绝不因母版失败而中断。填空规则：段落先合并 run 再整段正则（投标函开头一句被 Word 切成十几个 run）；"标签："行只在值为空时补；清单表按表头关键词映射列、克隆模板行；多本规范书整表克隆。合同模板（合同文件.zip 的 `&token&`）是中标后 ECP 套填的，投标阶段不生成。
 
+**技术规范书逐条响应 `jb_docgen.spec_response`**：客户实际做法（纪要 2026-09-10）是规范书全文复制进技术文件、每个标题下插响应。系统照做（`package_files()` 取回规范书原 docx，段落/表格带版式复制，封面页跳过），但**不写"我司承诺完全响应"套话**（案例库 11(2)）：规范书里的参数表有"保证值"列就填、没有就追加"投标人响应"列，数值比较复用 `techparams`；"(1)…"功能条目按产品特性二元组匹配（重叠≥3 且占条目≥35%），匹配不到写【待补充】。扫描件 PDF 由 `jb_docgen.scans` 用 `pdftoppm` 转页图（镜像装了 poppler-utils，本机 `brew install poppler`），页图缓存在附件旁 `.pages/`。
+
+**人员社保 `jb_kb.social_insurance`**：以投标截止（规则引擎用开标日）为基准往前 N 个月（默认 3，`SG-22` 可配）逐月核查 `Person.social_insurance_months`（YYYY-MM），缴纳单位须等于投标人；`qualify` 出检查项、`jb_rules` 出否决。未录入月份一律"需人工"，不按缺省判满足。
+
 **jb_parser 流水线**（`pipeline.parse()` 为唯一入口）：
 `unpack`（递归 zip + GBK 文件名修复）→ `classify`（按实测命名规律分类文件）→ `docx_utils`（六章切分/表格结构化）→ `extract` + `scoring` + `normalize`（前附表/否决表/提交方式表/技术参数表/评分模板/关键条件）→ `trm`（Pydantic Schema，全流程唯一真源）。
 

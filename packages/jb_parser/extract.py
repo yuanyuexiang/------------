@@ -19,7 +19,8 @@ from .trm import (
     SubmissionItem,
 )
 
-SPEC_ID_PAT = re.compile(r"\(([A-Z0-9]{4}-\d{9}-\d{5})\)")
+# 规范 ID 括号有半角"(B006-…)"（陕西 051）与全角"（G006-…）"（陕西 044）两种写法
+SPEC_ID_PAT = re.compile(r"[（(]([A-Z0-9]{4}-\d{9}-\d{5})[)）]")
 BATCH_NO_PAT = re.compile(r"[（(]([A-Z0-9\-]{6,})(?:物资|服务)?[）)]")
 
 
@@ -157,7 +158,8 @@ def extract_spec(path: str, relpath: str) -> Optional[SpecDoc]:
             title = t
             break
     sd = SpecDoc(spec_id=spec_id, title=title, source=relpath,
-                 structured=spec_id.startswith("9999"))
+                 structured=spec_id.startswith("9999"),
+                 n_paragraphs=sum(1 for p in doc.paragraphs if p.text.strip()))
     if rows:
         for i, r in enumerate(rows[1:], start=1):
             cells = [c for c in r if c]

@@ -22,6 +22,27 @@ from .techparams import TechParamResult, deviation_rows, fill_spec
 from .techparams import star_text as _star
 
 
+def append_spec_responses(doc, anchor_el, ctx) -> object:
+    """在锚点后追加"技术规范书逐条响应"章节（母版/自建版式共用）。返回新锚点。"""
+    from . import master as M
+    from .spec_response import append_spec
+    paths = [(sd, ctx.spec_paths.get(sd.spec_id) or ctx.spec_paths.get(sd.source)) for sd in ctx.pkg.spec_docs]
+    paths = [(sd, p) for sd, p in paths if p]
+    if not paths:
+        return anchor_el
+    last = M.insert_heading_after(doc, anchor_el, "技术规范书逐条响应", level=1)._p
+    for sd, path in paths:
+        try:
+            last, n, skipped = append_spec(doc, last, path, ctx.product, f"技术规范书 {sd.spec_id or ''} {sd.title}".strip())
+        except Exception as exc:  # 单本规范书失败不拖垮整份文件
+            ctx.notes.append(f"规范书 {sd.spec_id or sd.source} 逐条响应失败：{exc!r}")
+            last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 逐条响应（原文复制失败）"))._p
+            continue
+        if skipped:
+            ctx.notes.append(f"规范书 {sd.spec_id or sd.source} 仅封面页，未纳入逐条响应")
+    return last
+
+
 @dataclass
 class GenContext:
     trm: TRM
@@ -30,6 +51,7 @@ class GenContext:
     product: Optional[Product] = None
     drafts: Optional[list] = None               # writer Agent 的 DraftSection 列表（可选）
     attachment_paths: dict = field(default_factory=dict)   # 知识库附件 id → 本地绝对路径（扫描件插图用）
+    spec_paths: dict = field(default_factory=dict)         # 规范书 spec_id（或 source）→ 原 docx 路径（逐条响应用）
     todos: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)          # 生成过程说明（母版回退原因等）
 
@@ -276,6 +298,9 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
                     for row, resp in zip(sd.param_rows, r.responses)])
         else:
             _p(d, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，需按需求逐条响应）"))
+
+    # 3b. 技术规范书逐条响应（规范书原文复制 + 每节响应）
+    append_spec_responses(d, d.paragraphs[-1]._p, ctx)
 
     # 4. 技术/服务方案（写作 Agent 起草；未起草时给结构占位）
     if ctx.drafts:

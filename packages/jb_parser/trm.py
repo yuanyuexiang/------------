@@ -49,6 +49,7 @@ class SpecDoc(BaseModel):
     source: str = ""        # 相对路径
     structured: bool = True
     param_rows: list[SpecParamRow] = Field(default_factory=list)
+    n_paragraphs: int = 0   # 非空段落数：同一 ID 的封面 docx 与正文 docx 去重时偏好正文
 
 
 class Material(BaseModel):

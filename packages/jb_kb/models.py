@@ -36,6 +36,7 @@ class Person(BaseModel):
     major: str = ""
     education: str = ""         # 学历
     social_insurance_unit: str = ""   # 社保缴纳单位（须与投标人一致）
+    social_insurance_months: list[str] = Field(default_factory=list)  # 有社保记录的月份 YYYY-MM（证明扫描件走 attachments）
     available: Optional[bool] = None  # 可投入状态；None=未录入
     credentials: list[str] = Field(default_factory=list)  # 身份证/学历证/职称证书/社保证明/劳动合同…
     status: str = "approved"

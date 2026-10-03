@@ -106,7 +106,7 @@ export interface FeasibilityReport {
 // ---- 企业知识库（与 jb_kb.models 对齐；条目通用字段 id/status/attachments/source） ----
 export interface KbItem { id: string; status?: string; attachments?: string[]; source?: string; [k: string]: unknown }
 export interface Certificate extends KbItem { name: string; cert_type: string; number: string; issuer: string; level: string; valid_from: string; valid_until: string }
-export interface Person extends KbItem { name: string; title: string; major: string; education: string; social_insurance_unit: string; available: boolean | null; credentials: string[] }
+export interface Person extends KbItem { name: string; title: string; major: string; education: string; social_insurance_unit: string; social_insurance_months?: string[]; available: boolean | null; credentials: string[] }
 export interface Performance extends KbItem {
   project: string; buyer: string; buyer_type: string; buyer_is_end_user: boolean | null; in_sgcc: boolean | null
   amount_wan: number | null; signed_date: string; commissioned_date: string; material_category: string; voltage_level: string; evidence: string[]

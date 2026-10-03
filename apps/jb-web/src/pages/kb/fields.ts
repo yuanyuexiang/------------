@@ -53,6 +53,7 @@ export const KIND_SPECS: KindSpec[] = [
       { key: 'social_insurance_unit', label: '社保缴纳单位', width: 160 },
       { key: 'available', label: '可投入', type: 'bool3', width: 90 },
       { key: 'credentials', label: '证件', type: 'tags', options: ['身份证', '学历证', '职称证书', '资格证书', '社保证明', '劳动合同', '服务项目证明'], width: 240 },
+      { key: 'social_insurance_months', label: '社保月份(YYYY-MM)', type: 'tags', width: 220 },
       STATUS, SOURCE,
     ],
   },

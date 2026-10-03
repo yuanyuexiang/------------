@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+from dataclasses import dataclass, field
 from typing import Optional
 
 from . import classify, docx_utils, extract, normalize, scoring, unpack
@@ -85,11 +86,11 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
         sd = extract.extract_spec(os.path.join(root, spec_rel), spec_rel)
         if sd and (sd.spec_id or sd.param_rows):
             pkg.spec_docs.append(sd)
-    # 同一规范书正文与封面 docx 都会命中，按 spec_id 去重，保留参数行多的
+    # 同一规范书正文与封面 docx 都会命中，按 spec_id 去重，保留参数行多的；都无参数表时保留正文长的
     dedup = {}
     for sd in pkg.spec_docs:
         key = sd.spec_id or sd.source
-        if key not in dedup or len(sd.param_rows) > len(dedup[key].param_rows):
+        if key not in dedup or (len(sd.param_rows), sd.n_paragraphs) > (len(dedup[key].param_rows), dedup[key].n_paragraphs):
             dedup[key] = sd
     pkg.spec_docs = list(dedup.values())
 
@@ -139,18 +140,25 @@ def parse(zip_path: str, workdir: Optional[str] = None) -> TRM:
     return trm
 
 
-def main_doc_for_package(zip_path: str, sub_no: str = "", pkg_no: str = "",
-                         workdir: Optional[str] = None) -> Optional[str]:
-    """解压招标文件包，返回指定分标/包的六章主文件绝对路径（文档引擎母版用）。
+@dataclass
+class PackageFiles:
+    """文档引擎需要回读的原始文件：六章主文件（母版）与各规范书 docx（逐条响应）。"""
+    main_doc: Optional[str] = None
+    spec_docs: dict[str, str] = field(default_factory=dict)   # spec_id（无 ID 用 source）→ 绝对路径
 
-    批次级 zip 含多个包时按 分标号 > 包号 匹配，匹配不到退回第一个主文件；无主文件返回 None。
-    workdir 的生命周期由调用方管理（主文件要在生成期间一直可读）。
+
+def package_files(zip_path: str, pkg: Optional[PackageTRM] = None, sub_no: str = "", pkg_no: str = "",
+                  workdir: Optional[str] = None) -> PackageFiles:
+    """解压招标文件包，定位指定分标/包的主文件与规范书原件。workdir 生命周期由调用方管理。
+
+    批次级 zip 含多个包时按 分标号 > 包号 匹配，匹配不到退回第一个主文件。
     """
+    if pkg is not None:
+        sub_no, pkg_no = sub_no or pkg.sub_no, pkg_no or pkg.pkg_no
     workdir = workdir or tempfile.mkdtemp(prefix="jb_master_")
     res = unpack.unpack(zip_path, workdir)
+    out = PackageFiles()
     cands = [f for f in res.files if classify.classify_file(f) == classify.MAIN_DOC]
-    if not cands:
-        return None
 
     def score(rel: str) -> int:
         s = 0
@@ -162,4 +170,17 @@ def main_doc_for_package(zip_path: str, sub_no: str = "", pkg_no: str = "",
             s += 1
         return s
 
-    return os.path.join(workdir, max(cands, key=score))
+    if cands:
+        out.main_doc = os.path.join(workdir, max(cands, key=score))
+    for sd in (pkg.spec_docs if pkg is not None else []):
+        src = sd.source.replace("\\", "/")
+        hit = next((f for f in res.files if f.replace("\\", "/").endswith(src)), None)
+        if hit:
+            out.spec_docs[sd.spec_id or sd.source] = os.path.join(workdir, hit)
+    return out
+
+
+def main_doc_for_package(zip_path: str, sub_no: str = "", pkg_no: str = "",
+                         workdir: Optional[str] = None) -> Optional[str]:
+    """六章主文件绝对路径（母版用）；见 package_files。"""
+    return package_files(zip_path, None, sub_no, pkg_no, workdir).main_doc

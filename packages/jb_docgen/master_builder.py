@@ -19,12 +19,12 @@ from typing import Optional
 from docx.table import Table
 
 from . import master as M
-from .builder import GenContext, fill_blanks, iter_markdown
+from .builder import GenContext, append_spec_responses, fill_blanks, iter_markdown
 from .placeholders import todo
+from .scans import images_for
 from .techparams import TechParamResult, deviation_rows, fill_spec
 from .techparams import star_text as _star
 
-IMAGE_EXT = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff")
 _ANY = re.compile(r"^[\s\S]+$")
 
 
@@ -68,16 +68,15 @@ def _subs(ctx: GenContext) -> list:
 def _insert_scans(ctx: GenContext, doc, anchor_el, ids: list[str], what: str):
     """锚点后依次插入附件图片；没有任何可插图片时写【待补充】。返回新锚点。"""
     last = anchor_el
-    inserted = 0
     for aid in ids:
-        path = ctx.attachment_paths.get(aid)
-        if path and os.path.splitext(path)[1].lower() in IMAGE_EXT and os.path.exists(path):
-            para = M.insert_picture_after(doc, last, path)
+        images, reason = images_for(ctx.attachment_paths.get(aid, ""))
+        ok = 0
+        for img in images:
+            para = M.insert_picture_after(doc, last, img)
             if para is not None:
-                last, inserted = para._p, inserted + 1
-                continue
-        reason = "附件文件缺失" if not path else f"{os.path.basename(path)} 非图片格式，需转为图片后插入"
-        last = M.insert_paragraph_after(doc, last, todo(f"{what}（{reason}）"))._p
+                last, ok = para._p, ok + 1
+        if not ok:
+            last = M.insert_paragraph_after(doc, last, todo(f"{what}（{reason or '图片插入失败'}）"))._p
     if not ids:
         last = M.insert_paragraph_after(doc, last, todo(f"{what}扫描件插入"))._p
     return last
@@ -231,7 +230,8 @@ def _param_records(sd, r: TechParamResult) -> list[dict]:
              "resp": resp.response} for row, resp in zip(sd.param_rows, r.responses)]
 
 
-def _fill_params(doc, ctx: GenContext, results: list[TechParamResult]) -> None:
+def _fill_params(doc, ctx: GenContext, results: list[TechParamResult]):
+    """填技术特性参数表；返回参数区最后一个元素（规范书逐条响应接在其后）。"""
     specs = list(zip(ctx.pkg.spec_docs, results))
     tpl = M.find_table(doc, ["要求值", "保证值"]) or M.find_table(doc, ["需求值", "保证值"])
     if tpl is None:
@@ -243,8 +243,8 @@ def _fill_params(doc, ctx: GenContext, results: list[TechParamResult]) -> None:
                 rows = [[str(i + 1), x["name"], x["unit"], x["req"], x["resp"]] for i, x in enumerate(_param_records(sd, r))]
                 last = M.insert_table_after(doc, last, _PARAM_HEADER, rows)._tbl
             else:
-                last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，需按需求逐条响应）"))._p
-        return
+                last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，见逐条响应章节）"))._p
+        return last
     pristine = copy.deepcopy(tpl._tbl)
     last = tpl._tbl
     for i, (sd, r) in enumerate(specs):
@@ -264,7 +264,8 @@ def _fill_params(doc, ctx: GenContext, results: list[TechParamResult]) -> None:
                 rows = [[str(j + 1), x["name"], x["unit"], x["req"], x["resp"]] for j, x in enumerate(_param_records(sd, r))]
                 last = M.insert_table_after(doc, last, _PARAM_HEADER, rows, like=t)._tbl
         else:
-            last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，需按需求逐条响应）"))._p
+            last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，见逐条响应章节）"))._p
+    return last
 
 
 def _fill_deviation(doc, results: list[TechParamResult]) -> None:
@@ -419,7 +420,8 @@ def build_technical(ctx: GenContext, master_path: str, out_path: str) -> tuple[b
     M.fill_all(doc, _subs(ctx))
     results = [fill_spec(sd, ctx.product) for sd in ctx.pkg.spec_docs]
     _fill_deviation(doc, results)
-    _fill_params(doc, ctx, results)
+    last = _fill_params(doc, ctx, results)
+    append_spec_responses(doc, last, ctx)
     _fill_performances(doc, ctx)
     _fill_personnel(doc, ctx)
     _fill_certs(doc, ctx)

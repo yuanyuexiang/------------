@@ -204,11 +204,12 @@ def test_attachment_pictures(tmp_path):
     prof.certificates[1].attachments = ["a1"]
     prof.certificates[0].attachments = ["a2"]
     trm, pkg = _trm_pkg()
+    (tmp_path / "scan.docx").write_bytes(b"not an image")
     res = generate(trm, pkg, prof, str(tmp_path / "out"), master_docx=master,
-                   attachment_paths={"a1": str(img), "a2": str(tmp_path / "scan.pdf")})
+                   attachment_paths={"a1": str(img), "a2": str(tmp_path / "scan.docx")})
     text, d = _text(res.commercial_path)
     assert "【待补充：营业执照扫描件插入】" not in text and len(d.inline_shapes) == 1
-    assert "scan.pdf 非图片格式" in text
+    assert "scan.docx 非图片/PDF 格式" in text
 
 
 @pytest.mark.parametrize("line", ["价格文件", "1.价格文件", "一、价格文件", "三、技术文件", "3.技术文件", "2.商务文件"])
