@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, Popconfirm, Progress, Segmented, Space, Table, Tag, Typography, Upload, message } from 'antd'
-import { ClockCircleOutlined, FileSearchOutlined, InboxOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
+import { Button, Card, Dropdown, Input, Popconfirm, Progress, Segmented, Space, Table, Tag, Typography, Upload, message } from 'antd'
+import { ClockCircleOutlined, FileSearchOutlined, InboxOutlined, MoreOutlined, SearchOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { api, Project } from '../api'
 
 export const STAGE_COLOR: Record<string, string> = {
@@ -24,6 +24,7 @@ export default function ProjectsPage() {
   const nav = useNavigate()
   const qc = useQueryClient()
   const [scope, setScope] = useState<'active' | 'closed' | 'all'>('active')
+  const [search, setSearch] = useState('')
   const active = scope === 'all' ? undefined : scope === 'active'
   const { data: projects = [], isLoading } = useQuery({ queryKey: ['projects', scope], queryFn: () => api.projects(active), refetchInterval: 5000 })
   const [task, setTask] = useState<{ id: string; progress: number; message: string; status: string } | null>(null)
@@ -49,6 +50,8 @@ export default function ProjectsPage() {
     }
     return false
   }
+  const visibleProjects = projects.filter((p) =>
+    [p.batch_name, p.batch_no, p.filename, ...p.pkg_nos].join(' ').toLowerCase().includes(search.trim().toLowerCase()))
   const ready = (r: Project) => ['parsed', 'confirmed'].includes(r.status)
 
   return (
@@ -71,9 +74,12 @@ export default function ProjectsPage() {
           </div>
         )}
       </Card>
-      <Card size="small" title="投标项目"
-        extra={<Segmented value={scope} onChange={(v) => setScope(v as typeof scope)} options={[{ value: 'active', label: '在投' }, { value: 'closed', label: '已结束' }, { value: 'all', label: '全部' }]} />}>
-        <Table<Project> scroll={{ x: 1050 }} rowKey="id" size="small" loading={isLoading} dataSource={projects} pagination={projects.length > 20 ? { pageSize: 20 } : false}
+      <Card size="small" title={<Space>项目列表<Tag>{projects.length}</Tag></Space>} className="project-list-card">
+        <div className="project-list-toolbar">
+          <Segmented value={scope} onChange={(v) => setScope(v as typeof scope)} options={[{ value: 'active', label: '在投项目' }, { value: 'closed', label: '已结束' }, { value: 'all', label: '全部' }]} />
+          <Input aria-label="搜索投标项目" prefix={<SearchOutlined />} placeholder="搜索项目名称、批次号或包号" allowClear value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <Table<Project> scroll={{ x: 1050 }} rowKey="id" size="small" loading={isLoading} dataSource={visibleProjects} pagination={visibleProjects.length > 20 ? { pageSize: 20 } : false}
           columns={[
             { title: '批次 / 分包', dataIndex: 'batch_name', render: (v, r) => (
               <div style={{ minWidth: 0 }}>
@@ -86,12 +92,14 @@ export default function ProjectsPage() {
             { title: '投标截止', dataIndex: 'deadline', width: 240, render: (v, r) => <DaysLeft days={r.days_left} deadline={v} /> },
             { title: '阶段', dataIndex: 'stage', width: 96, render: (s: string, r) => r.status === 'failed' ? <Tag color="red">解析失败</Tag> : r.status === 'parsing' || r.status === 'pending' ? <Tag color="processing">解析中</Tag> : <Tag color={STAGE_COLOR[s]}>{r.stage_cn}</Tag> },
             { title: '结果', dataIndex: 'outcome', width: 80, render: (o: string, r) => <Tag color={OUTCOME_COLOR[o]}>{r.outcome_cn}</Tag> },
-            { title: '操作', width: 320, render: (_, r) => (
+            { title: '操作', width: 220, render: (_, r) => (
               <Space size="small">
                 <Button size="small" type="primary" onClick={() => nav(`/projects/${r.id}`)}>详情</Button>
-                <Button size="small" disabled={!ready(r)} onClick={() => nav(`/projects/${r.id}/trm`)}>{r.confirmed ? '确认版' : '确认 TRM'}</Button>
-                <Button size="small" disabled={!ready(r)} onClick={() => nav(`/projects/${r.id}/qualify`)}>自检</Button>
-                <Button size="small" disabled={!ready(r)} onClick={() => nav(`/projects/${r.id}/workbench`)}>工作台</Button>
+                <Button size="small" type="link" disabled={!ready(r)} onClick={() => nav(`/projects/${r.id}/workbench`)}>工作台</Button>
+                <Dropdown trigger={['click']} menu={{ items: [
+                  { key: 'trm', label: r.confirmed ? '查看确认版' : '核对招标要求', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/trm`) },
+                  { key: 'qualify', label: '资格自检', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/qualify`) },
+                ] }}><Button size="small" type="text" aria-label="更多项目操作" icon={<MoreOutlined />} /></Dropdown>
                 <Popconfirm title="删除项目及其产出文件？" onConfirm={async () => { await api.deleteProject(r.id); qc.invalidateQueries({ queryKey: ['projects'] }) }}>
                   <Button size="small" danger type="link">删除</Button>
                 </Popconfirm>

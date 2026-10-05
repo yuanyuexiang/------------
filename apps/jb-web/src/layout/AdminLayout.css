@@ -113,3 +113,91 @@ body:has(.admin-shell) { margin: 0; }
 .help-feedback ul { padding-left: 20px; }
 .help-feedback .help-note { margin-top: 20px; font-size: 12px; }
 @media (max-height: 580px) { .admin-sidebar-signature { display: none; } .admin-sidebar-footer { padding-top: 10px; padding-bottom: 10px; } }
+
+/* Content hierarchy: quiet surfaces, separated filters, and focused primary actions. */
+.admin-page-heading { padding-bottom: 20px; border-bottom: 1px solid #e3e9f2; margin-bottom: 24px; }
+.admin-page-heading h1 { font-size: 27px; letter-spacing: 1px; }
+.admin-content .ant-card-head { border-bottom-color: #edf1f7; }
+.admin-content .ant-card-head-title { font-weight: 600; color: #304764; }
+.admin-content .ant-table-tbody > tr > td { border-bottom-color: #edf1f7; }
+.admin-content .ant-table-tbody > tr:hover > td { background: #f8faff; }
+.project-list-toolbar { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding-bottom: 20px; }
+.project-list-toolbar .ant-input-affix-wrapper { max-width: 340px; background: #f9fbfe; }
+.project-list-card .ant-table-tbody > tr > td:first-child a { font-weight: 500; line-height: 1.8; }
+.project-list-card .ant-table-tbody > tr > td:first-child > div > div { margin-top: 5px; }
+.project-import .ant-upload-wrapper .ant-upload-drag .ant-upload { padding: 18px 24px; }
+.project-import .ant-upload-drag-container { display: grid; grid-template-columns: 56px 1fr; column-gap: 18px; text-align: left; max-width: 630px; margin: 0 auto; }
+.project-import .ant-upload-drag-container .ant-upload-drag-icon { grid-row: span 2; margin: 0 !important; display: grid; place-items: center; width: 56px; height: 56px; background: #eaf1ff; border-radius: 14px; }
+.project-import .ant-upload-wrapper .ant-upload-drag p.ant-upload-drag-icon .anticon { font-size: 30px; }
+.project-detail-overview .ant-card-head { display: flex; flex-direction: column; align-items: stretch; padding-top: 16px; padding-bottom: 16px; }
+.project-detail-overview .ant-card-head-wrapper { display: flex; flex-wrap: wrap; gap: 16px; }
+.project-detail-overview .ant-card-head-title { flex-basis: 100%; }
+.project-detail-overview .ant-card-extra { margin-inline-start: 0; }
+.project-stage-panel { background: #f7faff; border: 1px solid #e8eff9; border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+.section-caption { color: #445d7e; font-size: 13px; font-weight: 500; margin-bottom: 16px; }
+.section-caption span { display: block; color: #93a0b2; font-size: 11px; font-weight: 400; margin-top: 5px; }
+.project-stage-panel .section-caption { display: flex; gap: 12px; align-items: baseline; }
+.project-stage-panel .section-caption span { margin-top: 0; }
+.workbench-inputs { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(230px, 1.3fr) minmax(210px, .9fr); gap: 24px; align-items: end; }
+.workbench-inputs label { display: block; color: #6f8098; font-size: 12px; margin-bottom: 10px; }
+.workbench-inputs .ant-select { width: 100%; }
+.workbench-draft { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; padding: 12px 16px; background: #f7f9fc; border-radius: 9px; color: #576f90; font-size: 12px; }
+.workbench-draft small { display: block; margin-top: 5px; font-size: 10px; color: #99a5b7; }
+.workbench-action-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; border-top: 1px solid #edf1f7; margin-top: 24px; padding-top: 20px; }
+@media (max-width: 1100px) { .workbench-inputs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; } .workbench-draft { grid-column: 1 / -1; } }
+@media (max-width: 700px) {
+  .admin-page-heading h1 { font-size: 23px; }
+  .project-list-toolbar { flex-direction: column; align-items: stretch; }
+  .project-list-toolbar .ant-input-affix-wrapper { max-width: none; }
+  .workbench-inputs { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .project-stage-panel { padding: 16px; }
+  .project-stage-panel .section-caption { flex-wrap: wrap; gap: 5px; }
+  .project-import .ant-upload-drag-container { grid-template-columns: 40px 1fr; gap: 10px; }
+  .project-import .ant-upload-drag-container .ant-upload-drag-icon { width: 40px; height: 40px; }
+  .project-import-description { line-height: 1.7; }
+}
+.qualification-inputs { display: grid; grid-template-columns: minmax(200px, 1.4fr) minmax(220px, 1fr); gap: 24px; max-width: 820px; align-items: end; }
+.qualification-inputs label { display: block; font-size: 12px; color: #6f8098; margin-bottom: 10px; }
+.qualification-inputs .ant-select { width: 100%; }
+.key-terms-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; max-width: 960px; padding: 12px 0; }
+.key-terms-form .key-terms-switches { grid-column: 1 / -1; padding: 16px 20px 0; background: #f7f9fc; border-radius: 9px; margin-bottom: 24px; }
+.key-terms-form > .ant-form-item:nth-last-child(-n+2) { grid-column: 1 / -1; }
+.key-terms-form .ant-input-number { min-width: 140px; }
+.settings-surface > .ant-card-body > .ant-tabs > .ant-tabs-nav { margin-bottom: 24px; }
+.settings-surface .ant-tabs-tab { padding-block: 14px; }
+.admin-content .ant-form-item-label > label { font-size: 13px; color: #526884; }
+.admin-content .ant-descriptions-item-label { color: #7a8ca5; font-size: 12px; }
+.admin-content .ant-descriptions-item-content { overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .qualification-inputs, .key-terms-form { grid-template-columns: minmax(0, 1fr); }
+  .qualification-inputs { gap: 18px; }
+  .key-terms-form .ant-select { max-width: 100%; }
+}
+
+/* Shared modal treatment also applies to portal-mounted dialogs. */
+.jb-dialog .ant-modal-content { padding: 0; border: 1px solid #e5ebf4; border-radius: 16px; overflow: hidden; box-shadow: 0 24px 90px #10284a30; }
+.jb-dialog .ant-modal-header { margin: 0; padding: 24px 28px 20px; background: linear-gradient(110deg, #f5f8fe, #fff 75%); border-bottom: 1px solid #eaf0f7; }
+.jb-dialog .ant-modal-title { color: #263e60; font-size: 18px; font-weight: 600; line-height: 1.5; padding-right: 28px; }
+.jb-dialog .ant-modal-close { top: 22px; right: 22px; color: #91a0b5; border-radius: 8px; }
+.jb-dialog .ant-modal-close:hover { color: #375e96; background: #eaf1fc; }
+.jb-dialog .ant-modal-body { padding: 24px 28px 8px; max-height: calc(100dvh - 210px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: #d1dced transparent; }
+.jb-dialog .ant-modal-footer { margin: 0; padding: 16px 28px; background: #f8fafd; border-top: 1px solid #eaf0f7; }
+.jb-dialog .ant-modal-footer .ant-btn { min-width: 84px; height: 38px; border-radius: 8px; font-size: 13px; }
+.jb-dialog .ant-modal-footer .ant-btn-primary { box-shadow: 0 4px 12px #2165e820; }
+.jb-dialog .ant-form-item { margin-bottom: 22px; }
+.jb-dialog .ant-form-item-label > label { font-size: 13px; color: #526884; }
+.jb-dialog .ant-form-item-extra { color: #96a3b5; font-size: 11px; padding-top: 6px; line-height: 1.7; }
+.jb-dialog .ant-input, .jb-dialog .ant-input-affix-wrapper, .jb-dialog .ant-input-number, .jb-dialog .ant-select-selector { border-radius: 8px; }
+.jb-dialog .ant-input, .jb-dialog .ant-input-affix-wrapper { min-height: 40px; background: #fcfdff; }
+.jb-dialog .ant-input-affix-wrapper .ant-input { min-height: 0; }
+.dialog-title { display: flex; align-items: center; gap: 12px; }
+.dialog-title-icon { display: grid; place-items: center; flex-shrink: 0; width: 42px; height: 42px; background: #e8f0ff; border: 1px solid #d8e5fb; border-radius: 12px; font-size: 22px; color: #2165e8; }
+.dialog-title small { display: block; font-size: 11px; font-weight: 400; color: #94a1b4; margin-top: 4px; }
+.dialog-intro { color: #7e8fa7; line-height: 1.9; font-size: 12px; margin-bottom: 22px; }
+@media (max-width: 600px) {
+  .jb-dialog .ant-modal-header { padding: 20px 20px 16px; }
+  .jb-dialog .ant-modal-body { padding: 20px 20px 4px; }
+  .jb-dialog .ant-modal-footer { padding: 14px 20px; }
+  .jb-dialog .ant-modal-close { right: 14px; top: 16px; }
+  .jb-dialog .ant-modal-title { font-size: 16px; }
+}

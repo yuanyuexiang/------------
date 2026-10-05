@@ -18,7 +18,7 @@ function PasswordModal({ open, onClose, forced }: { open: boolean; onClose: () =
     try { await api.changePassword(v.old_password, v.new_password); message.success('密码已修改'); await refresh(); onClose() } catch (e) { message.error(String(e)) }
   }
   return (
-    <Modal open={open} title="修改密码" onOk={submit} onCancel={forced ? undefined : onClose} closable={!forced} maskClosable={false}
+    <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={open} title="修改密码" onOk={submit} onCancel={forced ? undefined : onClose} closable={!forced} maskClosable={false}
       cancelButtonProps={{ style: forced ? { display: 'none' } : undefined }} destroyOnClose>
       {forced && <Alert type="warning" showIcon message="当前是初始密码，请先修改后再使用系统" style={{ marginBottom: 12 }} />}
       <Form form={form} layout="vertical">
@@ -66,8 +66,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           items={[
             { key: '/', icon: <FileSearchOutlined />, label: <Link to="/">投标项目</Link> },
             { key: '/kb', icon: <DatabaseOutlined />, label: <Link to="/kb">企业知识库</Link> },
-            { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">配置中心</Link> },
             ...(isAdmin ? [{ key: '/users', icon: <TeamOutlined />, label: <Link to="/users">用户与权限</Link> }] : []),
+            { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">配置中心</Link> },
           ]} />
         </div>
         <footer className="admin-sidebar-footer">

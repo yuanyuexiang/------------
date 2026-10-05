@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Tag, Typography, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { BankOutlined, PlusOutlined } from '@ant-design/icons'
 import { api, fmtUtc, KbKind, ProfileSummary } from '../../api'
 import { KIND_TITLES } from './fields'
 
@@ -56,10 +56,12 @@ export default function KbListPage() {
         )}
       </Card>
 
-      <Modal open={creating} title="新建企业档案" onCancel={() => setCreating(false)} onOk={() => form.validateFields().then((v) => create.mutate(v))} confirmLoading={create.isPending}>
+      <Modal className="jb-dialog" centered cancelText="取消" open={creating} width={560} okText="创建档案" title={<span className="dialog-title"><span className="dialog-title-icon"><BankOutlined /></span><span>新建企业档案<small>建立企业资料，开启投标准备</small></span></span>} onCancel={() => setCreating(false)} onOk={() => form.validateFields().then((v) => create.mutate(v))} confirmLoading={create.isPending}>
+        <div className="dialog-intro">先填写企业基本信息，创建后可继续补齐证照、人员及业绩材料。</div>
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="企业名称（须与营业执照一致）" rules={[{ required: true, message: '请填写企业名称' }]}><Input /></Form.Item>
-          <Form.Item name="credit_code" label="统一社会信用代码" rules={[{ pattern: /^[0-9A-Z]{18}$/, message: '18 位数字/大写字母' }]}><Input maxLength={18} /></Form.Item>
+
+          <Form.Item name="name" label="企业名称" extra="请填写与营业执照一致的企业全称" rules={[{ required: true, message: '请填写企业名称' }]}><Input placeholder="请输入企业全称" autoComplete="organization" /></Form.Item>
+          <Form.Item name="credit_code" label="统一社会信用代码" extra="18 位数字或大写字母，可在创建后补充" rules={[{ pattern: /^[0-9A-Z]{18}$/, message: '18 位数字/大写字母' }]}><Input maxLength={18} placeholder="请输入统一社会信用代码" /></Form.Item>
         </Form>
       </Modal>
     </Space>

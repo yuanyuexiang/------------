@@ -26,14 +26,16 @@ export default function QualifyPage() {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       <Card size="small" title="自检设置" className="business-toolbar">
-        <Space wrap>
-          <Select placeholder="选择企业档案" style={{ width: 280 }} value={profile} onChange={setProfile}
-            options={profiles.map((p) => ({ value: p.name, label: `${p.name}（${p.credit_code || '无信用代码'}）` }))} />
-          <span>LLM 业绩语义匹配 <Switch checked={llm} onChange={setLlm} /></span>
-          <Button type="primary" loading={running} onClick={run}>运行资格自检</Button>
-          {profile && <Button onClick={() => nav(`/kb/${encodeURIComponent(profile)}?tab=performances`)}>补全档案</Button>}
-          <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
-        </Space>
+        <div className="qualification-inputs">
+          <div><label htmlFor="qualify-profile">本次自检企业</label><Select id="qualify-profile" placeholder="选择企业档案" value={profile} onChange={setProfile}
+            options={profiles.map((p) => ({ value: p.name, label: `${p.name}（${p.credit_code || '无信用代码'}）` }))} /></div>
+          <div className="workbench-draft"><span>业绩语义匹配<small>使用模型辅助识别相似业绩</small></span><Switch aria-label="业绩语义匹配" checked={llm} onChange={setLlm} /></div>
+        </div>
+        <div className="workbench-action-bar">
+          <Space wrap><Button type="primary" loading={running} onClick={run}>运行资格自检</Button>
+          {profile && <Button onClick={() => nav(`/kb/${encodeURIComponent(profile)}?tab=performances`)}>补全企业档案</Button>}</Space>
+          <Button onClick={() => nav(`/projects/${id}`)}>返回项目</Button>
+        </div>
         {profiles.length === 0 && <Alert style={{ marginTop: 8 }} type="info" message="暂无企业档案：请先到左侧「企业知识库」新建企业并补齐资料，再进行资格自检。" />}
       </Card>
       {!report && <Card className="business-empty"><Empty description={<span>选择企业档案并运行自检<br /><small>检查结果将按分包展示，并列出依据与待补充材料</small></span>} /></Card>}

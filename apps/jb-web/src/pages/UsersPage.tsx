@@ -60,7 +60,7 @@ export default function UsersPage() {
           ]} />
       </Card>
 
-      <Modal open={editing !== null} title={editing === 'new' ? '新建用户' : `编辑 ${(editing as User | null)?.username ?? ''}`} onCancel={() => setEditing(null)} onOk={() => save.mutate()} confirmLoading={save.isPending} destroyOnClose>
+      <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={editing !== null} title={editing === 'new' ? '新建用户' : `编辑 ${(editing as User | null)?.username ?? ''}`} onCancel={() => setEditing(null)} onOk={() => save.mutate()} confirmLoading={save.isPending} destroyOnClose>
         <Form form={form} layout="vertical">
           {editing === 'new' && <Form.Item name="username" label="用户名（登录用）" rules={[{ required: true, message: '必填' }, { pattern: /^[a-zA-Z0-9_.-]{2,32}$/, message: '2~32 位字母/数字/_.-' }]}><Input /></Form.Item>}
           <Form.Item name="display_name" label="显示名"><Input placeholder="如：张三" /></Form.Item>

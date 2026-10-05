@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Breadcrumb, Button, Card, Col, Descriptions, Input, Popconfirm, Row, Select, Space, Spin, Steps, Table, Tag, Timeline, Typography, message } from 'antd'
+import { Alert, Button, Card, Col, Descriptions, Input, Popconfirm, Row, Select, Space, Spin, Steps, Table, Tag, Timeline, Typography, message } from 'antd'
 import { api, fmtUtc, ProjectEvent } from '../api'
 import { DaysLeft, OUTCOME_COLOR } from './ProjectsPage'
 
@@ -44,30 +44,30 @@ export default function ProjectDetailPage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Breadcrumb items={[{ title: <Link to="/">投标项目</Link> }, { title: p.batch_name || p.filename }]} />
       {p.status === 'failed' && <Alert type="error" showIcon message="解析失败" description={p.error} />}
 
-      <Card size="small" title={<Space>{p.batch_name || p.filename}<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{p.batch_no}</Typography.Text><Tag color={OUTCOME_COLOR[p.outcome]}>{p.outcome_cn}</Tag></Space>}
-        extra={<Space>
+      <Card className="project-detail-overview" size="small" title={<Space wrap>{p.batch_name || p.filename}<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{p.batch_no}</Typography.Text><Tag color={OUTCOME_COLOR[p.outcome]}>{p.outcome_cn}</Tag></Space>}
+        extra={<Space wrap>
           <Button type="primary" disabled={!ready} onClick={() => nav(`/projects/${id}/trm`)}>{p.confirmed ? '查看确认版' : '确认 TRM'}</Button>
           <Button disabled={!ready} onClick={() => nav(`/projects/${id}/qualify`)}>资格自检</Button>
           <Button disabled={!ready} onClick={() => nav(`/projects/${id}/workbench`)}>生成与审查</Button>
           <Popconfirm title="删除项目及其产出文件？" onConfirm={async () => { await api.deleteProject(id); nav('/') }}><Button danger>删除</Button></Popconfirm>
         </Space>}>
+        <div className="project-stage-panel"><div className="section-caption">投标准备进度<span>按各环节实际结果展示</span></div>
         <Steps size="small" current={current} status={p.status === 'failed' ? 'error' : 'finish'}
-          items={STAGE_TITLE.map((t, i) => ({ title: t, status: p.status === 'failed' && i === 0 ? 'error' : done[i] ? 'finish' : 'wait' }))} style={{ marginBottom: 16 }} />
-        <Row gutter={24}>
-          <Col span={14}>
+          items={STAGE_TITLE.map((t, i) => ({ title: t, status: p.status === 'failed' && i === 0 ? 'error' : done[i] ? 'finish' : 'wait' }))}  /></div>
+        <Row gutter={[24, 20]}>
+          <Col xs={24} xl={16}>
             <Descriptions size="small" column={2} bordered labelStyle={{ width: 96, whiteSpace: 'nowrap' }}>
               <Descriptions.Item label="投标截止" span={2}>
-                <Space>
+                <Space wrap>
                   <Input size="small" style={{ width: 170 }} value={deadline} onChange={(e) => setDeadline(e.target.value)} placeholder="YYYY-MM-DD HH:MM" />
                   <DaysLeft days={p.days_left} deadline={p.deadline} />
                   {p.deadline_manual ? <Tag>人工录入</Tag> : p.deadline ? <Tag color="blue">来自招标公告</Tag> : null}
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label="开标时间" span={2}>
-                <Space>
+                <Space wrap>
                   <Input size="small" style={{ width: 170 }} value={openTime} onChange={(e) => setOpenTime(e.target.value)} placeholder="YYYY-MM-DD HH:MM" />
                   {p.key_terms.bid_open_note && <Typography.Text type="secondary">公告：{p.key_terms.bid_open_note}</Typography.Text>}
                   {timeDirty && <Button size="small" type="primary" loading={patch.isPending} onClick={() => patch.mutate({ deadline, open_time: openTime })}>保存时间</Button>}
@@ -84,7 +84,8 @@ export default function ProjectDetailPage() {
             </Descriptions>
             {p.key_terms.bid_deadline_text && <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>公告原文：{p.key_terms.bid_deadline_text}</Typography.Paragraph>}
           </Col>
-          <Col span={10}>
+          <Col xs={24} xl={8}>
+            <div className="section-caption">项目备注<span>记录分工与本次投标注意事项</span></div>
             <Input.TextArea rows={6} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="备注：分工、联系人、注意事项…" />
             {notes !== p.notes && <Button size="small" style={{ marginTop: 8 }} loading={patch.isPending} onClick={() => patch.mutate({ notes })}>保存备注</Button>}
           </Col>

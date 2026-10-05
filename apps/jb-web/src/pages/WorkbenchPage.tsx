@@ -77,17 +77,23 @@ export default function WorkbenchPage() {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       <Card size="small" title="文件生成与检查" className="workbench-controls">
-        <Space wrap>
-          <Select placeholder="企业档案" style={{ width: 260 }} disabled={running} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} />
-          <Select style={{ width: 320 }} disabled={running} value={pkgIndex} onChange={setPkgIndex}
-            options={(trm?.packages ?? []).map((p, i) => ({ value: i, label: `${p.sub_no} ${p.sub_name} ${p.pkg_no}`.trim() }))} />
-          <span>LLM 起草技术方案 <Switch checked={withDraft} onChange={setWithDraft} /></span>
-          <Button type="primary" onClick={run} disabled={running || !profile}>生成商务/技术文件</Button>
-          <Button onClick={doReview} disabled={!gen || !profile || running}>合规审查 / 复查</Button>
-          <Button onClick={doScore} disabled={!gen || !profile || running}>模拟评分</Button>
-          <Button onClick={doMatrix}>递交矩阵</Button>
-          <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
-        </Space>
+        <div className="workbench-inputs">
+          <div><label htmlFor="workbench-profile">企业档案</label><Select id="workbench-profile" placeholder="请选择企业档案" disabled={running} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} /></div>
+          <div><label htmlFor="workbench-package">本次分包</label><Select id="workbench-package" placeholder="请选择分包" disabled={running} value={pkgIndex} onChange={setPkgIndex}
+            options={(trm?.packages ?? []).map((p, i) => ({ value: i, label: `${p.sub_no} ${p.sub_name} ${p.pkg_no}`.trim() }))} /></div>
+          <div className="workbench-draft"><span>技术方案起草<small>依据资料与评分项生成初稿</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
+        </div>
+        <div className="workbench-action-bar">
+          <Space wrap>
+            <Button type="primary" onClick={run} disabled={running || !profile}>生成商务 / 技术文件</Button>
+            <Button onClick={doReview} disabled={!gen || !profile || running}>合规审查 / 复查</Button>
+          </Space>
+          <Space wrap>
+            <Button type="text" onClick={doScore} disabled={!gen || !profile || running}>模拟评分</Button>
+            <Button type="text" onClick={doMatrix}>递交矩阵</Button>
+            <Button onClick={() => nav(`/projects/${id}`)}>返回项目</Button>
+          </Space>
+        </div>
         {task && task.status !== 'done' && (
           <div style={{ marginTop: 12 }}>
             <Progress percent={Math.round(task.progress * 100)} status={task.status === 'failed' ? 'exception' : 'active'} />

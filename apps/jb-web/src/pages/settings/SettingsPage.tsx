@@ -11,7 +11,7 @@ export default function SettingsPage() {
   const tab = params.get('tab') ?? 'templates'
   const user = useAuth((s) => s.user)
   return (
-    <Card size="small" title="配置中心">
+    <Card size="small" className="settings-surface">
       {user?.role !== 'admin' && <Alert type="info" showIcon style={{ marginBottom: 12 }} message="只读：配置中心的修改需要管理员权限" />}
       <Tabs activeKey={tab} onChange={(k) => setParams({ tab: k })} destroyInactiveTabPane
         items={[

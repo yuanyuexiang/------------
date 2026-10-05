@@ -68,7 +68,7 @@ export default function ScoringTemplatesTab() {
           ) },
         ]} />
 
-      <Modal open={editing !== null} width={960} title={editing === 'new' ? '新建评分模板' : '编辑评分模板'} onCancel={() => setEditing(null)} onOk={() => save.mutate()} confirmLoading={save.isPending} destroyOnClose>
+      <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={editing !== null} width={960} title={editing === 'new' ? '新建评分模板' : '编辑评分模板'} onCancel={() => setEditing(null)} onOk={() => save.mutate()} confirmLoading={save.isPending} destroyOnClose>
         <Form form={form} layout="inline" style={{ marginBottom: 12 }}>
           <Form.Item name="name" label="模板名称" rules={[{ required: true, message: '必填' }]} style={{ flex: 1 }}><Input placeholder="如 FWSW01：服务类通用商务详评细则" style={{ width: 360 }} /></Form.Item>
           <Form.Item name="kind" label="类别"><Select style={{ width: 100 }} options={Object.entries(KIND_CN).map(([v, l]) => ({ value: v, label: l }))} /></Form.Item>

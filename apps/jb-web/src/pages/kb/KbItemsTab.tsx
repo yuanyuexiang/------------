@@ -129,9 +129,9 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
       <Table<KbItem> size="small" rowKey="id" loading={isLoading} dataSource={items} columns={columns} tableLayout="fixed"
         scroll={{ x: columns.reduce((n, c) => n + Number(c.width ?? 0), 0) }} pagination={items.length > 20 ? { pageSize: 20 } : false} />
 
-      <Modal open={editing !== null} title={editing === 'new' ? `新增${spec.title}` : `编辑${spec.title}`} width={720}
+      <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={editing !== null} title={editing === 'new' ? `新增${spec.title}` : `编辑${spec.title}`} width={720}
         onCancel={() => setEditing(null)} onOk={submit} confirmLoading={save.isPending} destroyOnClose>
-        <Form form={form} layout="vertical" style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: 8 }}>
+        <Form form={form} layout="vertical" >
           <div className="kb-item-form-grid">
             {spec.fields.map((f) => {
               const wide = f.type === 'textarea' || f.type === 'kv' || f.type === 'tags'

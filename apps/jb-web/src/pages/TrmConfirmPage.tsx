@@ -17,7 +17,7 @@ function KeyTermsForm({ kt, onChange }: { kt: KeyTerms; onChange: (k: KeyTerms) 
   const set = <K extends keyof KeyTerms>(k: K, v: KeyTerms[K]) => onChange({ ...kt, [k]: v })
   const llm = (k: string) => kt.llm_filled.includes(k) ? <Tag color="purple">LLM 兜底</Tag> : null
   return (
-    <Form layout="vertical" style={{ maxWidth: 720 }}>
+    <Form layout="vertical" className="key-terms-form">
       <Form.Item label={<>投标有效期（日）{llm('validity_days')}<Text type="secondary"> 条款 {kt.validity_clause}</Text></>}>
         <InputNumber value={kt.validity_days ?? undefined} onChange={(v) => set('validity_days', v ?? null)} min={1} />
         {kt.validity_days === null && <Tag color="orange" style={{ marginLeft: 8 }}>未抽到</Tag>}
@@ -26,7 +26,7 @@ function KeyTermsForm({ kt, onChange }: { kt: KeyTerms; onChange: (k: KeyTerms) 
         <Select value={kt.deposit_mode ?? undefined} onChange={(v) => set('deposit_mode', v)} allowClear style={{ width: 240 }}
           options={['none', '诚信担保', '年度保证金', '按包保证金'].map((v) => ({ value: v, label: v === 'none' ? '不要求保证金' : v }))} />
       </Form.Item>
-      <Space size="large">
+      <Space size="large" wrap className="key-terms-switches">
         <Form.Item label="整体电子签章"><Switch checked={!!kt.sign_whole_doc} onChange={(v) => set('sign_whole_doc', v)} /></Form.Item>
         <Form.Item label="不接收纸质文件"><Switch checked={!!kt.paperless} onChange={(v) => set('paperless', v)} /></Form.Item>
         <Form.Item label="电子招标投标"><Switch checked={!!kt.electronic} onChange={(v) => set('electronic', v)} /></Form.Item>

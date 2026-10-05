@@ -70,7 +70,7 @@ export default function RulesTab() {
           ) },
         ]} />
 
-      <Modal open={!!editing} title={editing ? `${editing.rule_id} ${editing.title}` : ''} onCancel={() => setEditing(null)} onOk={save} destroyOnClose>
+      <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={!!editing} title={editing ? `${editing.rule_id} ${editing.title}` : ''} onCancel={() => setEditing(null)} onOk={save} destroyOnClose>
         {editing && (
           <Form form={form} layout="vertical">
             <Typography.Paragraph type="secondary">{editing.doc || editing.title}　依据：{editing.source}</Typography.Paragraph>
