@@ -5,6 +5,7 @@ import { DatabaseOutlined, DownOutlined, FileTextOutlined, MenuFoldOutlined, Men
 import { api } from '../api'
 import { useAuth } from '../auth'
 import './AdminLayout.css'
+import SidebarHelp from '../components/SidebarHelp'
 
 const { Sider, Header, Content } = Layout
 
@@ -59,6 +60,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <span className="admin-logo-icon"><FileTextOutlined /></span>
           {!collapsed && <span className="admin-logo-name">金榜<small>JINBANG</small></span>}
         </Link>
+        <div className="admin-navigation">
         {!collapsed && <div className="admin-nav-label">工作空间</div>}
         <Menu theme="dark" mode="inline" selectedKeys={[selected]}
           items={[
@@ -67,6 +69,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">配置中心</Link> },
             ...(isAdmin ? [{ key: '/users', icon: <TeamOutlined />, label: <Link to="/users">用户与权限</Link> }] : []),
           ]} />
+        </div>
+        <footer className="admin-sidebar-footer">
+          {!collapsed && <div className="admin-sidebar-signature"><span className="admin-signature-accent" /><strong>金榜 · 投标准备助手</strong><p>专业准备，从容投标</p></div>}
+          <SidebarHelp collapsed={collapsed} />
+        </footer>
       </Sider>
       <Layout className="admin-main">
         <Header className="admin-header">
