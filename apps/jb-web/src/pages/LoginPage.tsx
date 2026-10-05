@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Alert, Button, ConfigProvider, Form, Input } from 'antd'
-import { ArrowRightOutlined, CheckCircleFilled, FileTextOutlined, LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons'
+import { ArrowRightOutlined, FileTextOutlined, LockOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons'
 import { useAuth } from '../auth'
 import './LoginPage.css'
 
@@ -30,20 +30,14 @@ export default function LoginPage() {
 
         <div className="login-content">
           <section className="login-intro" aria-labelledby="login-headline">
-            <div className="login-eyebrow"><span /> 为每一次投标，做好准备</div>
-            <h1 id="login-headline">让投标更从容<br /><span>让专业更出众</span></h1>
+            <div className="login-eyebrow"><span /> 专为国网供应商打造</div>
+            <h1 id="login-headline">繁杂投标，<br /><span>有序准备。</span></h1>
             <p className="login-intro-description">从招标文件解析到投标文件生成，<br />将繁杂要求理清，让每一步都有据可依。</p>
 
-            <div className="login-visual" aria-hidden="true">
-              <div className="login-document">
-                <div className="login-document-top"><FileTextOutlined /><span>投标工作台</span><span className="login-document-dots">•••</span></div>
-                <div className="login-document-title">项目要求，一目了然</div>
-                <div className="login-document-line" /><div className="login-document-line short" />
-                <div className="login-document-row"><span className="login-mini-icon"><FileTextOutlined /></span><div>招标文件解析<small>提取关键条款与项目要求</small></div><CheckCircleFilled /></div>
-                <div className="login-document-row"><span className="login-mini-icon"><SafetyCertificateOutlined /></span><div>资格与合规检查<small>逐项核查，及时发现待补充材料</small></div><CheckCircleFilled /></div>
-                <div className="login-document-progress"><span /> <span /> <span /></div>
-              </div>
-              <div className="login-floating-badge"><CheckCircleFilled /><div>有据可依<small>让准备更有条理</small></div></div>
+            <div className="login-workflow" aria-label="投标准备流程">
+              <div><span>01</span><strong>理清招标要求</strong><small>关键条款与项目需求，集中呈现</small></div>
+              <div><span>02</span><strong>核查企业材料</strong><small>资格与合规逐项检查，查漏补缺</small></div>
+              <div><span>03</span><strong>准备投标文件</strong><small>依据项目要求，生成文件草稿</small></div>
             </div>
             <div className="login-capabilities"><span>智能解析</span><i /><span>资格自检</span><i /><span>文件生成</span><i /><span>合规审查</span></div>
           </section>
