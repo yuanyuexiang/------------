@@ -132,7 +132,7 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
       <Modal open={editing !== null} title={editing === 'new' ? `新增${spec.title}` : `编辑${spec.title}`} width={720}
         onCancel={() => setEditing(null)} onOk={submit} confirmLoading={save.isPending} destroyOnClose>
         <Form form={form} layout="vertical" style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: 8 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', columnGap: 16 }}>
+          <div className="kb-item-form-grid">
             {spec.fields.map((f) => {
               const wide = f.type === 'textarea' || f.type === 'kv' || f.type === 'tags'
               return (

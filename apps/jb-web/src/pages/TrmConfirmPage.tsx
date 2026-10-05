@@ -133,7 +133,7 @@ export default function TrmConfirmPage() {
       <Tabs items={[
         { key: 'kt', label: '关键条件', children: <KeyTermsForm kt={trm.key_terms} onChange={(k) => setTrm({ ...trm, key_terms: k })} /> },
         { key: 'pk', label: `标包（${trm.packages.length}）`, children: (
-          <Tabs tabPosition="left" items={trm.packages.map((p, i) => ({
+          <Tabs className="package-tabs" tabPosition="top" items={trm.packages.map((p, i) => ({
             key: String(i), label: `${p.sub_no} ${p.sub_name} ${p.pkg_no}`.trim() || `包 ${i + 1}`,
             children: <PackagePanel pkg={p} onChange={(np) => setPkg(i, np)} />,
           }))} />
@@ -156,8 +156,8 @@ export default function TrmConfirmPage() {
             columns={[{ title: '条款', dataIndex: 'clause_no', width: 100 }, { title: '名称', dataIndex: 'name', width: 200 }, { title: '编列内容', dataIndex: 'content' }]} />
         ) },
       ]} />
-      <Card size="small">
-        <Space>
+      <Card size="small" className="confirmation-actions">
+        <Space wrap>
           <Button type="primary" loading={saving} onClick={save}>确认并保存为人工确认版</Button>
           <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
           <Text type="secondary">确认后下游（资格自检/生成/审查）一律使用确认版</Text>

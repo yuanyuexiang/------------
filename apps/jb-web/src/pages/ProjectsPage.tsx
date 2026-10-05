@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, Popconfirm, Progress, Segmented, Space, Table, Tag, Typography, Upload, message } from 'antd'
-import { InboxOutlined } from '@ant-design/icons'
+import { ClockCircleOutlined, FileSearchOutlined, InboxOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { api, Project } from '../api'
 
 export const STAGE_COLOR: Record<string, string> = {
@@ -53,10 +53,16 @@ export default function ProjectsPage() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-      <Card size="small" title="导入招标文件包">
+      <div className="project-overview">
+        <div><span className="project-stat-icon"><FileSearchOutlined /></span><div><span>当前列表项目</span><strong>{isLoading ? '—' : projects.length}<small>个</small></strong></div></div>
+        <div><span className="project-stat-icon amber"><ClockCircleOutlined /></span><div><span>七天内截止 · 当前列表</span><strong>{isLoading ? '—' : projects.filter((p) => p.days_left !== null && p.days_left >= 0 && p.days_left <= 7).length}<small>个</small></strong></div></div>
+        <div><span className="project-stat-icon teal"><SafetyCertificateOutlined /></span><div><span>已确认要求 · 当前列表</span><strong>{isLoading ? '—' : projects.filter((p) => p.confirmed).length}<small>个</small></strong></div></div>
+      </div>
+      <Card size="small" title="导入招标文件包" className="project-import">
         <Upload.Dragger accept=".zip" beforeUpload={upload} showUploadList={false} style={{ padding: 0 }}>
           <p className="ant-upload-drag-icon" style={{ marginBottom: 4 }}><InboxOutlined /></p>
-          <p style={{ margin: 0 }}>拖入 ECP 下载的招标文件包（.zip，支持批次级/包级），自动解析为 TRM 并抽取投标截止时间</p>
+          <p className="project-import-title">拖入招标文件，或点击上传</p>
+          <p className="project-import-description">支持 ECP 批次级 / 包级 ZIP 文件，自动提取招标要求与关键日期</p>
         </Upload.Dragger>
         {task && (
           <div style={{ marginTop: 12 }}>
@@ -67,7 +73,7 @@ export default function ProjectsPage() {
       </Card>
       <Card size="small" title="投标项目"
         extra={<Segmented value={scope} onChange={(v) => setScope(v as typeof scope)} options={[{ value: 'active', label: '在投' }, { value: 'closed', label: '已结束' }, { value: 'all', label: '全部' }]} />}>
-        <Table<Project> rowKey="id" size="small" loading={isLoading} dataSource={projects} pagination={projects.length > 20 ? { pageSize: 20 } : false}
+        <Table<Project> scroll={{ x: 1050 }} rowKey="id" size="small" loading={isLoading} dataSource={projects} pagination={projects.length > 20 ? { pageSize: 20 } : false}
           columns={[
             { title: '批次 / 分包', dataIndex: 'batch_name', render: (v, r) => (
               <div style={{ minWidth: 0 }}>

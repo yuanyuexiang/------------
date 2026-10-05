@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Card, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Empty, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
 
 const LEVEL: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
@@ -76,7 +76,7 @@ export default function WorkbenchPage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Card size="small">
+      <Card size="small" title="文件生成与检查" className="workbench-controls">
         <Space wrap>
           <Select placeholder="企业档案" style={{ width: 260 }} disabled={running} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} />
           <Select style={{ width: 320 }} disabled={running} value={pkgIndex} onChange={setPkgIndex}
@@ -95,6 +95,8 @@ export default function WorkbenchPage() {
           </div>
         )}
       </Card>
+
+      {!gen && !running && !flowError && <Card className="business-empty"><Empty description={<span>开始准备本包投标文件<br /><small>选择企业档案与分包，生成文件后查看待补充项并进行合规审查</small></span>} /></Card>}
 
       {flowError && <Alert type="error" message="无法读取当前审查状态" description={String(flowError)} />}
       {flow && <Card size="small" title="整改与正式导出">

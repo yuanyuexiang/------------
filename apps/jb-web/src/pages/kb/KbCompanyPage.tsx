@@ -31,7 +31,7 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
   )
   return (
     <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', columnGap: 16 }}>
+      <div className="company-form-grid">
         {text('credit_code', '统一社会信用代码')}
         {text('legal_person', '法定代表人')}
         {text('legal_or_admin', '行政/技术负责人')}

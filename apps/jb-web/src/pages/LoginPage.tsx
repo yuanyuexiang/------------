@@ -31,14 +31,10 @@ export default function LoginPage() {
         <div className="login-content">
           <section className="login-intro" aria-labelledby="login-headline">
             <div className="login-eyebrow"><span /> 专为国网供应商打造</div>
-            <h1 id="login-headline">繁杂投标，<br /><span>有序准备。</span></h1>
+            <h1 id="login-headline">每一份准备，<br /><span>都离中标更近。</span></h1>
             <p className="login-intro-description">从招标文件解析到投标文件生成，<br />将繁杂要求理清，让每一步都有据可依。</p>
 
-            <div className="login-workflow" aria-label="投标准备流程">
-              <div><span>01</span><strong>理清招标要求</strong><small>关键条款与项目需求，集中呈现</small></div>
-              <div><span>02</span><strong>核查企业材料</strong><small>资格与合规逐项检查，查漏补缺</small></div>
-              <div><span>03</span><strong>准备投标文件</strong><small>依据项目要求，生成文件草稿</small></div>
-            </div>
+            <div className="login-emblem" aria-hidden="true"><span>金</span><div className="login-emblem-orbit" /></div>
             <div className="login-capabilities"><span>智能解析</span><i /><span>资格自检</span><i /><span>文件生成</span><i /><span>合规审查</span></div>
           </section>
 
@@ -57,7 +53,7 @@ export default function LoginPage() {
               <Button type="primary" htmlType="submit" block loading={loading} className="login-submit">登录工作台 {!loading && <ArrowRightOutlined />}</Button>
             </Form>
             <div className="login-account-help"><SafetyCertificateOutlined /><span>账号由企业管理员统一管理<br /><small>如需开通账号或重置密码，请联系管理员</small></span></div>
-            <div className="login-panel-footer">企业专属工作空间 · 专注每一份投标</div>
+
           </section>
         </div>
         <footer className="login-footer"><span>金榜 · 国网智能投标管理系统</span><span>专业准备，从容投标</span></footer>

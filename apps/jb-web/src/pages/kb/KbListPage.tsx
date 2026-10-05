@@ -51,7 +51,7 @@ export default function KbListPage() {
           ]} />
         {!isLoading && data.length === 0 && (
           <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
-            尚无企业档案。可点"新建企业"手工建档，或用 <code>scripts/demo.py</code> / <code>jb_kb.build_profile</code> 从历史投标文件成品导入后在此补全。
+            尚无企业档案。点击右上角“新建企业”，录入企业基本信息后，再补齐证照、人员与业绩资料。
           </Typography.Paragraph>
         )}
       </Card>

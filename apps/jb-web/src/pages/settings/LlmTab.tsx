@@ -30,8 +30,8 @@ export default function LlmTab() {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       {!data.effective.key_configured && <Alert type="error" showIcon message="未配置 LLM_API_KEY：LLM 兜底/起草/评分均不可用。密钥只能写在仓库根 .env（或容器环境变量），不经页面、不入库。" />}
-      <Row gutter={16}>
-        <Col span={12}>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={12}>
           <Card size="small" title="连接设置">
             <Descriptions size="small" column={1} bordered labelStyle={{ width: 110 }} style={{ marginBottom: 12 }}>
               <Descriptions.Item label="密钥">{data.effective.key_configured ? <Tag color="green">已配置（环境变量）</Tag> : <Tag color="red">未配置</Tag>}</Descriptions.Item>
@@ -58,13 +58,13 @@ export default function LlmTab() {
             )}
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} xl={12}>
           <Card size="small" title="用量" extra={<Select size="small" value={days} onChange={setDays} options={[7, 30, 90].map((d) => ({ value: d, label: `近 ${d} 天` }))} />}>
             <Row gutter={16} style={{ marginBottom: 12 }}>
-              <Col span={6}><Statistic title="调用" value={u.calls} /></Col>
-              <Col span={6}><Statistic title="失败" value={u.failed} valueStyle={{ color: u.failed ? '#cf1322' : undefined }} /></Col>
-              <Col span={6}><Statistic title="输入 tokens" value={u.prompt_tokens} /></Col>
-              <Col span={6}><Statistic title="输出 tokens" value={u.completion_tokens} /></Col>
+              <Col xs={12} sm={6}><Statistic title="调用" value={u.calls} /></Col>
+              <Col xs={12} sm={6}><Statistic title="失败" value={u.failed} valueStyle={{ color: u.failed ? '#cf1322' : undefined }} /></Col>
+              <Col xs={12} sm={6}><Statistic title="输入 tokens" value={u.prompt_tokens} /></Col>
+              <Col xs={12} sm={6}><Statistic title="输出 tokens" value={u.completion_tokens} /></Col>
             </Row>
             <Table size="small" rowKey="purpose" pagination={false} dataSource={u.by_purpose} style={{ marginBottom: 12 }}
               columns={[

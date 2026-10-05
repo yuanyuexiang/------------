@@ -92,7 +92,7 @@ export default function ProjectDetailPage() {
       </Card>
 
       <Card size="small" title={`分包进度（${p.package_list.length}）`}>
-        <Table rowKey="pkg_no" size="small" pagination={false} dataSource={p.package_list}
+        <Table scroll={{ x: 1100 }} rowKey="pkg_no" size="small" pagination={false} dataSource={p.package_list}
           columns={[
             { title: '包', dataIndex: 'pkg_no', width: 80 },
             { title: '分标', dataIndex: 'sub_name', width: 160, ellipsis: true, render: (v, row) => [row.sub_no, v].filter(Boolean).join(' ') || '—' },
@@ -105,8 +105,8 @@ export default function ProjectDetailPage() {
           ]} />
       </Card>
 
-      <Row gutter={16}>
-        <Col span={12}>
+      <Row gutter={[16, 16]}>
+        <Col xs={24} xl={12}>
           <Card size="small" title={`产出文件（${p.files.length}）`}>
             <Typography.Paragraph type="secondary">草稿用于核对和整改；正式件需在工作台通过检查后导出，资料变化后需重新生成或复查。</Typography.Paragraph>
             {p.files.length === 0 ? <Typography.Text type="secondary">尚未生成，到"生成与审查"工作台生成商务/技术文件</Typography.Text> : (
@@ -119,7 +119,7 @@ export default function ProjectDetailPage() {
             )}
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} xl={12}>
           <Card size="small" title={`时间线（${p.events.length}）`} style={{ maxHeight: 480, overflowY: 'auto' }}>
             {p.tasks.filter((t) => t.status === 'running' || t.status === 'queued').map((t) => (
               <Alert key={t.id} type="info" showIcon style={{ marginBottom: 8 }} message={`${t.kind} 进行中 ${Math.round(t.progress * 100)}%`} description={t.message} />
