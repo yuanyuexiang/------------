@@ -153,11 +153,25 @@ def review_generation(s, p: Project, pkg_index: int, profile: str, out_dir: str)
               "findings": [f.model_dump() for f in rep.findings], "markdown": rep.markdown(),
               "rules_hash": fingerprint({k: v.model_dump() for k, v in rule_settings.items()})}
     save_artifact(p, {**a, "review": result})
-    pm.set_result(p, "review", {**result, "profile": profile}, pkg.pkg_no)
+    pm.set_result(p, "review", {**result, "profile": profile}, trm.package_key(pkg_index))
     pm.advance(p, "reviewed")
     pm.log_event(s, p.id, "reviewed", f"{pkg.pkg_no} 合规审查：{'存在否决项' if rep.blocked else '无否决项'}",
                  {"pkg_no": pkg.pkg_no, "generation_id": a["id"], "blocked": rep.blocked})
     return result
+
+
+def scoring_draft(s, p: Project, pkg_index: int, profile: str, task_id: str, out_dir: str) -> str:
+    """评分材料必须来自本包、当前企业的最新完成版本，且输入仍然有效。"""
+    task = s.get(Task, task_id)
+    artifact = latest(p, pkg_index)
+    if (not task or task.project_id != p.id or task.kind != "generate"
+            or task.status != "done" or not artifact or artifact["id"] != task_id
+            or artifact["profile"] != profile):
+        raise WorkflowError("评分任务必须属于当前项目、标包、企业的最新完成版本")
+    reasons = source_blockers(s, p, artifact, out_dir, profile)
+    if reasons:
+        raise WorkflowError("；".join(reasons))
+    return (task.result or {}).get("draft_markdown", "")
 
 
 def workflow_state(s, p: Project, pkg_index: int, profile: str, out_dir: str) -> dict:

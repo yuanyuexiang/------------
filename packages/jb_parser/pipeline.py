@@ -151,7 +151,7 @@ def package_files(zip_path: str, pkg: Optional[PackageTRM] = None, sub_no: str =
                   workdir: Optional[str] = None) -> PackageFiles:
     """解压招标文件包，定位指定分标/包的主文件与规范书原件。workdir 生命周期由调用方管理。
 
-    批次级 zip 含多个包时按 分标号 > 包号 匹配，匹配不到退回第一个主文件。
+    批次级 zip 含多个包时按 分标号 > 包号 匹配，匹配不到不采用其他包原件；候选不唯一时显式报错。
     """
     if pkg is not None:
         sub_no, pkg_no = sub_no or pkg.sub_no, pkg_no or pkg.pkg_no
@@ -160,23 +160,24 @@ def package_files(zip_path: str, pkg: Optional[PackageTRM] = None, sub_no: str =
     out = PackageFiles()
     cands = [f for f in res.files if classify.classify_file(f) == classify.MAIN_DOC]
 
-    def score(rel: str) -> int:
-        s = 0
-        msub = SUB_DIR_PAT.search(rel)
-        if msub and sub_no and "分标" + msub.group(1) == sub_no:
-            s += 2
-        mpkg = PKG_ZIP_PAT.search(rel)
-        if mpkg and pkg_no and "包" + mpkg.group(1) == pkg_no:
-            s += 1
-        return s
+    def matches(rel: str) -> bool:
+        msub, mpkg = SUB_DIR_PAT.search(rel), PKG_ZIP_PAT.search(rel)
+        return (not msub or not sub_no or "分标" + msub.group(1) == sub_no) and (
+            not mpkg or not pkg_no or "包" + mpkg.group(1) == pkg_no)
 
+    # 仅在指定分标/包内选取。单包 ZIP 可能没有包目录，此时只接受唯一候选。
+    cands = [f for f in cands if matches(f)]
+    if len(cands) > 1:
+        raise ValueError("本包主文件不唯一，需人工核对原件")
     if cands:
-        out.main_doc = os.path.join(workdir, max(cands, key=score))
+        out.main_doc = os.path.join(workdir, cands[0])
     for sd in (pkg.spec_docs if pkg is not None else []):
         src = sd.source.replace("\\", "/")
-        hit = next((f for f in res.files if f.replace("\\", "/").endswith(src)), None)
-        if hit:
-            out.spec_docs[sd.spec_id or sd.source] = os.path.join(workdir, hit)
+        hits = [f for f in res.files if matches(f) and (
+            f.replace("\\", "/") == src or f.replace("\\", "/").endswith("/" + src))]
+        if len(hits) != 1:
+            raise ValueError(f"本包规范书原件缺失或不唯一：{src}")
+        out.spec_docs[sd.spec_id or sd.source] = os.path.join(workdir, hits[0])
     return out
 
 

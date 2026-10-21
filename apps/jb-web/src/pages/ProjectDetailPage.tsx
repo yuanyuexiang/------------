@@ -93,16 +93,16 @@ export default function ProjectDetailPage() {
       </Card>
 
       <Card size="small" title={`分包进度（${p.package_list.length}）`}>
-        <Table scroll={{ x: 1100 }} rowKey="pkg_no" size="small" pagination={false} dataSource={p.package_list}
+        <Table scroll={{ x: 1100 }} rowKey="result_key" size="small" pagination={false} dataSource={p.package_list}
           columns={[
             { title: '包', dataIndex: 'pkg_no', width: 80 },
             { title: '分标', dataIndex: 'sub_name', width: 160, ellipsis: true, render: (v, row) => [row.sub_no, v].filter(Boolean).join(' ') || '—' },
             { title: '项目', dataIndex: 'project_name', ellipsis: true },
             { title: '预算(元)', dataIndex: 'budget_yuan', width: 120, render: (v: number | null) => v ? v.toLocaleString() : '—' },
-            { title: '自检', width: 90, render: (_, row) => { const v = r.qualify?.verdicts?.[row.pkg_no]; return v ? <Tag color={VERDICT_COLOR[v]}>{v}</Tag> : '—' } },
-            { title: '生成', width: 150, render: (_, row) => { const g = r.generate?.[row.pkg_no]; return g ? <Tag color={g.export_blocked ? 'orange' : 'green'}>待补充 {g.todo_count}{g.with_draft ? ' · 含起草' : ''}</Tag> : '—' } },
-            { title: '上次审查（当前状态见工作台）', width: 210, render: (_, row) => { const v = r.review?.[row.pkg_no]; return v ? <Tag>{v.blocked ? '有否决项' : '无否决项'} {Object.entries(v.counts).map(([k, n]) => `${k}${n}`).join(' ')}</Tag> : '—' } },
-            { title: '模拟评分', width: 190, render: (_, row) => { const v = r.score?.[row.pkg_no]; return v ? <span>技 {v.tech_total ?? '—'}/{v.tech_max} · 商 {v.biz_total ?? '—'}/{v.biz_max}{v.weighted !== null ? ` · 加权 ${v.weighted}` : ''}</span> : '—' } },
+            { title: '自检', width: 90, render: (_, row) => { const v = r.qualify?.verdicts?.[row.result_key]; return v ? <Tag color={VERDICT_COLOR[v]}>{v}</Tag> : '—' } },
+            { title: '生成', width: 150, render: (_, row) => { const g = r.generate?.[row.result_key]; return g ? <Tag color={g.export_blocked ? 'orange' : 'green'}>待补充 {g.todo_count}{g.with_draft ? ' · 含起草' : ''}</Tag> : '—' } },
+            { title: '上次审查（当前状态见工作台）', width: 210, render: (_, row) => { const v = r.review?.[row.result_key]; return v ? <Tag>{v.blocked ? '有否决项' : '无否决项'} {Object.entries(v.counts).map(([k, n]) => `${k}${n}`).join(' ')}</Tag> : '—' } },
+            { title: '模拟评分', width: 190, render: (_, row) => { const v = r.score?.[row.result_key]; return v ? <span>技 {v.tech_total ?? '—'}/{v.tech_max} · 商 {v.biz_total ?? '—'}/{v.biz_max}{v.weighted !== null ? ` · 加权 ${v.weighted}` : ''}</span> : '—' } },
           ]} />
       </Card>
 

@@ -9,6 +9,7 @@ import os
 import shutil
 import zipfile
 from dataclasses import dataclass, field
+from pathlib import Path, PureWindowsPath
 
 IGNORE_NAMES = {".DS_Store", "__MACOSX"}
 NESTED_ZIP_MAX_DEPTH = 5
@@ -44,6 +45,7 @@ def unpack(zip_path: str, dest: str, depth: int = 0) -> UnpackResult:
 
     嵌套 zip 解压到 `<原名去掉.zip>/` 同级目录，保留层次以便溯源。
     """
+    dest = str(Path(dest).resolve())
     result = UnpackResult(root=dest)
     os.makedirs(dest, exist_ok=True)
     with zipfile.ZipFile(zip_path) as zf:
@@ -51,7 +53,14 @@ def unpack(zip_path: str, dest: str, depth: int = 0) -> UnpackResult:
             name = fix_zip_name(info.filename)
             if name.endswith("/") or _should_ignore(name):
                 continue
-            out = os.path.join(dest, name)
+            # ZIP 使用 POSIX 路径；同时拒绝 Windows 盘符与反斜杠穿越。
+            name = name.replace("\\", "/")
+            root = Path(dest).resolve()
+            target = (root / name).resolve()
+            if (PureWindowsPath(name).drive or name.startswith("/")
+                    or ".." in Path(name).parts or root not in target.parents):
+                raise ValueError(f"ZIP 条目路径不安全：{name}")
+            out = str(target)
             os.makedirs(os.path.dirname(out) or dest, exist_ok=True)
             with zf.open(info) as src, open(out, "wb") as dst:
                 shutil.copyfileobj(src, dst)

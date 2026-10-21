@@ -116,28 +116,42 @@ def _prompt(section: DraftSection, pkg: PackageTRM, facts: str, chunks: list[tup
 只输出章节正文。"""
 
 
-def _check_numbers(text: str, allowed: set[str]) -> tuple[str, list[str]]:
-    """正文中的数字若不在事实/素材中出现且所在句无来源标注，替换为【待补充】。"""
+def _check_numbers(text: str, sources: dict[str, str]) -> tuple[str, list[str]]:
+    """逐句验证引用 ID 与数字证据；引用存在不能替代证据匹配。
+
+    只做确定性溯源检查，非数字事实及语义支持仍需人工审阅。
+    """
     violations: list[str] = []
     out_lines = []
     for line in text.split("\n"):
-        if line.startswith("#") or "【待补充" in line:
-            out_lines.append(line)
-            continue
-        has_src = bool(_SRC.search(line))
-        nums = [n for n in _NUM.findall(line) if n not in allowed and not re.fullmatch(r"[1-9]|1\d", n)]
-        if nums and not has_src:
-            for n in nums:
-                violations.append(n)
-                line = line.replace(n, f"【待补充：数值{n}需核实来源】", 1)
-        out_lines.append(line)
+        parts = re.findall(r".*?[。！？；](?:[ \t]*\[来源:[^\]]+\])*|.+$", line)
+        checked = []
+        for part in parts:
+            ids = _SRC.findall(part)
+            invalid = [sid for sid in ids if sid not in sources]
+            if invalid:
+                violations.extend(f"无效来源:{sid}" for sid in invalid)
+                part = _SRC.sub(lambda m, invalid=invalid: "" if m.group(1) in invalid else m.group(0), part)
+                part += "【待补充：引用来源需核实】"
+            evidence = set(_NUM.findall(_SRC.sub("", " ".join(sources[sid] for sid in ids if sid in sources))))
+            # 有来源时数字必须存在于所引用资料；无来源的数字转人工核对。
+            plain = re.sub(r"【待补充[^】]*】", "", _SRC.sub("", part))
+            # 仅去掉编号位置，正文中相同的数字仍须有证据。
+            plain = re.sub(r"^\s*\d+[.、]\s+", "", plain)
+            nums = set(_NUM.findall(plain)) - evidence
+            if nums:
+                violations.extend(sorted(nums))
+                part = _SRC.sub("", part)
+                part = _NUM.sub(lambda m, nums=nums: "【待补充：数值需核实来源】" if m.group() in nums else m.group(), part)
+            checked.append(part)
+        out_lines.append("".join(checked))
     return "\n".join(out_lines), violations
 
 
 def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = True,
                   index: Optional[Index] = None) -> Draft:
     index = index or build_index(profile)
-    facts, fact_nums = _facts_block(profile)
+    facts, _ = _facts_block(profile)
     draft = Draft(pkg_no=pkg.pkg_no)
     llm = None
     if use_llm:
@@ -149,7 +163,6 @@ def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: b
     for sec in build_outline(trm, pkg):
         hits = index.search(f"{sec.title} {sec.scoring_element} {pkg.scope[:80]}", top_k=4)
         chunks = [(h.chunk.id, h.chunk.text) for h in hits]
-        allowed = fact_nums | set(_NUM.findall(" ".join(t for _, t in chunks)))
         if llm is None:
             sec.text = f"【待补充：{sec.title}——LLM 未配置，请按评审标准撰写】\n\n可用素材：\n" + \
                        "\n".join(f"- [来源:{cid}] {txt[:80]}" for cid, txt in chunks)
@@ -159,7 +172,10 @@ def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: b
                 text = llm.chat(_prompt(sec, pkg, facts, chunks), temperature=0.3, timeout=120, purpose="draft")
             except Exception as exc:  # 网络/模型错误：降级为骨架，不中断
                 text = f"【待补充：{sec.title}——起草失败：{exc}】"
-            text, viol = _check_numbers(text, allowed)
+            source_texts = {m.group(1): line for line in facts.splitlines()
+                            for m in [_SRC.search(line)] if m}
+            source_texts.update(dict(chunks))
+            text, viol = _check_numbers(text, source_texts)
             sec.text, sec.by_llm, sec.fact_violations = text, True, viol
             sec.sources = sorted(set(_SRC.findall(text)))
             sec.todos = re.findall(r"【待补充：([^】]*)】", text)

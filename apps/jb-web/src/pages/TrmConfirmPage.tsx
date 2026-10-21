@@ -106,8 +106,8 @@ export default function TrmConfirmPage() {
   const [saving, setSaving] = useState(false)
   useEffect(() => { if (data) setTrm(data) }, [data])
 
-  if (isLoading || !trm) return <Spin />
   if (error) return <Alert type="error" message={String(error)} />
+  if (isLoading || !trm) return <Spin />
 
   const save = async () => {
     setSaving(true)

@@ -10,6 +10,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     import jb_llm
     import jb_store
+    # jb_llm 导入时会加载本地 .env；测试须在此后隔离鉴权及管理员配置。
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("JB_SECRET_KEY", raising=False)
+    monkeypatch.delenv("JB_ADMIN_PASSWORD", raising=False)
     jb_store.reset_engine()
     from fastapi.testclient import TestClient
     from jb_api import main

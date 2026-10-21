@@ -164,6 +164,13 @@ class TRM(BaseModel):
     format_blocks: list[FormatBlock] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
+    def package_key(self, index: int) -> str:
+        """唯一包号保持旧键；重号或空包号使用带索引的复合键，避免摘要覆盖。"""
+        pkg = self.packages[index]
+        if pkg.pkg_no and sum(p.pkg_no == pkg.pkg_no for p in self.packages) == 1:
+            return pkg.pkg_no
+        return f"{index}:{pkg.sub_no}:{pkg.pkg_no}"
+
     def summary(self) -> str:
         lines = [
             "批次: {} ({})".format(self.batch_name or "?", self.batch_no or "?"),

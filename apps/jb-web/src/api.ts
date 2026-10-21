@@ -52,7 +52,7 @@ export interface Project {
 export interface ProjectEvent { id: string; kind: string; message: string; data: Record<string, unknown> | null; actor: string; created_at: string }
 export interface ProjectDetail extends Project {
   key_terms: Partial<KeyTerms> & { bid_deadline?: string | null; bid_deadline_text?: string; bid_open_time?: string | null; bid_open_note?: string }
-  package_list: { pkg_no: string; sub_no: string; sub_name: string; project_name: string; budget_yuan: number | null; max_price: string; materials: number; spec_docs: number }[]
+  package_list: { result_key: string; pkg_no: string; sub_no: string; sub_name: string; project_name: string; budget_yuan: number | null; max_price: string; materials: number; spec_docs: number }[]
   events: ProjectEvent[]
   tasks: { id: string; kind: string; status: string; progress: number; message: string; created_at: string }[]
   files: { name: string; size: number; modified: string }[]

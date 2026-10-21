@@ -234,3 +234,41 @@ def test_change_during_conversion_prevents_publication(bid, monkeypatch):
     monkeypatch.setattr(workflow, "export", convert)
     assert export(bid, name)["ok"] is False
     assert not list((bid["folder"] / "out").glob("正式_*"))
+
+
+def test_duplicate_package_summaries_are_isolated(bid):
+    generate(bid, 0)
+    generate(bid, 1)
+    review(bid, 0)
+    review(bid, 1)
+    c, url = bid['client'], bid['url']
+    assert c.post(url + '/qualify', params={'profile': '测试企业'}).status_code == 200
+    for index in (0, 1):
+        assert c.post(url + '/score', params={'profile': '测试企业', 'pkg_index': index}).status_code == 200
+    detail = c.get(url + '/detail').json()
+    keys = {row['result_key'] for row in detail['package_list']}
+    assert len(keys) == 2
+    for kind in ('generate', 'review', 'score'):
+        assert set(detail['results'][kind]) == keys
+    assert set(detail['results']['qualify']['verdicts']) == keys
+
+
+def test_score_rejects_wrong_package_project_and_stale_inputs(bid):
+    generate(bid, 0)
+    task = state(bid, 0)['generation_id']
+    c, url = bid['client'], bid['url']
+    params = {'profile': '测试企业', 'task_id': task}
+    assert c.post(url + '/score', params=params).status_code == 200
+    assert c.post(url + '/score', params={**params, 'pkg_index': 1}).status_code == 409
+    assert c.post(url + '/score', params={**params, 'pkg_index': -1}).status_code == 400
+    assert c.post(url + '/score', params={**params, 'pkg_index': 9}).status_code == 400
+    with session() as s:
+        original = s.get(Project, bid['id'])
+        other = Project(filename='other.zip', zip_path='', trm=original.trm,
+                        trm_confirmed=original.trm_confirmed)
+        s.add(other)
+        s.flush()
+        other_id = other.id
+    assert c.post(f'/api/projects/{other_id}/score', params=params).status_code == 409
+    c.put('/api/profiles/测试企业', json={'name': '测试企业', 'credit_code': 'changed'})
+    assert c.post(url + '/score', params=params).status_code == 409

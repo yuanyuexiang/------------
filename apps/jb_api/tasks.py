@@ -149,7 +149,7 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
         pm.set_result(p, "generate", {"todo_count": summary.get("todo_count"), "export_blocked": summary.get("export_blocked"),
                                       "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],
                                       "with_draft": with_draft, "profile": profile_name,
-                                      "mode": summary.get("mode"), "notes": summary.get("notes")}, pkg.pkg_no)
+                                      "mode": summary.get("mode"), "notes": summary.get("notes")}, trm.package_key(pkg_index))
         pm.advance(p, "generated")
         modes = summary.get("mode") or {}
         layout = "母版版式" if all(v == "master" for v in modes.values()) else "自建版式"

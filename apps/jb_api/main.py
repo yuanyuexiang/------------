@@ -88,13 +88,16 @@ async def create_project(file: UploadFile, background: BackgroundTasks):
     """上传招标文件包 → 建项目 → 异步解析。返回 project_id + task_id 供轮询。"""
     if not (file.filename or "").lower().endswith(".zip"):
         raise HTTPException(400, "请上传招标文件包 zip")
+    filename = file.filename or ""
+    if "/" in filename or "\\" in filename or ":" in filename or "\x00" in filename:
+        raise HTTPException(400, "上传文件名不能包含路径")
     with session() as s:
-        p = Project(filename=file.filename, zip_path="")
+        p = Project(filename=filename, zip_path="")
         s.add(p)
         s.flush()
         pdir = os.path.join(UPLOAD_DIR, p.id)
         os.makedirs(pdir, exist_ok=True)
-        p.zip_path = os.path.join(pdir, file.filename)
+        p.zip_path = os.path.join(pdir, filename)
         with open(p.zip_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
         t = Task(project_id=p.id, kind="parse", actor=au.current_actor())
@@ -165,10 +168,11 @@ def project_detail(project_id: str):
         out = _project_out(p)
         trm = p.trm_confirmed or p.trm or {}
         out["key_terms"] = trm.get("key_terms") or {}
-        out["package_list"] = [{"pkg_no": k.get("pkg_no"), "sub_no": k.get("sub_no"), "sub_name": k.get("sub_name"),
+        model = TRM.model_validate(trm)
+        out["package_list"] = [{"result_key": model.package_key(i), "pkg_no": k.get("pkg_no"), "sub_no": k.get("sub_no"), "sub_name": k.get("sub_name"),
                                 "project_name": k.get("project_name"), "budget_yuan": k.get("budget_yuan"),
                                 "max_price": k.get("max_price"), "materials": len(k.get("materials") or []),
-                                "spec_docs": len(k.get("spec_docs") or [])} for k in trm.get("packages") or []]
+                                "spec_docs": len(k.get("spec_docs") or [])} for i, k in enumerate(trm.get("packages") or [])]
         out["events"] = [{"id": e.id, "kind": e.kind, "message": e.message, "data": e.data, "actor": e.actor,
                           "created_at": e.created_at.isoformat()} for e in pm.events(s, project_id)]
         tasks_rows = s.execute(select(Task).where(Task.project_id == project_id).order_by(Task.created_at.desc())).scalars()
@@ -242,7 +246,7 @@ def qualify_project(project_id: str, profile: str, llm: bool = False):
     rep = qualify(trm, cp, use_llm=llm)
     with session() as s:
         p = _get_project(s, project_id)
-        verdicts = {pk.pkg_no: pk.verdict for pk in rep.packages}
+        verdicts = {trm.package_key(i): pk.verdict for i, pk in enumerate(rep.packages)}
         pm.set_result(p, "qualify", {"profile": profile, "verdicts": verdicts, "llm": llm})
         pm.advance(p, "qualified")
         pm.log_event(s, project_id, "qualified", "资格自检：" + "，".join(f"{k} {v}" for k, v in verdicts.items()),
@@ -379,12 +383,18 @@ def score_project(project_id: str, profile: str, pkg_index: int = 0, llm: bool =
     from jb_agents.scorer import score_package
     from jb_agents.writer import DraftSection
     trm, cp = _load_trm_profile(project_id, profile)
+    if not 0 <= pkg_index < len(trm.packages):
+        raise HTTPException(400, "pkg_index 越界")
     pkg = trm.packages[pkg_index]
     drafts = None
     if task_id:
         with session() as s:
-            t = s.get(Task, task_id)
-            md = (t.result or {}).get("draft_markdown", "") if t else ""
+            p = _get_project(s, project_id)
+            try:
+                md = workflow.scoring_draft(s, p, pkg_index, profile, task_id,
+                                            os.path.join(UPLOAD_DIR, project_id, "out"))
+            except workflow.WorkflowError as exc:
+                raise HTTPException(409, str(exc)) from exc
         if md:
             import re as _re
             drafts = [DraftSection(title=m.group(1).strip(), text=m.group(2))
@@ -397,7 +407,7 @@ def score_project(project_id: str, profile: str, pkg_index: int = 0, llm: bool =
         p = _get_project(s, project_id)
         summary = {"weighted": rep.weighted, "tech_total": rep.tech_total, "tech_max": rep.tech_max,
                    "biz_total": rep.biz_total, "biz_max": rep.biz_max, "llm": llm}
-        pm.set_result(p, "score", summary, pkg.pkg_no)
+        pm.set_result(p, "score", summary, trm.package_key(pkg_index))
         pm.log_event(s, project_id, "scored", f"{pkg.pkg_no} 模拟评分：技术 {rep.tech_total}/{rep.tech_max}，商务 {rep.biz_total}/{rep.biz_max}"
                      + (f"，加权 {rep.weighted}" if rep.weighted is not None else ""), {"pkg_no": pkg.pkg_no, **summary})
     return {"report": rep.model_dump(), "heatmap": rep.heatmap(), "markdown": rep.markdown()}
