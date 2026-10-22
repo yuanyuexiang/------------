@@ -252,20 +252,36 @@ def _f(v: str) -> Optional[float]:
         return None
 
 
-def extract_service_demand(path: str, pkg_no: str) -> Optional[dict]:
-    """返回本包的需求行（表头→值 dict），找不到返回 None。"""
+def extract_service_demand(path: str, pkg_no: str, sub_no: str = "", sub_name: str = "") -> Optional[dict]:
+    """按分标和包联合定位；多条同号包无法唯一定位时返回 None，禁止取首行。"""
     wb, ws = _load_ws(path)
     rows = [["" if c is None else str(c).strip() for c in r] for r in ws.iter_rows(values_only=True)]
     wb.close()
     head_idx = next((i for i, r in enumerate(rows[:6]) if "包号" in r and "分标名称" in r), None)
     if head_idx is None:
         return None
-    header = rows[head_idx]
-    for r in rows[head_idx + 1:]:
+    header = list(rows[head_idx])
+    start = head_idx + 1
+    # 福建需求表的专用资格采用双层表头：资质/业绩/人员三个独立列。
+    if start < len(rows) and any(v == "资质要求" for v in rows[start]):
+        for i, value in enumerate(rows[start]):
+            if value in ("资质要求", "业绩要求", "人员要求"):
+                header[i] = {"资质要求": "企业资质条件", "业绩要求": "企业业绩要求", "人员要求": "主要人员要求"}[value]
+        start += 1
+    matches = []
+    for r in rows[start:]:
         rec = dict(zip(header, r))
-        if rec.get("包号") == pkg_no:
-            return rec
-    return None
+        if rec.get("包号") != pkg_no:
+            continue
+        if re.fullmatch(r"\d{6}-\d{7}-\d{4}", sub_no):
+            if rec.get("分标编号") != sub_no:
+                continue
+        elif sub_name and rec.get("分标名称") != sub_name:
+            continue
+        matches.append(rec)
+    # 重复的完全相同行可去重，内容冲突时不作推断。
+    unique = list({tuple(sorted(rec.items())): rec for rec in matches}.values())
+    return unique[0] if len(unique) == 1 else None
 
 
 def apply_service_demand(pkg, rec: dict, trm=None) -> None:
@@ -273,26 +289,31 @@ def apply_service_demand(pkg, rec: dict, trm=None) -> None:
     if trm is not None:
         if not trm.batch_no and rec.get("计划批次编号"):
             trm.batch_no = rec["计划批次编号"]
+        # 标准 ECP 分标编号的首段为批次编号；只在无显式批次字段时兜底。
+        if not trm.batch_no and re.fullmatch(r"\d{6}-\d{7}-\d{4}", rec.get("分标编号", "")):
+            trm.batch_no = rec["分标编号"].split("-")[0]
         if not trm.batch_name and rec.get("计划批次名称"):
             trm.batch_name = rec["计划批次名称"]
-    pkg.project_name = rec.get("招标项目标段名称", "")
+    pkg.project_name = rec.get("招标项目标段名称", "") or rec.get("包名称（采购项目名称）", "") or rec.get("项目名称", "")
     pkg.project_unit = rec.get("项目单位", "")
-    pkg.scope = rec.get("招标范围", "")
+    pkg.scope = rec.get("招标范围", "") or rec.get("项目概况", "")
     pkg.budget_yuan = _f(rec.get("招标金额（元）", ""))
     pkg.max_price = rec.get("最高限价（元或折扣比例）", "")
+    if not pkg.max_price and rec.get("行报价最高限价（含税/万元）"):
+        pkg.max_price = rec["行报价最高限价（含税/万元）"] + "万元（含税）"
     d = _f(rec.get("标段工期（日）", ""))
     pkg.duration_days = int(d) if d is not None else None
     pkg.price_mode = rec.get("报价方式", "")
     ac = rec.get("是否允许联合体", "")
     pkg.allow_consortium = True if ac == "是" else (False if ac == "否" else None)
     sr = pkg.scoring_ref
-    sr.price_method = rec.get("价格分计算方法", "")
+    sr.price_method = rec.get("价格分计算方法", "") or rec.get("价格计算方法", "")
     sr.benchmark_c = _f(rec.get("基准价浮动系数C", ""))
-    sr.biz_template = rec.get("商务详评模板", "")
-    sr.tech_template = rec.get("技术详评模板", "")
-    sr.weight_biz = _f(rec.get("商务分权重（%）", ""))
-    sr.weight_tech = _f(rec.get("技术分权重（%）", ""))
-    sr.weight_price = _f(rec.get("价格分权重（%）", ""))
+    sr.biz_template = rec.get("商务详评模板", "") or rec.get("商务评分模版名称", "")
+    sr.tech_template = rec.get("技术详评模板", "") or rec.get("技术评分模版名称", "")
+    sr.weight_biz = _f(rec.get("商务分权重（%）", "") or rec.get("商务权重（%）", ""))
+    sr.weight_tech = _f(rec.get("技术分权重（%）", "") or rec.get("技术权重（%）", ""))
+    sr.weight_price = _f(rec.get("价格分权重（%）", "") or rec.get("价格权重（%）", ""))
     if not pkg.sub_name:
         pkg.sub_name = rec.get("分标名称", "")
     if not pkg.sub_no:
@@ -302,7 +323,7 @@ def apply_service_demand(pkg, rec: dict, trm=None) -> None:
         performance_req=_slash(rec.get("企业业绩要求", "")),
         other_reqs={k: v for k, v in (("企业资质条件", _slash(rec.get("企业资质条件", ""))),
                                      ("主要人员要求", _slash(rec.get("主要人员要求", ""))),
-                                     ("技术规范书ID", rec.get("技术规范书ID", ""))) if v})
+                                     ("技术规范书ID", rec.get("技术规范书ID", "") or rec.get("技术规范ID号", ""))) if v})
     pkg.qualification.append(q)
 
 

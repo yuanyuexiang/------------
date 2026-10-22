@@ -31,6 +31,7 @@ function renderCell(f: FieldSpec, v: unknown) {
     case 'textarea':
       return <Typography.Paragraph ellipsis={{ rows: 2, tooltip: String(v ?? '') }} style={{ margin: 0 }}>{String(v ?? '')}</Typography.Paragraph>
     case 'select':
+      if (f.key === 'validity_kind') return v === 'permanent' ? '长期' : v === 'point_in_time' ? '时点材料' : '固定到期日'
       if (f.key === 'status') return v === 'draft' ? <Tag color="orange">待审核</Tag> : <Tag color="green">已审核</Tag>
       return String(v ?? '')
     default:
@@ -46,7 +47,7 @@ function FieldInput({ f }: { f: FieldSpec }) {
     case 'bool3': return <Select allowClear placeholder="未录入" options={BOOL3} />
     case 'tags': return <Select mode="tags" tokenSeparators={[',', '，', ' ']} options={f.options?.map((o) => ({ value: o }))} />
     case 'kv': return <Input.TextArea rows={8} placeholder={'参数名=值\n例：CPU=2*32Core@2.6GHz'} />
-    case 'select': return <Select allowClear={f.key !== 'status'} options={f.options?.map((o) => ({ value: o, label: o === 'approved' ? '已审核' : o === 'draft' ? '待审核' : o }))} />
+    case 'select': return <Select allowClear={f.key !== 'status'} options={f.options?.map((o) => ({ value: o, label: o === 'approved' ? '已审核' : o === 'draft' ? '待审核' : o === 'independent' ? '独立年度报告' : o === 'comparative' ? '比较列数据' : o === 'dated' ? '有固定到期日' : o === 'permanent' ? '长期' : o === 'point_in_time' ? '时点查询材料' : o }))} />
     default: return <Input />
   }
 }

@@ -17,11 +17,19 @@ import re
 from typing import Optional
 
 from docx.table import Table
+from jb_kb.selection import certificate_validity
 
 from . import master as M
-from .builder import GenContext, append_spec_responses, fill_blanks, iter_markdown
+from .builder import (
+    GenContext,
+    append_spec_responses,
+    fill_blanks,
+    iter_markdown,
+    narrative_reference,
+)
+from .evidence import certificates_for, insert_credit
+from .evidence import insert_scans as _insert_scans
 from .placeholders import todo
-from .scans import images_for
 from .techparams import TechParamResult, deviation_rows, fill_spec
 from .techparams import star_text as _star
 
@@ -65,22 +73,6 @@ def _subs(ctx: GenContext) -> list:
 
 # ---------- 扫描件 ----------
 
-def _insert_scans(ctx: GenContext, doc, anchor_el, ids: list[str], what: str):
-    """锚点后依次插入附件图片；没有任何可插图片时写【待补充】。返回新锚点。"""
-    last = anchor_el
-    for aid in ids:
-        images, reason = images_for(ctx.attachment_paths.get(aid, ""))
-        ok = 0
-        for img in images:
-            para = M.insert_picture_after(doc, last, img)
-            if para is not None:
-                last, ok = para._p, ok + 1
-        if not ok:
-            last = M.insert_paragraph_after(doc, last, todo(f"{what}（{reason or '图片插入失败'}）"))._p
-    if not ids:
-        last = M.insert_paragraph_after(doc, last, todo(f"{what}扫描件插入"))._p
-    return last
-
 
 def _cover(ctx: GenContext, kind: str) -> list[tuple[str, bool]]:
     p, b = ctx.pkg, ctx.trm
@@ -123,7 +115,7 @@ def _fill_financials(doc, ctx: GenContext) -> Optional[Table]:
     year_cols = [c for c, cell in sorted(cols.items()) if re.fullmatch(r"X+年?|\d{4}年?", M.norm(cell.text))]
     pairs = list(zip(year_cols, fins))
     for col, f in pairs:
-        M.set_cell_text(cols[col], f"{f.year}年")
+        M.set_cell_text(cols[col], f"{f.year.rstrip('年')}年" + ("（比较数）" if f.report_kind == "comparative" else ""))
     cap = ctx.profile.registered_capital_wan
     getters = [("资产负债率", lambda f: f.liability_ratio), ("资产总额", lambda f: _wan(f.asset_wan)),
                ("营业收入", lambda f: _wan(f.revenue_wan)), ("净利润", lambda f: _wan(f.net_profit_wan)),
@@ -148,7 +140,7 @@ def _cert_section(ctx: GenContext, doc, anchor_el, title: str, certs: list):
     if not certs:
         return M.insert_paragraph_after(doc, last, todo(f"{title}"))._p
     for c in certs:
-        line = c.name + (f"（有效期至 {c.valid_until}）" if c.valid_until else f"（{todo(c.name + '有效期')}）")
+        line = c.name + f"（{certificate_validity(c) or todo(c.name + '有效期')}）"
         last = M.insert_paragraph_after(doc, last, line)._p
         last = _insert_scans(ctx, doc, last, c.attachments, c.name)
     return last
@@ -172,9 +164,9 @@ def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
 
     t = M.find_table(doc, ["人员姓名", "身份证号", "与国网公司系统人员关系"])
     if t is not None:
-        M.fill_by_header(t, [{"name": ctx.need(k.legal_person, "法定代表人姓名"), "sex": todo("性别"),
-                              "idno": todo("法定代表人身份证号"), "post": "法定代表人",
-                              "since": todo("任职时间"), "rel": "无"}],
+        M.fill_by_header(t, [{"name": ctx.need(k.legal_person, "法定代表人姓名"), "sex": ctx.need(k.legal_person_gender, "性别"),
+                              "idno": ctx.need(k.legal_person_id_no, "法定代表人身份证号"), "post": "法定代表人",
+                              "since": ctx.need(k.legal_person_since, "任职时间"), "rel": ctx.need(k.sgcc_relationship, "与国网系统人员关系声明")}],
                          [("人员姓名", "name"), ("性别", "sex"), ("身份证号", "idno"), ("职务", "post"),
                           ("任职时间", "since"), ("关系", "rel")])
 
@@ -183,15 +175,15 @@ def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
         last = fin_tbl._tbl
         if k.financials:
             for f in sorted(k.financials, key=lambda x: x.year, reverse=True):
-                last = M.insert_heading_after(doc, last, f"审计报告{f.year}年度", level=3)._p
+                last = M.insert_heading_after(doc, last, f"{f.year.rstrip('年')}年度比较数据（非独立审计）" if f.report_kind == "comparative" else f"审计报告{f.year.rstrip('年')}年度", level=3)._p
                 last = _insert_scans(ctx, doc, last, f.attachments, f"{f.year}年度审计报告")
         else:
             M.insert_paragraph_after(doc, last, todo("近三年财务审计报告"))
 
-    biz = [c for c in k.certificates if "营业执照" in c.name]
-    tax = [c for c in k.certificates if "税务" in c.name]
-    system = [c for c in k.certificates if c.cert_type == "体系认证"]
-    other = [c for c in k.certificates if c not in biz and c not in tax and c not in system]
+    biz = certificates_for(k, "business")
+    tax = certificates_for(k, "tax")
+    system = certificates_for(k, "system")
+    other = certificates_for(k, "other")
     p = M.find_paragraph(doc, r"^(企业法人|企业)?营业执照", max_len=60)
     if p is not None:
         _insert_scans(ctx, doc, p._p, [a for c in biz for a in c.attachments], "营业执照")
@@ -205,12 +197,11 @@ def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
     p = M.find_paragraph(doc, r"查询报告及截图", max_len=40)
     if p is not None:
         last = p._p
-        for item in ("信用中国（失信被执行人/严重失信主体）", "国家企业信用信息公示系统（经营异常/严重违法失信）",
-                     "中国裁判文书网（行贿犯罪记录）"):
-            last = M.insert_paragraph_after(doc, last, f"{item}：{todo(item + '查询截图')}")._p
+        insert_credit(ctx, doc, last)
     p = M.find_paragraph(doc, r"^基本账户证明", max_len=30)
     if p is not None:
-        M.insert_paragraph_after(doc, p._p, todo("银行基本账户证明扫描件"))
+        bank = certificates_for(k, "bank")
+        _insert_scans(ctx, doc, p._p, [a for c in bank for a in c.attachments], "银行基本账户证明")
 
     if not M.has_cover(doc):
         M.prepend_cover(doc, _cover(ctx, "商务文件"))
@@ -243,7 +234,7 @@ def _fill_params(doc, ctx: GenContext, results: list[TechParamResult]):
                 rows = [[str(i + 1), x["name"], x["unit"], x["req"], x["resp"]] for i, x in enumerate(_param_records(sd, r))]
                 last = M.insert_table_after(doc, last, _PARAM_HEADER, rows)._tbl
             else:
-                last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，见逐条响应章节）"))._p
+                last = M.insert_paragraph_after(doc, last, narrative_reference(ctx, sd))._p
         return last
     pristine = copy.deepcopy(tpl._tbl)
     last = tpl._tbl
@@ -264,7 +255,7 @@ def _fill_params(doc, ctx: GenContext, results: list[TechParamResult]):
                 rows = [[str(j + 1), x["name"], x["unit"], x["req"], x["resp"]] for j, x in enumerate(_param_records(sd, r))]
                 last = M.insert_table_after(doc, last, _PARAM_HEADER, rows, like=t)._tbl
         else:
-            last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，见逐条响应章节）"))._p
+            last = M.insert_paragraph_after(doc, last, narrative_reference(ctx, sd))._p
     return last
 
 
@@ -286,7 +277,7 @@ def _fill_performances(doc, ctx: GenContext) -> None:
     k = ctx.profile
     model = ctx.product.model if ctx.product else ""
     recs = [{"model": model or x.material_category or None, "project": x.project, "buyer": x.buyer or todo("买方"),
-             "amount": _wan(x.amount_wan) or todo("合同金额"), "done": x.commissioned_date or x.signed_date or todo("投运时间"),
+             "amount": _wan(x.amount_wan) or todo("合同金额"), "done": x.commissioned_date or todo("投运时间"),
              "signed": x.signed_date or todo("签约日期"), "voltage": x.voltage_level or None,
              "contact": todo(f"{x.project} 联系人及电话"), "evidence": "/".join(x.evidence), "remark": ""}
             for x in k.performances]
@@ -356,7 +347,7 @@ def _fill_certs(doc, ctx: GenContext) -> None:
     if t is None:
         return
     recs = [{"name": c.name, "issuer": c.issuer or todo(f"{c.name}认证机构"), "number": c.number or todo(f"{c.name}证书编号"),
-             "scope": None, "valid": c.valid_until or todo(f"{c.name}有效期"), "level": c.level or None} for c in certs]
+             "scope": None, "valid": certificate_validity(c).removeprefix("有效期至 ") or todo(f"{c.name}有效期"), "level": c.level or None} for c in certs]
     colmap = [("范围", "scope"), ("信息事项|证书名称|名称|认证事项", "name"), ("机构|发证", "issuer"), ("编号", "number"),
               ("有效期", "valid"), ("等级", "level")]
     if not recs:
@@ -365,9 +356,8 @@ def _fill_certs(doc, ctx: GenContext) -> None:
     M.fill_by_header(t, recs, colmap)
     last = t._tbl
     for c in certs:
-        if c.attachments:
-            last = M.insert_paragraph_after(doc, last, c.name)._p
-            last = _insert_scans(ctx, doc, last, c.attachments, c.name)
+        last = M.insert_paragraph_after(doc, last, c.name)._p
+        last = _insert_scans(ctx, doc, last, c.attachments, c.name)
 
 
 def _insert_drafts(doc, ctx: GenContext) -> None:

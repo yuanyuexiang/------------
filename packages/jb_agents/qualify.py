@@ -10,6 +10,7 @@ import re
 from typing import Optional
 
 from jb_kb.models import CompanyProfile
+from jb_kb.selection import approved_profile
 from jb_parser.trm import TRM, PackageTRM, QualificationItem
 from pydantic import BaseModel, Field
 
@@ -128,7 +129,8 @@ def check_report(q: QualificationItem, profile: CompanyProfile) -> Optional[Chec
     req = q.test_report_req.strip()
     if q.report_required is False or (q.report_required is None and not req):
         return None
-    reports = [c for c in profile.certificates if any(k in c.name for k in ("试验", "检测", "鉴定", "报告"))]
+    reports = [c for c in profile.certificates if any(k in c.name for k in ("试验", "检测", "鉴定"))]
+    reports += profile.test_reports
     if reports:
         return Check(item="检测/试验报告", status=RISK,
                      reason="档案有报告类记录，覆盖型号/参数/有效期需人工核对",
@@ -142,8 +144,16 @@ def check_other(q: QualificationItem, profile: CompanyProfile) -> list[Check]:
     cert_req = q.other_reqs.get("企业资质条件", "")
     if cert_req:
         names = [c.name for c in profile.certificates]
-        out.append(Check(item="企业资质条件", status=MANUAL,
-                         reason="资质条件需人工比对档案证书", evidence=names, requirement=cert_req))
+        systems = [("9001", "质量管理"), ("14001", "环境管理"),
+                   ("45001", "职业健康安全"), ("27001", "信息安全管理"),
+                   ("20000", "信息技术服务管理")]
+        missing = [label for code, label in systems
+                   if (code in cert_req or label in cert_req)
+                   and not any(label in c.name for c in profile.certificates)]
+        out.append(Check(item="企业资质条件", status=FAILED if missing or not names else MANUAL,
+                         reason=("本包选材缺少：" + "、".join(missing)) if missing else
+                         ("本包未选择资质证书" if not names else "资质条件、认证范围需人工比对档案证书"),
+                         evidence=names, requirement=cert_req))
     staff_req = q.other_reqs.get("主要人员要求", "")
     if staff_req:
         out.append(Check(item="主要人员要求", status=MANUAL if profile.personnel else FAILED,
@@ -197,6 +207,7 @@ def check_general(pkg: PackageTRM, profile: CompanyProfile) -> list[Check]:
 
 def qualify_package(pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = True,
                     deadline: Optional[str] = None) -> PackageFeasibility:
+    profile = approved_profile(profile)
     pf = PackageFeasibility(sub_no=pkg.sub_no, sub_name=pkg.sub_name, pkg_no=pkg.pkg_no,
                             project_name=pkg.project_name)
     if not pkg.qualification:

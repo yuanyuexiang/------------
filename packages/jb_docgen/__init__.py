@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from jb_kb.models import CompanyProfile, Product
+from jb_kb.selection import approved_profile
 from jb_parser.trm import TRM, PackageTRM
 
 from .builder import GenContext, build_commercial, build_technical
@@ -62,6 +63,7 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
     attachment_paths：知识库附件 id → 本地路径，用于把扫描件插入对应小节（PDF 自动转页图）。
     spec_paths：规范书 spec_id → 原 docx 路径，技术文件追加"技术规范书逐条响应"章节。
     """
+    profile = approved_profile(profile)
     ctx = GenContext(trm=trm, pkg=pkg, profile=profile, product=pick_product(profile, pkg, product_model),
                      drafts=drafts, attachment_paths=attachment_paths or {}, spec_paths=spec_paths or {})
     tag = f"{pkg.sub_no}{pkg.pkg_no}".replace("/", "_") or "pkg"
@@ -88,5 +90,14 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
         tech, results = build_technical(ctx, tech)
     res = GenResult(commercial_path=com, technical_path=tech, todos=ctx.todos, tech_params=results,
                     mode=mode, notes=ctx.notes)
+    if profile.is_demo:
+        import docx
+        for path in (com, tech):
+            d = docx.Document(path)
+            for section in d.sections:
+                for header in (section.header, section.first_page_header, section.even_page_header):
+                    header.paragraphs[0].text = "演示样例 · 模拟数据 · 不可用于正式投标"
+            d.paragraphs[0].insert_paragraph_before("演示样例 · 模拟数据 · 不可用于正式投标")
+            d.save(path)
     res.docx_todos = {os.path.basename(com): scan_docx(com), os.path.basename(tech): scan_docx(tech)}
     return res

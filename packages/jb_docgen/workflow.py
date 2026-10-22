@@ -16,6 +16,8 @@ from typing import Optional
 
 import docx
 from jb_kb import repo
+from jb_kb.models import CompanyProfile
+from jb_kb.selection import MaterialSelection, select_profile
 from jb_parser.trm import TRM
 from jb_rules import Context, RuleSetting, review
 from jb_store import Project, Task
@@ -52,8 +54,37 @@ def inputs(s, p: Project, profile: str):
         select(KbAttachment).where(KbAttachment.company == profile).order_by(KbAttachment.id))]
     digest = fingerprint({"trm": trm.model_dump(), "profile": cp.model_dump(),
                           "attachments": attachments, "open_time": p.open_time,
-                          "deadline": p.deadline})
+                          "deadline": p.deadline, "material_selections": (p.results or {}).get("material_selections", {})})
     return trm, cp, digest
+
+
+def material_key(pkg_index: int, profile: str) -> str:
+    return json.dumps([pkg_index, profile], ensure_ascii=False)
+
+
+def material_selection(p: Project, pkg_index: int, profile: str) -> MaterialSelection:
+    data = (p.results or {}).get("material_selections", {}).get(material_key(pkg_index, profile), {})
+    return MaterialSelection.model_validate(data)
+
+
+def selected_profile(p: Project, pkg_index: int, profile: CompanyProfile):
+    return select_profile(profile, material_selection(p, pkg_index, profile.name))
+
+
+def qualify_selected(p: Project, trm: TRM, profile: CompanyProfile, use_llm: bool):
+    from jb_agents.qualify import FeasibilityReport, qualify_package
+    return FeasibilityReport(batch_name=trm.batch_name, company=profile.name, packages=[
+        qualify_package(pkg, selected_profile(p, i, profile), use_llm,
+                        deadline=p.deadline or trm.key_terms.bid_deadline)
+        for i, pkg in enumerate(trm.packages)])
+
+
+def save_selection(p: Project, pkg_index: int, profile: CompanyProfile, data: dict) -> None:
+    selection = MaterialSelection.model_validate(data)
+    select_profile(profile, selection)  # 校验所有引用属于本企业且已审核
+    selections = dict((p.results or {}).get("material_selections", {}))
+    selections[material_key(pkg_index, profile.name)] = selection.model_dump()
+    pm.set_result(p, "material_selections", selections)
 
 
 def artifacts(p: Project) -> dict:
@@ -135,6 +166,7 @@ def review_generation(s, p: Project, pkg_index: int, profile: str, out_dir: str)
         raise WorkflowError("；".join(reasons))
     trm, cp, _ = inputs(s, p, a["profile"])
     pkg = trm.packages[pkg_index]
+    cp = selected_profile(p, pkg_index, cp)
     texts, todos = {}, {}
     for name in a["files"]:
         path = str(Path(out_dir) / name)
@@ -147,7 +179,8 @@ def review_generation(s, p: Project, pkg_index: int, profile: str, out_dir: str)
     rep = review(Context(trm=trm, pkg=pkg, profile=cp,
                          tech_params=[fill_spec(sd, product) for sd in pkg.spec_docs],
                          docx_todos=todos, doc_texts=texts,
-                         open_date=(p.open_time or trm.key_terms.bid_open_time or "")[:10] or None),
+                         open_date=(p.open_time or trm.key_terms.bid_open_time
+                                    or p.deadline or trm.key_terms.bid_deadline or "")[:10] or None),
                  settings=rule_settings)
     result = {"generation_id": a["id"], "blocked": rep.blocked, "counts": rep.counts(),
               "findings": [f.model_dump() for f in rep.findings], "markdown": rep.markdown(),

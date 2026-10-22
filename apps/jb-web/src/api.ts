@@ -105,7 +105,8 @@ export interface FeasibilityReport {
 
 // ---- 企业知识库（与 jb_kb.models 对齐；条目通用字段 id/status/attachments/source） ----
 export interface KbItem { id: string; status?: string; attachments?: string[]; source?: string; [k: string]: unknown }
-export interface Certificate extends KbItem { name: string; cert_type: string; number: string; issuer: string; level: string; valid_from: string; valid_until: string }
+export type MaterialSelection = Partial<Record<'certificates' | 'personnel' | 'performances' | 'financials' | 'products' | 'test_reports', string[] | null>>
+export interface Certificate extends KbItem { validity_kind?: 'dated' | 'permanent' | 'point_in_time'; includes_tax_registration?: boolean; name: string; cert_type: string; number: string; issuer: string; level: string; valid_from: string; valid_until: string }
 export interface Person extends KbItem { name: string; title: string; major: string; education: string; social_insurance_unit: string; social_insurance_months?: string[]; available: boolean | null; credentials: string[] }
 export interface Performance extends KbItem {
   project: string; buyer: string; buyer_type: string; buyer_is_end_user: boolean | null; in_sgcc: boolean | null
@@ -201,6 +202,10 @@ export const api = {
     const q = new URLSearchParams(); if (base_url) q.set('base_url', base_url); if (model) q.set('model', model)
     return req<{ ok: boolean; latency_ms: number; model: string; reply?: string; error?: string }>(`/api/config/llm/test${q.toString() ? `?${q}` : ''}`, { method: 'POST' })
   },
+  materials: (id: string, profile: string, pkgIndex: number) =>
+    req<{ selection: MaterialSelection; profile: CompanyProfile }>(`/api/projects/${id}/materials?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
+  saveMaterials: (id: string, profile: string, pkgIndex: number, selection: MaterialSelection) =>
+    req<{ ok: boolean }>(`/api/projects/${id}/materials?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json(selection)),
   generate: (id: string, profile: string, pkgIndex: number, withDraft: boolean) =>
     req<{ task_id: string; mode: string }>(`/api/projects/${id}/generate?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&with_draft=${withDraft}`, { method: 'POST' }),
   review: (id: string, profile: string, pkgIndex: number) =>

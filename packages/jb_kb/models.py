@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,8 @@ class Certificate(BaseModel):
     number: str = ""
     issuer: str = ""
     level: str = ""             # 等级（如 AAA / 二级）
+    includes_tax_registration: bool = False
+    validity_kind: Literal["dated", "permanent", "point_in_time"] = "dated"
     valid_from: str = ""        # YYYY-MM-DD
     valid_until: str = ""       # YYYY-MM-DD；空=未录入（不猜）
     status: str = "approved"
@@ -65,6 +67,7 @@ class Performance(BaseModel):
 class FinancialYear(BaseModel):
     id: str = ""
     year: str = ""
+    report_kind: Literal["independent", "comparative"] = "independent"
     revenue_wan: Optional[float] = None
     net_profit_wan: Optional[float] = None
     asset_wan: Optional[float] = None
@@ -155,6 +158,11 @@ class CompanyProfile(BaseModel):
     legal_person: str = ""          # 法定代表人
     authorized_rep: str = ""        # 常用被授权人
     authorized_rep_title: str = ""
+    legal_person_id_no: str = ""
+    legal_person_gender: str = ""
+    legal_person_since: str = ""
+    sgcc_relationship: str = ""  # 必须有声明依据，不默认“无”
+    is_demo: bool = False       # 演示档案的产出必须有可见标识
     sources: list[str] = Field(default_factory=list)      # 建档依据文件
 
     def save(self, path: str) -> None:

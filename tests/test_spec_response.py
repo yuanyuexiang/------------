@@ -126,3 +126,14 @@ def test_unnumbered_parameter_table_is_not_cover(tmp_path):
     _, count, skipped = SR.append_spec(dst, anchor, path, None, "技术规范")
     assert not skipped and count == 1
     assert "【待补充：" in dst.tables[0].rows[1].cells[2].text
+
+
+def test_schedule_table_is_preserved_without_fake_product_response():
+    d = docx.Document()
+    t = d.add_table(rows=2, cols=3)
+    for row, vals in zip(t.rows, [["序号", "预计时间段", "研究内容"], ["1", "2026年10月至12月", "调研与方案设计"]]):
+        for cell, val in zip(row.cells, vals):
+            cell.text = val
+    assert SR.respond_table(t, None) == 0
+    assert len(t.columns) == 3
+    assert t.cell(1, 2).text == "调研与方案设计"

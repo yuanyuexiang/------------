@@ -26,6 +26,7 @@ dev = [
 ]
 pg = ["psycopg[binary]>=3.1"]     # PostgreSQL 驱动（compose 部署）
 worker = ["celery>=5.3", "redis>=5.0"]
+demo = ["Pillow>=10"]           # scripts/prepare_demo.py 的模拟附件说明图
 
 [project.scripts]
 jb-parse = "jb_parser.cli:main"

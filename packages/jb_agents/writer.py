@@ -12,6 +12,7 @@ from typing import Optional
 
 from jb_kb.models import CompanyProfile
 from jb_kb.retrieval import Index, build_index
+from jb_kb.selection import approved_profile
 from jb_parser.trm import TRM, PackageTRM, ScoringTemplate
 from pydantic import BaseModel, Field
 
@@ -150,6 +151,7 @@ def _check_numbers(text: str, sources: dict[str, str]) -> tuple[str, list[str]]:
 
 def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = True,
                   index: Optional[Index] = None) -> Draft:
+    profile = approved_profile(profile)
     index = index or build_index(profile)
     facts, _ = _facts_block(profile)
     draft = Draft(pkg_no=pkg.pkg_no)

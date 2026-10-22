@@ -75,11 +75,11 @@ def run_parse(task_id: str, project_id: str) -> None:
             result={"packages": len(trm.packages), "warnings": trm.warnings})
 
 
-def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: int,
+def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: int,
                  with_draft: bool, product_model: str = "") -> None:
     """生成商务/技术文件；with_draft=True 时先由写作 Agent 起草技术方案（LLM，分钟级）。"""
     from jb_docgen import generate
-    from jb_docgen.workflow import file_hash, inputs, save_artifact
+    from jb_docgen.workflow import file_hash, inputs, save_artifact, selected_profile
     from jb_kb.attachments import absolute_path, list_attachments
     from jb_parser import package_files
 
@@ -95,6 +95,7 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
             _update(task_id, status="failed", message="项目/档案/TRM 不存在")
             return
         trm, cp, input_hash = inputs(s, p, profile_name)
+        cp = selected_profile(p, pkg_index, cp)
         zip_dir = os.path.dirname(p.zip_path)
         zip_path = p.zip_path
         att_paths = {a.id: absolute_path(a) for a in list_attachments(s, profile_name)}
@@ -161,6 +162,13 @@ def run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: in
                     "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],
                     "draft_markdown": draft_md,
                     "tech_params": [{"spec_id": r.spec_id, "responses": [x.__dict__ for x in r.responses]} for r in res.tech_params]})
+
+
+def run_generate(task_id: str, *args) -> None:
+    try:
+        _run_generate(task_id, *args)
+    except Exception as exc:
+        _update(task_id, status="failed", message=f"生成失败: {exc}"[:2000])
 
 
 if celery_app is not None:

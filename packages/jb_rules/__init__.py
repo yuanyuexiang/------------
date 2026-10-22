@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 from jb_kb.models import CompanyProfile
+from jb_kb.selection import approved_profile
 from jb_parser.trm import TRM, PackageTRM
 from pydantic import BaseModel, Field
 
@@ -132,10 +133,25 @@ def r_name_consistency(ctx: Context) -> list[Finding]:
 
 # ---------- 资格 / 档案 ----------
 
+def r_selected_qualification(ctx: Context) -> list[Finding]:
+    """按实际选材重核资格，缺少必需材料不能靠取消选材规避。"""
+    from jb_agents.qualify import FAILED, MANUAL, RISK, qualify_package
+    report = qualify_package(ctx.pkg, ctx.profile, False, deadline=ctx.open_date)
+    return [_f("Q-02", "否决" if c.status == FAILED else "需人工", c.item,
+               c.reason, "本包选材", c.requirement)
+            for c in report.checks if c.status in (FAILED, MANUAL, RISK)]
+
+
 def r_cert_validity(ctx: Context) -> list[Finding]:
     """档案证书有效期早于开标日 → 否决（案例 9）；未录入有效期提醒补录。"""
     out = []
     for c in ctx.profile.certificates:
+        if c.validity_kind == "permanent":
+            continue
+        if c.validity_kind == "point_in_time":
+            if not c.valid_from:
+                out.append(_f("SG-13b", "需人工", "查询材料出具日期未录入", c.name, "企业档案"))
+            continue
         if not c.valid_until:
             out.append(_f("SG-13b", "需人工", "证书有效期未录入", c.name, "企业档案"))
         elif ctx.open_date and c.valid_until < ctx.open_date:
@@ -244,6 +260,7 @@ RULES: list[Rule] = [
     ("DOC-01", "否决", "待补充标记", "形式评审", r_todos),
     ("DOC-02~04", "否决/扣分", "名称与编号一致性", "形式评审", r_name_consistency),
     ("SG-13", "否决", "证书有效期", "案例9", r_cert_validity),
+    ("Q-02", "否决/需人工", "本包选材资格", "本包资格要求", r_selected_qualification),
     ("SG-05/06", "否决/扣分", "业绩认定", "案例2", r_performance_evidence),
     ("SG-22", "否决", "人员社保", "资格审查/纪要0910", r_social_insurance),
     ("Q-01", "需人工", "联合体", "招标公告", r_consortium),
@@ -304,6 +321,7 @@ class ReviewReport(BaseModel):
 
 def review(ctx: Context, settings: Optional[dict[str, RuleSetting]] = None) -> ReviewReport:
     """跑全部规则；settings（rule_id → RuleSetting）可停用规则、统一覆盖级别、注入参数。"""
+    ctx = replace(ctx, profile=approved_profile(ctx.profile))
     rep = ReviewReport(pkg_no=ctx.pkg.pkg_no)
     settings = settings or {}
     for rid, _lvl, _title, _src, fn in RULES:

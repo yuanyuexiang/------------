@@ -15,11 +15,19 @@ import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 from jb_kb.models import CompanyProfile, Product
+from jb_kb.selection import certificate_validity
 from jb_parser.trm import TRM, PackageTRM
 
+from .evidence import certificates_for, insert_credit, insert_scans
 from .placeholders import todo
 from .techparams import TechParamResult, deviation_rows, fill_spec
 from .techparams import star_text as _star
+
+
+def narrative_reference(ctx, sd) -> str:
+    if ctx.spec_paths.get(sd.spec_id) or ctx.spec_paths.get(sd.source):
+        return f"规范书 {sd.spec_id} 为叙述式规范，逐项响应见后附原文响应章节。"
+    return todo(f"规范书 {sd.spec_id} 逐项响应（缺少规范书原件）")
 
 
 def append_spec_responses(doc, anchor_el, ctx) -> object:
@@ -40,6 +48,8 @@ def append_spec_responses(doc, anchor_el, ctx) -> object:
             continue
         if skipped:
             ctx.notes.append(f"规范书 {sd.spec_id or sd.source} 仅封面页，未纳入逐条响应")
+        elif not n:
+            last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 未识别可自动响应条目，请人工逐条编制响应"))._p
     return last
 
 
@@ -196,7 +206,7 @@ def build_commercial(ctx: GenContext, out_path: str) -> str:
 
     _h(d, "投标人与国家电网公司系统人员关系说明", 1)
     _table(d, ["姓名", "身份证号", "任职时间", "职务", "与国网系统人员关系", "国网系统人员姓名/单位"],
-           [[ctx.need(k.legal_person, "法定代表人姓名"), todo("身份证号"), todo("任职时间"), "法定代表人", "无", "/"]])
+           [[ctx.need(k.legal_person, "法定代表人姓名"), ctx.need(k.legal_person_id_no, "身份证号"), ctx.need(k.legal_person_since, "任职时间"), "法定代表人", ctx.need(k.sgcc_relationship, "与国网系统人员关系声明"), "/"]])
 
     _h(d, "投标人基本情况表", 1)
     _table(d, ["项目", "内容"], [
@@ -209,25 +219,29 @@ def build_commercial(ctx: GenContext, out_path: str) -> str:
     ])
 
     _h(d, "企业营业执照（扫描件）", 1)
-    _p(d, todo("营业执照扫描件插入"))
+    insert_scans(ctx, d, d.paragraphs[-1]._p, [a for c in certificates_for(k, "business") for a in c.attachments], "营业执照")
     _h(d, "有效的税务登记证明（扫描件）", 1)
-    _p(d, todo("税务登记证明扫描件插入"))
+    insert_scans(ctx, d, d.paragraphs[-1]._p, [a for c in certificates_for(k, "tax") for a in c.attachments], "税务登记证明")
 
     _h(d, "符合招标文件投标人资格要求的证明文件", 1)
     if k.certificates:
         _table(d, ["序号", "证书名称", "类别", "有效期"],
-               [[str(i + 1), c.name, c.cert_type, c.valid_until or todo(f"{c.name}有效期")] for i, c in enumerate(k.certificates)])
+               [[str(i + 1), c.name, c.cert_type, certificate_validity(c) or todo(f"{c.name}有效期")] for i, c in enumerate(k.certificates)])
     else:
         _p(d, todo("资质证书清单"))
     _h(d, "查询报告及截图", 2)
-    for item in ("信用中国（失信被执行人/严重失信主体）", "国家企业信用信息公示系统（经营异常/严重违法失信）", "中国裁判文书网（行贿犯罪记录）"):
-        _p(d, f"{item}：{todo(item + '查询截图')}")
+    insert_credit(ctx, d, d.paragraphs[-1]._p)
+    _h(d, "基本账户证明", 2)
+    insert_scans(ctx, d, d.paragraphs[-1]._p, [a for c in certificates_for(k, "bank") for a in c.attachments], "银行基本账户证明")
 
     _h(d, "财务状况", 1)
     if k.financials:
         _table(d, ["年度", "营业收入（万元）", "净利润（万元）", "资产总额（万元）", "资产负债率"],
-               [[f.year, f.revenue_wan, f.net_profit_wan, f.asset_wan, f.liability_ratio] for f in k.financials])
-        _p(d, todo("近三年审计报告扫描件"))
+               [[f.year + ("（比较数据，非独立审计）" if f.report_kind == "comparative" else ""),
+                 f.revenue_wan, f.net_profit_wan, f.asset_wan, f.liability_ratio] for f in k.financials])
+        last = d.tables[-1]._tbl
+        for f in k.financials:
+            last = insert_scans(ctx, d, last, f.attachments, f"{f.year}审计报告")
     else:
         _p(d, todo("近三年财务审计报告"))
 
@@ -281,8 +295,11 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
                 for i, x in enumerate(k.performances)])
         for x in k.performances:
             _h(d, x.project, 3)
-            for ev in x.evidence:
-                _p(d, f"{ev}：{todo(f'{x.project} 的{ev}扫描件')}")
+            if x.attachments:
+                insert_scans(ctx, d, d.paragraphs[-1]._p, x.attachments, x.project)
+            else:
+                for ev in x.evidence or ["合同", "发票"]:
+                    _p(d, f"{ev}：{todo(f'{x.project} 的{ev}扫描件')}")
     else:
         _p(d, todo("业绩清单及合同/发票扫描件"))
 
@@ -297,7 +314,7 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
                    [[row.row, row.name, row.unit, _star(row), resp.response]
                     for row, resp in zip(sd.param_rows, r.responses)])
         else:
-            _p(d, todo(f"规范书 {sd.spec_id} 逐项响应（叙述式规范，需按需求逐条响应）"))
+            _p(d, narrative_reference(ctx, sd))
 
     # 3b. 技术规范书逐条响应（规范书原文复制 + 每节响应）
     append_spec_responses(d, d.paragraphs[-1]._p, ctx)
@@ -322,8 +339,11 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
                [[str(i + 1), x.name, x.title or todo(f"{x.name}职称"), x.major, "、".join(x.credentials)] for i, x in enumerate(k.personnel)])
         for x in k.personnel:
             _h(d, x.name, 3)
-            for c in (x.credentials or ["身份证", "学历证", "职称证书", "社保证明", "劳动合同"]):
-                _p(d, f"{c}：{todo(f'{x.name} 的{c}扫描件')}")
+            if x.attachments:
+                insert_scans(ctx, d, d.paragraphs[-1]._p, x.attachments, x.name)
+            else:
+                for c in (x.credentials or ["身份证", "学历证", "职称证书", "社保证明", "劳动合同"]):
+                    _p(d, f"{c}：{todo(f'{x.name} 的{c}扫描件')}")
     else:
         _p(d, todo("拟投入人员清单及七件套材料"))
 
@@ -338,7 +358,11 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
             _p(d, todo(f"{heading}（话术库暂无审核通过的段落）"))
     _h(d, "认证证书", 1)
     certs = [c for c in k.certificates if c.cert_type == "体系认证"]
-    _table(d, ["序号", "证书", "有效期"], [[str(i + 1), c.name, c.valid_until or todo(f"{c.name}有效期")] for i, c in enumerate(certs)]) if certs else _p(d, todo("体系认证证书"))
+    _table(d, ["序号", "证书", "有效期"], [[str(i + 1), c.name, certificate_validity(c) or todo(f"{c.name}有效期")] for i, c in enumerate(certs)]) if certs else _p(d, todo("体系认证证书"))
+    if certs:
+        last = d.tables[-1]._tbl
+        for c in certs:
+            last = insert_scans(ctx, d, last, c.attachments, c.name)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     d.save(out_path)

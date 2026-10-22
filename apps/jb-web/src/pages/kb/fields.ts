@@ -37,6 +37,8 @@ export const KIND_SPECS: KindSpec[] = [
       { key: 'number', label: '证书编号', width: 150 },
       { key: 'level', label: '等级', width: 80 },
       { key: 'issuer', label: '发证机关', width: 130 },
+      { key: 'validity_kind', label: '有效期类型', type: 'select', options: ['dated', 'permanent', 'point_in_time'], width: 110 },
+      { key: 'includes_tax_registration', label: '包含税务登记信息（多证合一）', type: 'bool3' },
       { key: 'valid_from', label: '起始日', type: 'date' },
       { key: 'valid_until', label: '有效期至', type: 'date', width: 100 },
       STATUS, SOURCE,
@@ -79,6 +81,7 @@ export const KIND_SPECS: KindSpec[] = [
     kind: 'financials', title: '财务', attachmentKind: 'financial',
     fields: [
       { key: 'year', label: '年度', required: true, width: 90 },
+      { key: 'report_kind', label: '报告口径', type: 'select', options: ['independent', 'comparative'], hint: '独立年度审计或其他年度报告中的比较列' },
       { key: 'revenue_wan', label: '营收(万)', type: 'number', width: 120 },
       { key: 'net_profit_wan', label: '净利润(万)', type: 'number', width: 120 },
       { key: 'asset_wan', label: '总资产(万)', type: 'number', width: 120 },

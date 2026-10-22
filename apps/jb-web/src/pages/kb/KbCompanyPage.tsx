@@ -34,6 +34,10 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
       <div className="company-form-grid">
         {text('credit_code', '统一社会信用代码')}
         {text('legal_person', '法定代表人')}
+        {text('legal_person_id_no', '法定代表人身份证号')}
+        {text('legal_person_gender', '法定代表人性别')}
+        {text('legal_person_since', '法定代表人任职起始日')}
+        {text('sgcc_relationship', '与国网系统人员关系声明')}
         {text('legal_or_admin', '行政/技术负责人')}
         {text('company_type', '单位性质')}
         {text('founded', '成立时间')}

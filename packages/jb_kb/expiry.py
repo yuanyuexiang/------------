@@ -53,6 +53,8 @@ def expiry_report(profile: CompanyProfile, on_date: Optional[dt.date] = None,
     out: list[ExpiryItem] = []
     for kind, items in (("certificates", profile.certificates), ("test_reports", profile.test_reports)):
         for it in items:
+            if getattr(it, "validity_kind", "dated") in ("permanent", "point_in_time"):
+                continue
             until = _parse(it.valid_until)
             days = (until - today).days if until else None
             level = classify(days)

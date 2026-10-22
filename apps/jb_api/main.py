@@ -16,7 +16,6 @@ from typing import Optional
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from jb_agents import qualify
 from jb_docgen import workflow
 from jb_kb import repo as kb_repo
 from jb_parser.trm import TRM
@@ -218,6 +217,7 @@ def confirm_trm(project_id: str, trm: dict):
         if not p:
             raise HTTPException(404, "项目不存在")
         p.trm_confirmed = validated.model_dump()
+        p.batch_name, p.batch_no = validated.batch_name, validated.batch_no
         p.status = "confirmed"
         pm.advance(p, "confirmed")
         pm.log_event(s, project_id, "confirmed", "TRM 人工确认")
@@ -243,7 +243,8 @@ def qualify_project(project_id: str, profile: str, llm: bool = False):
     if llm:
         from jb_parser.llm_fallback import enrich
         enrich(trm)
-    rep = qualify(trm, cp, use_llm=llm)
+    with session() as s:
+        rep = workflow.qualify_selected(_get_project(s, project_id), trm, cp, llm)
     with session() as s:
         p = _get_project(s, project_id)
         verdicts = {trm.package_key(i): pk.verdict for i, pk in enumerate(rep.packages)}
@@ -278,7 +279,11 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
     if not 0 <= pkg_index < len(trm.packages):
         raise HTTPException(400, "pkg_index 越界")
     with session() as s:
-        s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
+        p = s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
+        try:
+            workflow.selected_profile(p, pkg_index, kb_repo.load_profile(s, profile))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
         active = s.scalar(select(Task.id).where(Task.project_id == project_id,
                                                Task.kind == "generate",
                                                Task.status.in_(["queued", "running"])).limit(1))
@@ -290,6 +295,32 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
         tid = t.id
     mode = tasks.submit_generate(background, tid, project_id, profile, pkg_index, with_draft, product_model or "")
     return {"task_id": tid, "mode": mode}
+
+
+@app.get("/api/projects/{project_id}/materials")
+def get_materials(project_id: str, profile: str, pkg_index: int = 0):
+    trm, cp = _load_trm_profile(project_id, profile)
+    if not 0 <= pkg_index < len(trm.packages):
+        raise HTTPException(400, "pkg_index 越界")
+    with session() as s:
+        p = _get_project(s, project_id)
+        return {"selection": workflow.material_selection(p, pkg_index, profile).model_dump(),
+                "profile": cp.model_dump()}
+
+
+@app.put("/api/projects/{project_id}/materials")
+def put_materials(project_id: str, profile: str, data: dict, pkg_index: int = 0):
+    trm, cp = _load_trm_profile(project_id, profile)
+    if not 0 <= pkg_index < len(trm.packages):
+        raise HTTPException(400, "pkg_index 越界")
+    with session() as s:
+        p = _get_project(s, project_id)
+        try:
+            workflow.save_selection(p, pkg_index, cp, data)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        pm.log_event(s, p.id, "materials", "更新本包选材，已有产出需要重新生成", {"pkg_index": pkg_index, "profile": profile})
+    return {"ok": True}
 
 
 @app.post("/api/projects/{project_id}/review")
@@ -386,6 +417,8 @@ def score_project(project_id: str, profile: str, pkg_index: int = 0, llm: bool =
     if not 0 <= pkg_index < len(trm.packages):
         raise HTTPException(400, "pkg_index 越界")
     pkg = trm.packages[pkg_index]
+    with session() as s:
+        cp = workflow.selected_profile(_get_project(s, project_id), pkg_index, cp)
     drafts = None
     if task_id:
         with session() as s:

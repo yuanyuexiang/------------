@@ -133,6 +133,12 @@ def respond_table(table: Table, product: Optional[Product]) -> int:
     rows = _table_rows(table)
     if not rows or len(rows[0]) < 2:
         return 0
+    header = " ".join(rows[0])
+    # 工作进度表是实施时间安排，不是产品保证值表。
+    if any(w in header for w in ("预计时间段", "计划时间", "起止时间", "完成时间")) and not any(
+        w in header for w in ("保证值", "投标人响应", "技术参数")
+    ):
+        return 0
     n_header = 0
     while n_header < len(rows) - 1 and _looks_header(rows[n_header]):
         n_header += 1

@@ -1,6 +1,5 @@
 # Jinbang（金榜）部署编排。
-#   核心:      docker compose up -d          （web/api/db/redis/minio）
-#   文档转换:  docker compose --profile docgen up -d   （S3 起用）
+#   本地全栈:  docker compose up -d          （含 worker 和 Word→PDF 转换）
 #   LLM 网关:  docker compose --profile llm up -d      （接入模型账号后用）
 name: jinbang
 
@@ -18,6 +17,7 @@ services:
       MINIO_ENDPOINT: minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-jinbang}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-jinbang-dev-only}
+      GOTENBERG_URL: http://gotenberg:3000
       UPLOAD_DIR: /data/uploads
       # LLM：从宿主机 .env 透传（密钥只在 .env，不进镜像）；端点/模型可在配置中心覆盖
       LLM_BASE_URL: ${LLM_BASE_URL:-}
@@ -44,6 +44,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-jinbang}:${POSTGRES_PASSWORD:-jinbang-dev-only}@db:5432/${POSTGRES_DB:-jinbang}
       CELERY_BROKER_URL: redis://redis:6379/0
+      GOTENBERG_URL: http://gotenberg:3000
       UPLOAD_DIR: /data/uploads
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -80,10 +81,9 @@ services:
     volumes: ["miniodata:/data"]
     ports: ["9001:9001"]   # 控制台；生产收回
 
-  # ---- profile: docgen（S3 文档转换，docx→PDF，HTTP API）----
+  # ---- 文档转换：默认启动，避免本地正式导出缺少 PDF ----
   gotenberg:
-    image: gotenberg/gotenberg:8
-    profiles: [docgen]
+    image: gotenberg/gotenberg:8-libreoffice
 
   # ---- profile: llm（统一 LLM 网关，多模型/记账/限流）----
   litellm:

@@ -11,6 +11,7 @@ import re
 from typing import Optional
 
 from jb_kb.models import CompanyProfile
+from jb_kb.selection import approved_profile
 from jb_parser.trm import TRM, PackageTRM, ScoringItem, ScoringTemplate
 from pydantic import BaseModel, Field
 
@@ -77,7 +78,7 @@ def _range_of(item: ScoringItem) -> tuple[float, float]:
 
 
 def _qualified_perfs(profile: CompanyProfile) -> list:
-    return [p for p in profile.performances if {"合同", "发票"} <= set(p.evidence) and p.buyer_is_end_user is not False]
+    return [p for p in approved_profile(profile).performances if {"合同", "发票"} <= set(p.evidence) and p.buyer_is_end_user is not False]
 
 
 # ---------- 硬指标打分器 ----------
@@ -225,6 +226,7 @@ def _template(trm: TRM, pkg: PackageTRM, kind: str,
 def score_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, draft_sections: Optional[list] = None,
                   use_llm: bool = True, library: Optional[list[ScoringTemplate]] = None) -> ScoreReport:
     """library：配置中心的评分模板库（按名称兜底 TRM 里缺细则的模板）。"""
+    profile = approved_profile(profile)
     rep = ScoreReport(pkg_no=pkg.pkg_no)
     drafts = {s.title: s.text for s in (draft_sections or [])}
     for kind in ("tech", "biz"):

@@ -272,3 +272,18 @@ def test_score_rejects_wrong_package_project_and_stale_inputs(bid):
     assert c.post(f'/api/projects/{other_id}/score', params=params).status_code == 409
     c.put('/api/profiles/测试企业', json={'name': '测试企业', 'credit_code': 'changed'})
     assert c.post(url + '/score', params=params).status_code == 409
+
+
+def test_package_selection_is_scoped_and_revokes_previous_exports(bid):
+    c, url = bid['client'], bid['url']
+    a = c.post('/api/profiles/测试企业/personnel', json={'name': 'A'}).json()
+    b = c.post('/api/profiles/测试企业/personnel', json={'name': 'B', 'status': 'draft'}).json()
+    name = generate(bid)
+    review(bid)
+    formal = export(bid, name)['docx']
+    params = {'profile': '测试企业', 'pkg_index': 0}
+    assert c.put(url + '/materials', params=params, json={'personnel': [b['id']]}).status_code == 400
+    assert c.put(url + '/materials', params=params, json={'personnel': [a['id']]}).status_code == 200
+    assert c.get(url + '/materials', params=params).json()['selection']['personnel'] == [a['id']]
+    assert c.get(url + '/materials', params={**params, 'pkg_index': 1}).json()['selection']['personnel'] is None
+    assert c.get(url + '/files/' + formal).status_code == 409

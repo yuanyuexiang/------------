@@ -17,6 +17,7 @@ from .trm import TRM, PackageTRM
 
 PKG_ZIP_PAT = re.compile(r"包(\d+)_完整(?:招标|采购)文件_\d+")
 SUB_DIR_PAT = re.compile(r"分标(\d+)([^/]*)")
+ECP_IDENTITY_PAT = re.compile(r"(\d{6}-\d{7}-\d{4})、([^/]+?)、(包\d+)(?:/|$)")
 
 
 def parse_package_dir(root: str, files: list[str], trm: TRM,
@@ -26,6 +27,12 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
     pkg = PackageTRM(sub_no=sub_no, sub_name=sub_name, pkg_no=pkg_no)
 
     main_rel = manifest.first(classify.MAIN_DOC)
+    if main_rel:
+        identities = {(m.group(1), m.group(2), m.group(3)) for m in ECP_IDENTITY_PAT.finditer(main_rel)}
+        if len(identities) == 1:
+            code, name, number = identities.pop()
+            if not pkg_no or pkg_no == number:
+                pkg.sub_no, pkg.sub_name, pkg.pkg_no = code, name, number
     if main_rel:
         doc = docx_utils.load(os.path.join(root, main_rel))
         if not trm.batch_name:
@@ -67,7 +74,8 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
 
     demand_rel = manifest.first(classify.SERVICE_DEMAND_XLSX)
     if demand_rel and pkg_no:
-        rec = extract.extract_service_demand(os.path.join(root, demand_rel), pkg_no)
+        rec = extract.extract_service_demand(os.path.join(root, demand_rel), pkg_no,
+                                             sub_no=pkg.sub_no, sub_name=pkg.sub_name)
         if rec:
             extract.apply_service_demand(pkg, rec, trm)
         else:
@@ -162,6 +170,10 @@ def package_files(zip_path: str, pkg: Optional[PackageTRM] = None, sub_no: str =
 
     def matches(rel: str) -> bool:
         msub, mpkg = SUB_DIR_PAT.search(rel), PKG_ZIP_PAT.search(rel)
+        identities = list(ECP_IDENTITY_PAT.finditer(rel))
+        if identities and re.fullmatch(r"\d{6}-\d{7}-\d{4}", sub_no):
+            if not any(m.group(1) == sub_no and (not pkg_no or m.group(3) == pkg_no) for m in identities):
+                return False
         return (not msub or not sub_no or "分标" + msub.group(1) == sub_no) and (
             not mpkg or not pkg_no or "包" + mpkg.group(1) == pkg_no)
 
