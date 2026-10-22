@@ -84,6 +84,12 @@ services:
   # ---- 文档转换：默认启动，避免本地正式导出缺少 PDF ----
   gotenberg:
     image: gotenberg/gotenberg:8-libreoffice
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   # ---- profile: llm（统一 LLM 网关，多模型/记账/限流）----
   litellm:

@@ -21,7 +21,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm
+from docx.shared import Cm, Pt
 from docx.table import Table, _Cell, _Row
 from docx.text.paragraph import Paragraph
 from jb_parser import docx_utils
@@ -441,6 +441,10 @@ def insert_table_after(doc, anchor_el, header: list[str], rows: list[list[str]],
 
 def insert_picture_after(doc, anchor_el, path: str, width_cm: float = 15.0) -> Optional[Paragraph]:
     para = insert_paragraph_after(doc, anchor_el, center=True)
+    # LibreOffice 的行内图片可能贴住前一表格底线，留出明确间距。
+    para.paragraph_format.space_before = Pt(8)
+    para.paragraph_format.space_after = Pt(8)
+    para.paragraph_format.line_spacing = 1.0
     try:
         para.add_run().add_picture(path, width=Cm(width_cm))
     except Exception:

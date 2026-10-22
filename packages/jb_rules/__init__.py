@@ -135,11 +135,24 @@ def r_name_consistency(ctx: Context) -> list[Finding]:
 
 def r_selected_qualification(ctx: Context) -> list[Finding]:
     """按实际选材重核资格，缺少必需材料不能靠取消选材规避。"""
-    from jb_agents.qualify import FAILED, MANUAL, RISK, qualify_package
-    report = qualify_package(ctx.pkg, ctx.profile, False, deadline=ctx.open_date)
+    from jb_agents.qualify import (
+        FAILED,
+        MANUAL,
+        RISK,
+        check_other,
+        check_performance,
+        check_report,
+    )
+    if not ctx.pkg.qualification:
+        return [_f("Q-02", "需人工", "资格要求", "未解析到本包资格要求，需人工对照公告", "本包选材")]
+    checks = []
+    for q in ctx.pkg.qualification:
+        checks.extend(c for c in (check_performance(q, ctx.profile, False),
+                                   check_report(q, ctx.profile)) if c)
+        checks.extend(check_other(q, ctx.profile))
     return [_f("Q-02", "否决" if c.status == FAILED else "需人工", c.item,
                c.reason, "本包选材", c.requirement)
-            for c in report.checks if c.status in (FAILED, MANUAL, RISK)]
+            for c in checks if c.status in (FAILED, MANUAL, RISK)]
 
 
 def r_cert_validity(ctx: Context) -> list[Finding]:

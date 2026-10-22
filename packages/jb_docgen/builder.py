@@ -13,7 +13,8 @@ from typing import Optional
 
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt
+from docx.oxml import OxmlElement
+from docx.shared import Cm, Pt
 from jb_kb.models import CompanyProfile, Product
 from jb_kb.selection import certificate_validity
 from jb_parser.trm import TRM, PackageTRM
@@ -128,6 +129,19 @@ def _table(d, header: list[str], rows: list[list[str]]):
         cells = t.add_row().cells
         for i, v in enumerate(r):
             cells[i].text = "" if v is None else str(v)
+    for row in t.rows:
+        row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
+    t.rows[0]._tr.get_or_add_trPr().append(OxmlElement("w:tblHeader"))
+    for cell in t.rows[0].cells:
+        for para in cell.paragraphs:
+            para.paragraph_format.keep_with_next = True
+    if header == ["序号", "姓名", "职务/职称", "专业", "证件材料"]:
+        t.autofit = False
+        for col, width in zip(t.columns, [0.8, 2.0, 2.5, 2.2, 7.5]):
+            col.width = Cm(width)
+        for row in t.rows:
+            for cell, width in zip(row.cells, [0.8, 2.0, 2.5, 2.2, 7.5]):
+                cell.width = Cm(width)
     return t
 
 
