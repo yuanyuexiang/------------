@@ -41,7 +41,7 @@ export default function LlmTab() {
             </Descriptions>
             <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
               <Form.Item name="base_url" label="端点覆盖（OpenAI 兼容 base_url）" extra="留空=用环境变量 LLM_BASE_URL"><Input placeholder="https://api.example.com/v1" allowClear /></Form.Item>
-              <Form.Item name="model" label="模型覆盖" extra="留空=用环境变量 LLM_MODEL"><Input placeholder="mimo-v2.5-pro" allowClear /></Form.Item>
+              <Form.Item name="model" label="模型覆盖" extra="留空=用环境变量 LLM_MODEL"><Input placeholder="mimo-v2.6-pro" allowClear /></Form.Item>
               <Space size="large" align="start">
                 <Form.Item name="temperature" label="温度（0~2）"><InputNumber min={0} max={2} step={0.1} placeholder="0" /></Form.Item>
                 <Form.Item name="timeout" label="超时（秒）"><InputNumber min={5} max={600} placeholder="60" /></Form.Item>

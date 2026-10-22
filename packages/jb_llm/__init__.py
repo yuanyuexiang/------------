@@ -36,7 +36,7 @@ _JSON_BLOCK = re.compile(r"\{.*\}|\[.*\]", re.S)
 # 运行时覆盖（配置中心写入；密钥只从环境变量读，绝不入库）：base_url / model / temperature / timeout
 _overrides: dict[str, Any] = {}
 _usage_hook: Optional[Callable[[dict[str, Any]], None]] = None
-DEFAULT_MODEL = "mimo-v2.5-pro"
+DEFAULT_MODEL = "mimo-v2.6-pro"
 
 
 def configure(**kw: Any) -> None:
