@@ -273,7 +273,7 @@ def _load_trm_profile(project_id: str, profile: str):
 
 @app.post("/api/projects/{project_id}/generate", status_code=202)
 def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pkg_index: int = 0,
-                  product_model: Optional[str] = None, with_draft: bool = False):
+                  product_model: Optional[str] = None, with_draft: bool = True):
     """生成商务/技术文件（异步任务；with_draft 时先由写作 Agent 起草）。轮询 /api/tasks/{id}。"""
     trm, _ = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):

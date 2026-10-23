@@ -69,7 +69,8 @@ def available() -> bool:
 
 
 def chat(prompt: str, system: str = "", temperature: Optional[float] = None,
-         timeout: Optional[float] = None, purpose: str = "") -> str:
+         timeout: Optional[float] = None, purpose: str = "",
+         max_tokens: Optional[int] = None) -> str:
     """单轮对话，返回文本。未配置或调用失败抛 RuntimeError。purpose 只用于用量记账。"""
     if not available():
         raise RuntimeError("LLM 未配置（缺 LLM_API_KEY/LLM_BASE_URL）")
@@ -78,20 +79,30 @@ def chat(prompt: str, system: str = "", temperature: Optional[float] = None,
         [{"role": "user", "content": prompt}]
     rec: dict[str, Any] = {"model": cfg["model"], "purpose": purpose, "ok": False,
                            "prompt_tokens": None, "completion_tokens": None, "error": ""}
+    payload = {"model": cfg["model"], "messages": messages,
+               "temperature": cfg["temperature"] if temperature is None else temperature}
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
     t0 = time.monotonic()
     try:
         resp = httpx.post(
             cfg["base_url"].rstrip("/") + "/chat/completions",
             headers={"Authorization": "Bearer " + os.environ["LLM_API_KEY"]},
-            json={"model": cfg["model"], "messages": messages,
-                  "temperature": cfg["temperature"] if temperature is None else temperature},
+            json=payload,
             timeout=cfg["timeout"] if timeout is None else timeout,
         )
         resp.raise_for_status()
         data = resp.json()
         usage = data.get("usage") or {}
-        rec.update(ok=True, prompt_tokens=usage.get("prompt_tokens"), completion_tokens=usage.get("completion_tokens"))
-        return data["choices"][0]["message"]["content"]
+        rec.update(prompt_tokens=usage.get("prompt_tokens"),
+                   completion_tokens=usage.get("completion_tokens"))
+        if data["choices"][0].get("finish_reason") == "length":
+            raise RuntimeError("模型输出达到长度上限，正文可能不完整，请缩小起草范围后重试")
+        content = data["choices"][0]["message"]["content"]
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError("模型未返回有效正文")
+        rec["ok"] = True
+        return content
     except Exception as exc:
         rec["error"] = str(exc)[:500]
         raise
@@ -117,11 +128,14 @@ def test_connection() -> dict[str, Any]:
 
 
 def chat_json(prompt: str, system: str = "只输出 JSON，不要任何解释。",
-              retries: int = 1, purpose: str = "") -> Optional[Any]:
+              retries: int = 1, purpose: str = "",
+              temperature: Optional[float] = None, timeout: Optional[float] = None,
+              max_tokens: Optional[int] = None) -> Optional[Any]:
     """要求模型输出 JSON 并解析；失败重试 retries 次，仍失败返回 None（调用方留 None，不猜）。"""
     for _ in range(retries + 1):
         try:
-            text = chat(prompt, system=system, purpose=purpose)
+            text = chat(prompt, system=system, purpose=purpose, temperature=temperature,
+                        timeout=timeout, max_tokens=max_tokens)
         except (RuntimeError, httpx.HTTPError):
             return None
         m = _JSON_BLOCK.search(text)

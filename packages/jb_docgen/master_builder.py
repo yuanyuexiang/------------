@@ -16,6 +16,7 @@ import os
 import re
 from typing import Optional
 
+from docx.oxml import OxmlElement
 from docx.table import Table
 from jb_kb.selection import certificate_validity
 
@@ -376,9 +377,15 @@ def _insert_drafts(doc, ctx: GenContext) -> None:
     has_bullet = M._style_or_none(doc, "List Bullet") is not None
     for sec in ctx.drafts:
         last = M.insert_heading_after(doc, last, sec.title, level=2)._p
-        for kind, level, text in iter_markdown(sec.text):
+        for kind, level, text in iter_markdown(sec.text, section_title=sec.title):
             if kind == "h":
                 last = M.insert_heading_after(doc, last, text, level=min(level + 1, 4))._p
+            elif kind == "table":
+                table = M.insert_table_after(doc, last, text[0], text[1:])
+                for row in table.rows:
+                    row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
+                table.rows[0]._tr.get_or_add_trPr().append(OxmlElement("w:tblHeader"))
+                last = table._tbl
             elif kind == "li":
                 last = M.insert_paragraph_after(doc, last, text if has_bullet else "• " + text,
                                                 style="List Bullet" if has_bullet else None)._p

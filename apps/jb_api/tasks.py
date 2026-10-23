@@ -105,19 +105,14 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
     pkg = trm.packages[pkg_index]
     drafts = None
     draft_md = ""
+    d = None
     try:
-        if with_draft:
-            from jb_agents.writer import draft_package
-            _update(task_id, progress=0.15, message="写作 Agent 起草技术方案（按评分项逐节，约 3-5 分钟）")
-            d = draft_package(trm, pkg, cp, use_llm=True)
-            drafts, draft_md = d.sections, d.markdown()
-        _update(task_id, progress=0.8, message="装配商务/技术文件")
         out_dir = os.path.join(zip_dir, "out")
         os.makedirs(out_dir, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=zip_dir) as staging:
             master, spec_paths, master_note = None, {}, ""
             if zip_path and os.path.exists(zip_path):
-                _update(task_id, progress=0.82, message="解压招标文件包，提取第六章母版与规范书原件")
+                _update(task_id, progress=0.1, message="解压招标文件包，提取第六章母版与规范书原件")
                 try:
                     files = package_files(zip_path, pkg, workdir=os.path.join(staging, "src"))
                     master, spec_paths = files.main_doc, files.spec_docs
@@ -125,8 +120,22 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                         master_note = "招标文件包内未找到六章主文件，使用自建版式"
                 except Exception as exc:
                     master_note = f"提取母版失败，使用自建版式：{exc!r}"
+            if with_draft:
+                from jb_agents.writer import draft_package
+
+                def report_progress(done, total, title):
+                    _update(task_id, progress=0.15 + 0.6 * done / max(total, 1),
+                            message=f"AI 起草 {done + 1}/{total}：《{title}》")
+
+                d = draft_package(trm, pkg, cp, use_llm=True, spec_paths=spec_paths,
+                                  on_progress=report_progress)
+                drafts, draft_md = d.sections, d.markdown()
+            _update(task_id, progress=0.8, message="装配商务/技术文件")
             res = generate(trm, pkg, cp, staging, product_model or None, drafts=drafts,
-                           master_docx=master, attachment_paths=att_paths, spec_paths=spec_paths)
+                           master_docx=master, attachment_paths=att_paths, spec_paths=spec_paths,
+                           response_plans=d.response_plans if d else None)
+            if d:
+                res.notes.extend(d.warnings)
             if master_note:
                 res.notes.append(master_note)
             for field in ("commercial_path", "technical_path"):
@@ -157,10 +166,16 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
         pm.log_event(s, project_id, "generated",
                      f"{pkg.pkg_no} 生成商务/技术文件（{layout}），待补充 {summary.get('todo_count')} 处",
                      {"pkg_no": pkg.pkg_no, "with_draft": with_draft, "mode": modes, "notes": summary.get("notes")})
+    from jb_agents.draft_report import confirmation_items
+
     _update(task_id, status="done", progress=1.0, message="生成完成",
             result={"summary": res.summary(), "todos": res.docx_todos,
                     "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],
                     "draft_markdown": draft_md,
+                    "draft_response_plans": d.response_plans if d else {},
+                    "draft_sources": d.source_registry if d else {},
+                    "draft_sections": [section.model_dump() for section in d.sections] if d else [],
+                    "confirmations": [item.model_dump() for item in confirmation_items(d, res.docx_todos)],
                     "tech_params": [{"spec_id": r.spec_id, "responses": [x.__dict__ for x in r.responses]} for r in res.tech_params]})
 
 

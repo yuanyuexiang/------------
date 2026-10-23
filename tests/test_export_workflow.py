@@ -287,3 +287,27 @@ def test_package_selection_is_scoped_and_revokes_previous_exports(bid):
     assert c.get(url + '/materials', params=params).json()['selection']['personnel'] == [a['id']]
     assert c.get(url + '/materials', params={**params, 'pkg_index': 1}).json()['selection']['personnel'] is None
     assert c.get(url + '/files/' + formal).status_code == 409
+
+
+def test_generation_defaults_to_ai_and_restores_confirmation_list(bid, monkeypatch):
+    from jb_agents.writer import Draft, DraftSection
+
+    calls = []
+
+    def draft(trm, pkg, profile, **kwargs):
+        calls.append(kwargs)
+        kwargs['on_progress'](0, 1, '实施方案')
+        return Draft(pkg_no=pkg.pkg_no, sections=[DraftSection(
+            title='实施方案', text='拟开展需求调研并交付报告。', by_llm=True)])
+
+    monkeypatch.setattr('jb_agents.writer.draft_package', draft)
+    generate(bid)
+    restored = state(bid)['generation']
+    assert len(calls) == 1 and 'spec_paths' in calls[0]
+    assert restored['draft_sections'][0]['by_llm']
+    assert restored['confirmations'][0]['category'] == '拟实施方案待确认'
+    result = bid['client'].post(bid['url'] + '/generate', params={
+        'profile': '测试企业', 'pkg_index': 0, 'with_draft': False,
+    })
+    assert result.status_code == 202
+    assert len(calls) == 1

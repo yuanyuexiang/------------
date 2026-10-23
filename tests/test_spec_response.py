@@ -137,3 +137,55 @@ def test_schedule_table_is_preserved_without_fake_product_response():
     assert SR.respond_table(t, None) == 0
     assert len(t.columns) == 3
     assert t.cell(1, 2).text == "调研与方案设计"
+
+
+def test_service_plan_is_inserted_but_does_not_fill_product_guarantee(tmp_path):
+    d = docx.Document()
+    d.add_heading('1 研究任务', level=1)
+    item = '（1）提交研究报告'
+    d.add_paragraph(item)
+    d.add_heading('2 性能指标', level=1)
+    table = d.add_table(rows=2, cols=3)
+    for row, values in zip(table.rows, [['名称', '要求值', '保证值'], ['吞吐率', '1000次', '']]):
+        for cell, value in zip(row.cells, values):
+            cell.text = value
+    path = tmp_path / 'service.docx'
+    d.save(path)
+    pkg = PackageTRM(pkg_no='包1', spec_docs=[SpecDoc(spec_id='S')])
+    result = generate(TRM(), pkg, CompanyProfile(name='测试'), str(tmp_path / 'out'),
+                      spec_paths={'S': str(path)}, response_plans={'S': {
+                          item: '拟实施响应（供投标负责人确认）：拟提交研究报告并组织评审。',
+                      }})
+    text, _ = _all_text(result.technical_path)
+    assert '拟提交研究报告并组织评审' in text
+    assert '对「提交研究报告」的具体响应' not in text
+    assert '吞吐率 | 1000次 | 【待补充' in text
+
+
+def test_ai_markdown_tables_are_word_tables_in_both_layouts():
+    from jb_agents.writer import DraftSection
+    from jb_docgen.builder import GenContext, _markdown_to_doc
+    from jb_docgen.master_builder import _insert_drafts
+
+    text = '| 阶段 | 工作内容 |\n| --- | --- |\n| 启动 | 需求核对 [来源:req-package] |\n\n---\n后续说明'
+    plain = docx.Document()
+    _markdown_to_doc(plain, text)
+    master = docx.Document()
+    master.add_paragraph('技术方案')
+    ctx = GenContext(TRM(), PackageTRM(), CompanyProfile(), drafts=[DraftSection(title='计划', text=text)])
+    _insert_drafts(master, ctx)
+    for document in (plain, master):
+        assert len(document.tables) == 1
+        assert document.tables[0]._tbl.xpath('w:tr[1]/w:trPr/w:tblHeader')
+        assert document.tables[0].cell(1, 1).text == '需求核对'
+        assert any(p.text == '后续说明' for p in document.paragraphs)
+        assert not any(p.text.startswith('|') or p.text == '---' for p in document.paragraphs)
+
+
+def test_writer_chapter_title_is_not_duplicated():
+    from jb_docgen.builder import iter_markdown
+
+    blocks = list(iter_markdown('# 工作进度及保证措施\n## 总体进度\n拟分阶段执行。',
+                                section_title='工作进度及保证措施'))
+    assert not any(text == '工作进度及保证措施' for _, _, text in blocks)
+    assert any(kind == 'h' and text == '总体进度' for kind, _, text in blocks)

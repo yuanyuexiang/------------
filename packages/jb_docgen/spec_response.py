@@ -96,7 +96,8 @@ def is_cover_only(src, sections: list[Section]) -> bool:
 
 # ---------- 响应生成 ----------
 
-def _respond_items(items: list[str], product: Optional[Product]) -> list[str]:
+def _respond_items(items: list[str], product: Optional[Product],
+                   plans: Optional[dict[str, str]] = None) -> list[str]:
     out = []
     for i, text in enumerate(items, start=1):
         body = re.sub(r"^[（(]?\d{1,2}[)）.、．]\s*", "", text)
@@ -115,6 +116,8 @@ def _respond_items(items: list[str], product: Optional[Product]) -> list[str]:
                 hit = match_param_text(body, product)
                 if hit is not None and hit[0] in body:
                     hit_text = f"{hit[0]} {hit[1]}"
+        hit_text = hit_text or (plans or {}).get(text, "")
+        hit_text = re.sub(r"\s*\[来源:[^\]]+\]", "", hit_text)
         out.append(f"（{i}）{hit_text}" if hit_text else f"（{i}）{todo(f'对「{body[:30]}」的具体响应')}")
     return out
 
@@ -202,7 +205,8 @@ def _clean_copy(el):
     return new
 
 
-def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], title: str) -> tuple[object, int, bool]:
+def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], title: str,
+                plans: Optional[dict[str, str]] = None) -> tuple[object, int, bool]:
     """把一本规范书复制到 anchor 之后并逐节响应。返回 (新锚点, 响应小节数, 是否跳过)。"""
     src = docx.Document(spec_path)
     sections = analyse(src)
@@ -228,7 +232,7 @@ def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], titl
         if sec is None or sec.has_children or not sec.items:
             continue
         last = M.insert_paragraph_after(doc, last, RESP_TAG, bold=True)._p
-        for line in _respond_items(sec.items, product):
+        for line in _respond_items(sec.items, product, plans):
             last = M.insert_paragraph_after(doc, last, line)._p
         responded += 1
     return last, responded, False

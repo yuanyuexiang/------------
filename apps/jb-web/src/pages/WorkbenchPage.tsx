@@ -17,7 +17,7 @@ export default function WorkbenchPage() {
   const { data: profiles = [] } = useQuery({ queryKey: ['profiles'], queryFn: api.profiles })
   const [profile, setProfile] = useState<string>()
   const [pkgIndex, setPkgIndex] = useState(0)
-  const [withDraft, setWithDraft] = useState(false)
+  const [withDraft, setWithDraft] = useState(true)
   const [taskId, setTaskId] = useState<string>()
   const [busy, setBusy] = useState(false)
   const { data: flow, refetch: refreshFlow, error: flowError } = useQuery({
@@ -82,7 +82,7 @@ export default function WorkbenchPage() {
           <div><label htmlFor="workbench-profile">企业档案</label><Select id="workbench-profile" placeholder="请选择企业档案" disabled={running} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} /></div>
           <div><label htmlFor="workbench-package">本次分包</label><Select id="workbench-package" placeholder="请选择分包" disabled={running} value={pkgIndex} onChange={setPkgIndex}
             options={(trm?.packages ?? []).map((p, i) => ({ value: i, label: `${p.sub_no} ${p.sub_name} ${p.pkg_no}`.trim() }))} /></div>
-          <div className="workbench-draft"><span>技术方案起草<small>依据资料与评分项生成初稿</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
+          <div className="workbench-draft"><span>技术方案起草<small>AI 先写方案，人工核对事实与承诺</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
         </div>
         <div className="workbench-action-bar">
           <Space wrap>
@@ -126,10 +126,23 @@ export default function WorkbenchPage() {
 
       {gen && (
         <Tabs items={[
+          ...(gen.confirmations?.length ? [{ key: 'c', label: `集中核对（${gen.confirmations.length}）`, children: (
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Alert type="info" showIcon message="AI 负责起草方案；请核对事实、实施安排与对外承诺"
+                description="此清单用于集中处理，不代表已确认，也不替代合规审查。起草失败应重新生成，无需人工补写整章。" />
+              <Table size="small" rowKey={(_, i) => String(i)} dataSource={gen.confirmations} pagination={{ pageSize: 15 }}
+                columns={[
+                  { title: '类型', dataIndex: 'category', width: 160 },
+                  { title: '章节 / 文件', dataIndex: 'location', width: 220 },
+                  { title: '核对事项', dataIndex: 'message' },
+                  { title: '处理方式', dataIndex: 'action' },
+                ]} />
+            </Space>
+          ) }] : []),
           { key: 'f', label: '文件与待补充', children: (
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert type={gen.summary.export_blocked ? 'warning' : 'success'}
-                message={gen.summary.export_blocked ? `共 ${gen.summary.todo_count} 处【待补充】，请补齐后重新生成` : '无待补充；正式导出还需通过本版本合规审查'} />
+                message={gen.summary.export_blocked ? `共 ${gen.summary.todo_count} 处【待补充】，请按集中核对清单处理后重新生成` : '无待补充；正式导出还需通过本版本合规审查'} />
               {gen.summary.mode && (
                 <Typography.Text type="secondary">
                   版式：{Object.values(gen.summary.mode).every((m) => m === 'master') ? '招标文件第六章母版（原版式）' : Object.values(gen.summary.mode).every((m) => m === 'plain') ? '系统自建版式（未取到母版）' : `商务 ${gen.summary.mode.commercial === 'master' ? '母版' : '自建'} / 技术 ${gen.summary.mode.technical === 'master' ? '母版' : '自建'}`}
@@ -166,6 +179,11 @@ export default function WorkbenchPage() {
               ),
             }))} />
           ) },
+          ...(Object.keys(gen.draft_sources ?? {}).length ? [{ key: 's', label: '起草引用依据', children: (
+            <Table size="small" rowKey="id" pagination={{ pageSize: 10 }}
+              dataSource={Object.entries(gen.draft_sources ?? {}).map(([id, text]) => ({ id, text }))}
+              columns={[{ title: '引用编号', dataIndex: 'id', width: 200 }, { title: '资料 / 招标要求原文', dataIndex: 'text' }]} />
+          ) }] : []),
           ...(gen.draft_markdown ? [{ key: 'd', label: '起草稿（带溯源）', children: <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{gen.draft_markdown}</pre> }] : []),
         ]} />
       )}

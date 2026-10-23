@@ -55,7 +55,8 @@ def pick_product(profile: CompanyProfile, pkg: PackageTRM, model: Optional[str] 
 def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
              product_model: Optional[str] = None, drafts: Optional[list] = None,
              master_docx: Optional[str] = None, attachment_paths: Optional[dict] = None,
-             spec_paths: Optional[dict] = None) -> GenResult:
+             spec_paths: Optional[dict] = None,
+             response_plans: Optional[dict] = None) -> GenResult:
     """生成商务/技术文件。
 
     master_docx 给定（招标文件六章主文件）时以其"文件格式"章为母版原位填空，保留国网原版式；
@@ -69,7 +70,8 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
         drafts = [DraftSection(title=b.title, text=b.text, sources=[b.source])
                   for b in profile.boilerplates if b.topic == "演示项目方案"] or None
     ctx = GenContext(trm=trm, pkg=pkg, profile=profile, product=pick_product(profile, pkg, product_model),
-                     drafts=drafts, attachment_paths=attachment_paths or {}, spec_paths=spec_paths or {})
+                     drafts=drafts, attachment_paths=attachment_paths or {}, spec_paths=spec_paths or {},
+                     response_plans=response_plans or {})
     tag = f"{pkg.sub_no}{pkg.pkg_no}".replace("/", "_") or "pkg"
     com = os.path.join(out_dir, f"商务文件_{tag}.docx")
     tech = os.path.join(out_dir, f"技术文件_{tag}.docx")

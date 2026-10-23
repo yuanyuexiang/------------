@@ -42,7 +42,10 @@ def append_spec_responses(doc, anchor_el, ctx) -> object:
     last = M.insert_heading_after(doc, anchor_el, "技术规范书逐条响应", level=1)._p
     for sd, path in paths:
         try:
-            last, n, skipped = append_spec(doc, last, path, ctx.product, f"技术规范书 {sd.spec_id or ''} {sd.title}".strip())
+            last, n, skipped = append_spec(
+                doc, last, path, ctx.product, f"技术规范书 {sd.spec_id or ''} {sd.title}".strip(),
+                plans=ctx.response_plans.get(sd.spec_id),
+            )
         except Exception as exc:  # 单本规范书失败不拖垮整份文件
             ctx.notes.append(f"规范书 {sd.spec_id or sd.source} 逐条响应失败：{exc!r}")
             last = M.insert_paragraph_after(doc, last, todo(f"规范书 {sd.spec_id} 逐条响应（原文复制失败）"))._p
@@ -63,6 +66,7 @@ class GenContext:
     drafts: Optional[list] = None               # writer Agent 的 DraftSection 列表（可选）
     attachment_paths: dict = field(default_factory=dict)   # 知识库附件 id → 本地绝对路径（扫描件插图用）
     spec_paths: dict = field(default_factory=dict)         # 规范书 spec_id（或 source）→ 原 docx 路径（逐条响应用）
+    response_plans: dict = field(default_factory=dict)
     todos: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)          # 生成过程说明（母版回退原因等）
 
@@ -148,18 +152,42 @@ def _table(d, header: list[str], rows: list[list[str]]):
 _SRC_TAG = re.compile(r"\s*\[来源:[^\]]+\]")
 
 
-def iter_markdown(md: str, keep_sources: bool = False):
+def iter_markdown(md: str, keep_sources: bool = False, section_title: str = ""):
     """极简 Markdown 流：产出 ("h", level, text) / ("li", 0, text) / ("p", 0, text)；
-    **粗体**去标记，来源标注默认剥离（审阅版保留）。母版装配与自建版式共用。"""
-    for raw in md.split("\n"):
+    **粗体**去标记，table 的 text 为二维单元格列表；来源标注默认剥离。母版/自建共用。"""
+    def clean(raw):
         line = raw.rstrip()
-        if not line.strip():
-            continue
         if not keep_sources:
             line = _SRC_TAG.sub("", line)
-        line = line.replace("**", "")
+        return line.replace("**", "")
+
+    def cells(line):
+        return [cell.strip().replace(r"\|", "|")
+                for cell in re.split(r"(?<!\\)\|", line.strip().strip("|"))]
+
+    lines = [clean(raw) for raw in md.split("\n")]
+    position = 0
+    while position < len(lines):
+        line = lines[position]
+        if position + 1 < len(lines) and "|" in line:
+            separator = cells(lines[position + 1])
+            if separator and all(re.fullmatch(r":?-{3,}:?", cell) for cell in separator):
+                rows = [cells(line)]
+                position += 2
+                while position < len(lines) and "|" in lines[position] and lines[position].strip():
+                    rows.append(cells(lines[position]))
+                    position += 1
+                width = max(map(len, rows))
+                rows = [row + [""] * (width - len(row)) for row in rows]
+                yield "table", 0, rows
+                continue
+        position += 1
+        if not line.strip() or re.fullmatch(r"[-_*]{3,}", line.strip()):
+            continue
         m = re.match(r"^(#{1,6})\s*(.+)$", line)
         if m:
+            if section_title and re.sub(r"\s+", "", m.group(2)) == re.sub(r"\s+", "", section_title):
+                continue
             yield "h", min(3, 1 + len(m.group(1))), m.group(2).strip()
             continue
         m = re.match(r"^\s*(?:[-*]|\d+[.、])\s+(.+)$", line)
@@ -169,10 +197,12 @@ def iter_markdown(md: str, keep_sources: bool = False):
         yield "p", 0, line.strip()
 
 
-def _markdown_to_doc(d, md: str, keep_sources: bool = False):
-    for kind, level, text in iter_markdown(md, keep_sources):
+def _markdown_to_doc(d, md: str, keep_sources: bool = False, section_title: str = ""):
+    for kind, level, text in iter_markdown(md, keep_sources, section_title):
         if kind == "h":
             _h(d, text, level)
+        elif kind == "table":
+            _table(d, text[0], text[1:])
         elif kind == "li":
             d.add_paragraph(text, style="List Bullet")
         else:
@@ -340,7 +370,7 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
             _p(d, "招标范围：" + p.scope)
         for sec in ctx.drafts:
             _h(d, sec.title, 2)
-            _markdown_to_doc(d, sec.text)
+            _markdown_to_doc(d, sec.text, section_title=sec.title)
     elif p.scope:
         _h(d, "项目需求响应", 1)
         _p(d, "招标范围：" + p.scope)

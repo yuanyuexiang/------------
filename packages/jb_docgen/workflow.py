@@ -151,7 +151,7 @@ def blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> list[st
             try:
                 count = len(scan_docx(str(path)))
                 if count:
-                    reasons.append(f"{name} 仍有 {count} 处【待补充】，请补齐资料后重新生成")
+                    reasons.append(f"{name} 仍有 {count} 处【待补充】，请核对缺项或起草状态后重新生成")
             except Exception:
                 reasons.append(f"文件无法读取，请重新生成：{name}")
     return reasons

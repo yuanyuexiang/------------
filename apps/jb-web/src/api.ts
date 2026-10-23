@@ -146,6 +146,8 @@ export interface ItemScore { element: string; kind: string; score_min: number; s
 export interface ScoreReport { pkg_no: string; items: ItemScore[]; tech_total: number | null; biz_total: number | null; tech_max: number; biz_max: number; weighted: number | null; notes: string[] }
 export interface GenResult {
   summary: { commercial: string; technical: string; todo_count: number; export_blocked: boolean; tech_params: { spec_id: string; rows: number; satisfied: number; deviation: number; unknown: number; missing: number }[]; mode?: Record<string, 'master' | 'plain'>; notes?: string[] }
+  draft_sources?: Record<string, string>
+  confirmations?: { category: string; location: string; message: string; action: string }[]
   todos: Record<string, string[]>; files: string[]; draft_markdown: string
   tech_params: { spec_id: string; responses: { row: number; name: string; required: string; star: boolean; response: string; verdict: string; reason: string }[] }[]
 }
