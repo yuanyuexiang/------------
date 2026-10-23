@@ -82,6 +82,20 @@ def test_demo_watermark_survives_generation(tmp_path):
         assert Path(path).is_file()
 
 
+def test_simulated_project_plan_only_used_by_demo_profiles(tmp_path):
+    from jb_kb.models import Boilerplate
+    cp = CompanyProfile(name='模拟企业', is_demo=True, boilerplates=[Boilerplate(
+        topic='演示项目方案', title='模拟研究方案', text='模拟实验与联调流程', approved=True)])
+    pkg = PackageTRM(scope='研究服务')
+    trm = TRM(packages=[pkg])
+    demo = generate(trm, pkg, cp, str(tmp_path / 'demo'))
+    assert '模拟实验与联调流程' in '\n'.join(p.text for p in docx.Document(demo.technical_path).paragraphs)
+    cp.is_demo = False
+    real = generate(trm, pkg, cp, str(tmp_path / 'real'))
+    assert '模拟实验与联调流程' not in '\n'.join(p.text for p in docx.Document(real.technical_path).paragraphs)
+    assert any('总体技术/服务方案' in todo for todo in real.docx_todos[Path(real.technical_path).name])
+
+
 def test_excluding_required_evidence_does_not_remove_qualification_gate():
     pkg = PackageTRM(qualification=[QualificationItem(report_required=True)])
     cp = CompanyProfile(name='T', test_reports=[Report(id='r', name='检测报告')])

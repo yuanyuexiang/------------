@@ -64,6 +64,10 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
     spec_paths：规范书 spec_id → 原 docx 路径，技术文件追加"技术规范书逐条响应"章节。
     """
     profile = approved_profile(profile)
+    if profile.is_demo and not drafts:
+        from jb_agents.writer import DraftSection
+        drafts = [DraftSection(title=b.title, text=b.text, sources=[b.source])
+                  for b in profile.boilerplates if b.topic == "演示项目方案"] or None
     ctx = GenContext(trm=trm, pkg=pkg, profile=profile, product=pick_product(profile, pkg, product_model),
                      drafts=drafts, attachment_paths=attachment_paths or {}, spec_paths=spec_paths or {})
     tag = f"{pkg.sub_no}{pkg.pkg_no}".replace("/", "_") or "pkg"
