@@ -35,7 +35,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
   const nav = useNavigate()
   const { user, devSecret, logout } = useAuth()
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('jinbang.sidebar.collapsed') === 'true' }
+    catch { return false }
+  })
+  const toggleSidebar = () => {
+    const next = !collapsed
+    setCollapsed(next)
+    try { localStorage.setItem('jinbang.sidebar.collapsed', String(next)) }
+    catch { /* Storage may be unavailable; keep the current session usable. */ }
+  }
   const [pwOpen, setPwOpen] = useState(false)
   const selected = pathname.startsWith('/kb') ? '/kb'
     : pathname.startsWith('/settings') ? '/settings'
@@ -55,7 +64,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <Layout className="admin-shell">
-      <Sider className="admin-sidebar" collapsed={collapsed} onCollapse={setCollapsed} breakpoint="lg" collapsedWidth={72} width={224}>
+      <Sider className="admin-sidebar" collapsed={collapsed} collapsedWidth={72} width={224}>
         <Link to="/" className="admin-logo" aria-label="金榜首页">
           <span className="admin-logo-icon"><FileTextOutlined /></span>
           {!collapsed && <span className="admin-logo-name">金榜<small>JINBANG</small></span>}
@@ -77,7 +86,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       </Sider>
       <Layout className="admin-main">
         <Header className="admin-header">
-          <Button type="text" className="admin-menu-toggle" aria-label={collapsed ? '展开导航' : '收起导航'} icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed(!collapsed)} />
+          <Button type="text" className="admin-menu-toggle" aria-label={collapsed ? '展开导航' : '收起导航'} icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={toggleSidebar} />
           <Breadcrumb items={page.title === section ? [{ title: section }] : [{ title: <Link to={selected}>{section}</Link> }, { title: page.title }]} />
           <div className="admin-header-spacer" />
           {user && (

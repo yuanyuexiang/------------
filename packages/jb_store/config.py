@@ -97,7 +97,7 @@ def set_setting(s: Session, key: str, value: dict) -> None:
 # ---------- LLM 用量 ----------
 
 def record_usage(s: Session, rec: dict[str, Any]) -> None:
-    s.add(LlmUsage(connection_id=rec.get("connection_id", ""),
+    s.add(LlmUsage(project_id=rec.get("project_id", ""), task_id=rec.get("task_id", ""), connection_id=rec.get("connection_id", ""),
                    connection_name=rec.get("connection_name", ""), model=rec.get("model") or "", purpose=rec.get("purpose") or "", ok=bool(rec.get("ok")),
                    latency_ms=int(rec.get("latency_ms") or 0), prompt_tokens=rec.get("prompt_tokens"),
                    completion_tokens=rec.get("completion_tokens"), error=rec.get("error") or ""))
@@ -127,3 +127,34 @@ def usage_summary(s: Session, days: int = 30) -> dict:
     return {"days": days, "calls": int(total or 0), "failed": int((total or 0) - (ok or 0)),
             "prompt_tokens": int(pt or 0), "completion_tokens": int(ct or 0), "avg_latency_ms": int(lat or 0),
             "by_purpose": by_purpose, "by_day": by_day, "recent": recent}
+
+
+def usage_page(s: Session, days: int = 30, connection_id: str = '', model: str = '',
+               purpose: str = '', result: str = '', page: int = 1, page_size: int = 10) -> dict:
+    """Filters apply to both metrics and pagination. Connection tests are separate by default."""
+    filters = [LlmUsage.created_at >= dt.datetime.utcnow() - dt.timedelta(days=days)]
+    if connection_id:
+        filters.append(LlmUsage.connection_id == connection_id)
+    if model:
+        filters.append(LlmUsage.model == model)
+    if purpose == 'business':
+        filters.append(LlmUsage.purpose != 'test')
+    elif purpose:
+        filters.append(LlmUsage.purpose == purpose)
+    if result:
+        filters.append(LlmUsage.ok == (result == 'success'))
+    total, ok, pt, ct, latency = s.execute(select(
+        func.count(), func.sum(func.cast(LlmUsage.ok, Integer)),
+        func.sum(LlmUsage.prompt_tokens), func.sum(LlmUsage.completion_tokens),
+        func.avg(LlmUsage.latency_ms)).where(*filters)).one()
+    rows = list(s.scalars(select(LlmUsage).where(*filters)
+                         .order_by(LlmUsage.created_at.desc(), LlmUsage.id)
+                         .offset((page - 1) * page_size).limit(page_size)))
+    return {'total': total, 'failed': total - int(ok or 0),
+            'prompt_tokens': int(pt or 0), 'completion_tokens': int(ct or 0),
+            'avg_latency_ms': int(latency or 0),
+            'models': list(s.scalars(select(LlmUsage.model).distinct().order_by(LlmUsage.model))),
+            'rows': [{k: getattr(r, k) for k in ('id', 'connection_id', 'connection_name',
+                       'model', 'purpose', 'ok', 'latency_ms', 'prompt_tokens',
+                       'completion_tokens', 'error', 'project_id', 'task_id')} |
+                      {'created_at': r.created_at.isoformat()} for r in rows]}

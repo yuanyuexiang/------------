@@ -160,7 +160,12 @@ export interface RuleEntry {
   rule_id: string; level: string; title: string; source: string; doc: string; default_params: Record<string, unknown>
   enabled: boolean; level_override: string; params: Record<string, unknown>; note: string; updated_at: string | null
 }
+export interface LlmUsagePage {
+  total: number; failed: number; prompt_tokens: number; completion_tokens: number; avg_latency_ms: number; models: string[]
+  rows: { id: string; created_at: string; connection_name: string; model: string; purpose: string; ok: boolean; latency_ms: number; prompt_tokens: number | null; completion_tokens: number | null; error: string; project_id: string; task_id: string }[]
+}
 export interface LlmConnection {
+  validation?: { state: string; tested_at?: string; latency_ms?: number; error?: string }
   id: string; name: string; base_url: string; model: string; temperature: number; timeout: number; max_tokens: number; key_configured: boolean
 }
 
@@ -203,6 +208,7 @@ export const api = {
   rules: () => req<{ levels: string[]; rules: RuleEntry[] }>('/api/config/rules'),
   updateRule: (id: string, body: Partial<Pick<RuleEntry, 'enabled' | 'level_override' | 'params' | 'note'>>) => req<{ ok: boolean }>(`/api/config/rules/${id}`, json(body)),
   resetRule: (id: string) => req<{ ok: boolean }>(`/api/config/rules/${id}`, { method: 'DELETE' }),
+  llmUsage: (params: Record<string, string | number>) => req<LlmUsagePage>(`/api/config/llm/usage?${new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))}`),
   llmProviders: () => req<{ id: string; name: string; base_url: string }[]>('/api/config/llm/providers'),
   discoverModels: (body: Record<string, unknown>) => req<{ models: string[]; message: string }>('/api/config/llm/models', { ...json(body), method: 'POST' }),
   llmConnections: () => req<{ default_id: string; connections: LlmConnection[] }>('/api/config/llm/connections'),

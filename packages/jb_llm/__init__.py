@@ -114,7 +114,8 @@ def chat(prompt: str, system: str = "", temperature: Optional[float] = None,
         [{"role": "user", "content": prompt}]
     rec: dict[str, Any] = {"model": cfg["model"], "purpose": purpose, "ok": False,
                            "prompt_tokens": None, "completion_tokens": None, "error": "", "connection_id": cfg.get("id", "legacy"),
-                           "connection_name": cfg.get("name", "现有连接")}
+                           "connection_name": cfg.get("name", "现有连接"),
+                           "project_id": cfg.get("project_id", ""), "task_id": cfg.get("task_id", "")}
     payload = {"model": cfg["model"], "messages": messages,
                "temperature": cfg["temperature"] if cfg.get("id") or temperature is None else temperature}
     if cfg.get("max_tokens") or max_tokens is not None:

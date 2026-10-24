@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Checkbox, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, Upload, message } from 'antd'
+import { Alert, Button, Checkbox, Form, Input, Drawer, Popconfirm, Select, Space, Table, Tag, Typography, Upload, message } from 'antd'
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { api, fmtUtc, ScoringTemplateFull, ScoringTemplateSummary } from '../../api'
 
@@ -68,7 +68,7 @@ export default function ScoringTemplatesTab() {
           ) },
         ]} />
 
-      <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={editing !== null} width={960} title={editing === 'new' ? '新建评分模板' : '编辑评分模板'} onCancel={() => setEditing(null)} onOk={() => save.mutate()} confirmLoading={save.isPending} destroyOnClose>
+      <Drawer open={editing !== null} width={960} title={editing === "new" ? "新建评分模板" : "编辑评分模板"} onClose={() => setEditing(null)} destroyOnClose footer={<Space><Button onClick={() => setEditing(null)}>取消</Button><Button type="primary" loading={save.isPending} onClick={() => save.mutate()}>保存</Button></Space>}>
         <Form form={form} layout="inline" style={{ marginBottom: 12 }}>
           <Form.Item name="name" label="模板名称" rules={[{ required: true, message: '必填' }]} style={{ flex: 1 }}><Input placeholder="如 FWSW01：服务类通用商务详评细则" style={{ width: 360 }} /></Form.Item>
           <Form.Item name="kind" label="类别"><Select style={{ width: 100 }} options={Object.entries(KIND_CN).map(([v, l]) => ({ value: v, label: l }))} /></Form.Item>
@@ -84,7 +84,7 @@ export default function ScoringTemplatesTab() {
             { title: '', width: 50, render: (_, __, i) => <Button size="small" type="link" danger onClick={() => setItems(items.filter((_, k) => k !== i))}>删</Button> },
           ]} />
         <Button size="small" style={{ marginTop: 8 }} icon={<PlusOutlined />} onClick={() => setItems([...items, { group: '', element: '', content: '', score_min: null, score_max: null }])}>加一行</Button>
-      </Modal>
+      </Drawer>
     </Space>
   )
 }

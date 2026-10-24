@@ -59,7 +59,8 @@ def listing():
     with session() as s:
         data = config.get_setting(s, KEY)
         return {'default_id': data.get('default_id', 'legacy'),
-                'connections': [public(legacy(s)), *[public(r) for r in data.get('rows', [])]]}
+                'connections': [{**r, 'validation': validation_status(r['id'])} for r in
+                                [public(legacy(s)), *[public(r) for r in data.get('rows', [])]]]}
 
 
 def resolve(connection_id=None):
@@ -130,3 +131,41 @@ def discover_models(body: dict) -> dict:
             raise ValueError('接口地址已变更，请填写该服务商的 API Key 后获取模型')
         api_key = saved['api_key']
     return discover(base_url, api_key)
+
+
+def signature(value: dict) -> str:
+    import hashlib
+    import json
+    return hashlib.sha256(json.dumps({k: value.get(k) for k in (*FIELDS, 'api_key')},
+                                     sort_keys=True).encode()).hexdigest()
+
+
+def validation_status(connection_id: str) -> dict:
+    with session() as s:
+        check = config.get_setting(s, 'llm_validation').get(connection_id)
+    if not check:
+        return {'state': 'untested'}
+    try:
+        current = signature(resolve(connection_id))
+    except ValueError:
+        return {'state': 'unavailable'}
+    if check['signature'] != current:
+        return {'state': 'stale', 'tested_at': check['tested_at']}
+    return {k: v for k, v in check.items() if k != 'signature'}
+
+
+def test_saved(connection_id: str) -> dict:
+    import datetime as dt
+
+    import jb_llm
+    value = resolve(connection_id)
+    with jb_llm.using_connection(value):
+        result = jb_llm.test_connection()
+    with session() as s:
+        data = config.get_setting(s, 'llm_validation')
+        data[connection_id] = {'state': 'passed' if result['ok'] else 'failed',
+                               'tested_at': dt.datetime.utcnow().isoformat(),
+                               'signature': signature(value), 'latency_ms': result['latency_ms'],
+                               'error': result.get('error', '')}
+        config.set_setting(s, 'llm_validation', data)
+    return result

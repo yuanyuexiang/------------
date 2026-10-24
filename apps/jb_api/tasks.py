@@ -83,7 +83,7 @@ def run_parse(task_id: str, project_id: str) -> None:
     from . import config as config_api
     config_api.install_usage_hook()
     try:
-        with jb_llm.using_connection(resolve()):
+        with jb_llm.using_connection({**resolve(), "project_id": project_id, "task_id": task_id}):
             _run_parse(task_id, project_id)
     except Exception:
         _update(task_id, status="failed", message="解析任务失败，请检查模型连接及输入文件")
@@ -197,7 +197,7 @@ def run_generate(task_id: str, *args) -> None:
     try:
         import jb_llm
         from jb_store.llm_connections import resolve
-        with jb_llm.using_connection(resolve()) as model_config:
+        with jb_llm.using_connection({**resolve(), "project_id": args[0], "task_id": task_id}) as model_config:
             _run_generate(task_id, *args)
             with session() as s:
                 task = s.get(Task, task_id)

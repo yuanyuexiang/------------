@@ -301,11 +301,9 @@ def default_connection(request: Request, connection_id: str):
 def test_connection(request: Request, connection_id: str):
     require_admin(request)
     try:
-        value = connections.resolve(connection_id)
+        return connections.test_saved(connection_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    with jb_llm.using_connection(value):
-        return jb_llm.test_connection()
 
 
 @router.get('/llm/providers')
@@ -322,3 +320,13 @@ def llm_models(request: Request, body: dict):
         return connections.discover_models(body)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
+
+
+@router.get('/llm/usage')
+def llm_usage(request: Request, days: int = 30, connection_id: str = '', model: str = '',
+              purpose: str = 'business', result: str = '', page: int = 1, page_size: int = 10):
+    require_admin(request)
+    if not (1 <= days <= 365 and page >= 1 and 1 <= page_size <= 100):
+        raise HTTPException(400, '分页或日期范围无效')
+    with session() as s:
+        return cfg.usage_page(s, days, connection_id, model, purpose, result, page, page_size)

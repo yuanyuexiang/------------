@@ -211,6 +211,8 @@ class LlmUsage(Base):
 
     id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_uid)
     model: Mapped[str] = mapped_column(String(64), default="")
+    project_id: Mapped[str] = mapped_column(String(12), default="")
+    task_id: Mapped[str] = mapped_column(String(12), default="")
     connection_id: Mapped[str] = mapped_column(String(64), default="")
     connection_name: Mapped[str] = mapped_column(String(80), default="")
     purpose: Mapped[str] = mapped_column(String(32), default="", index=True)   # parse|qualify|draft|score|test

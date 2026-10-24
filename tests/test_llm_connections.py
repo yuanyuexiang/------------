@@ -119,3 +119,39 @@ def test_discovery_failures_and_presets(client, monkeypatch):
         assert 'private-key' not in response.text
     monkeypatch.setattr(httpx, 'get', lambda *a, **kw: httpx.Response(200, text='private-key not json'))
     assert 'private-key' not in client.post('/api/config/llm/models', json={'base_url': 'https://model.example/v1', 'api_key': 'private-key'}).text
+
+
+def test_saved_validation_tracks_configuration(client, monkeypatch):
+    row = create(client)
+    assert connections.validation_status(row['id'])['state'] == 'untested'
+    monkeypatch.setattr(jb_llm, 'test_connection', lambda: {'ok': True, 'latency_ms': 25})
+    response = client.post('/api/config/llm/connections/' + row['id'] + '/test')
+    assert response.json()['ok']
+    assert connections.validation_status(row['id'])['state'] == 'passed'
+    assert 'signature' not in client.get('/api/config/llm/connections').text
+    body = {k: v for k, v in row.items() if k not in ('id', 'key_configured')}
+    body.update(model='changed-model', api_key='')
+    assert client.put('/api/config/llm/connections/' + row['id'], json=body).status_code == 200
+    assert connections.validation_status(row['id'])['state'] == 'stale'
+    monkeypatch.setattr(jb_llm, 'test_connection', lambda: {'ok': False, 'latency_ms': 30, 'error': 'timeout'})
+    client.post('/api/config/llm/connections/' + row['id'] + '/test')
+    assert connections.validation_status(row['id'])['state'] == 'failed'
+
+
+def test_usage_filters_pagination_and_trace(client):
+    with session() as s:
+        for purpose, ok, tokens in [('test', True, 2), ('draft', True, 10), ('draft', False, 20)]:
+            config.record_usage(s, dict(connection_id='example', connection_name='Example',
+                model='model-test', purpose=purpose, ok=ok, prompt_tokens=tokens,
+                project_id='project123', task_id='task123', latency_ms=100))
+    url = '/api/config/llm/usage'
+    data = client.get(url, params={'page_size': 1}).json()
+    assert data['total'] == 2 and data['failed'] == 1 and data['prompt_tokens'] == 30
+    assert len(data['rows']) == 1 and data['rows'][0]['project_id'] == 'project123'
+    second = client.get(url, params={'page_size': 1, 'page': 2}).json()
+    assert second['rows'][0]['id'] != data['rows'][0]['id']
+    assert client.get(url, params={'purpose': 'test'}).json()['total'] == 1
+    assert client.get(url, params={'result': 'failed'}).json()['prompt_tokens'] == 20
+    assert client.get(url, params={'connection_id': 'missing'}).json()['total'] == 0
+    assert client.get(url, params={'model': 'missing'}).json()['total'] == 0
+    assert client.get(url, params={'page': 0}).status_code == 400

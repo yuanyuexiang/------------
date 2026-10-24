@@ -1,0 +1,18 @@
+.settings-workspace { display: grid; grid-template-columns: 184px minmax(0, 1fr); min-height: 620px; background: #fff; border: 1px solid #e6edf5; border-radius: 12px; overflow: hidden; }
+.settings-navigation { background: #f8faff; border-right: 1px solid #e6edf5; padding: 20px 8px; }
+.settings-navigation-title { padding: 0 16px 20px; color: #536782; font-weight: 600; }
+.settings-navigation .ant-menu { background: transparent; border-inline-end: 0 !important; }
+.settings-navigation .ant-menu-item-group-title { font-size: 12px; padding-top: 18px; }
+.settings-detail { padding: 24px; min-width: 0; }
+.settings-detail-heading { margin-bottom: 24px; }
+.settings-detail-heading h4 { margin: 0 0 8px; }
+.settings-detail .ant-table-wrapper { overflow-x: auto; }
+@media (max-width: 800px) {
+  .settings-workspace { grid-template-columns: 1fr; }
+  .settings-navigation { border-right: 0; border-bottom: 1px solid #e6edf5; padding: 12px; }
+  .settings-navigation-title { display: none; }
+  .settings-navigation .ant-menu { display: flex; flex-wrap: wrap; }
+  .settings-navigation .ant-menu-item-group { flex: 1; min-width: 160px; }
+  .settings-navigation .ant-menu-item-group-list { display: flex; }
+  .settings-detail { padding: 16px; }
+}

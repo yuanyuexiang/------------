@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Form, Input, InputNumber, Drawer, Select, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import { api, RuleEntry } from '../../api'
 
 const LEVEL_COLOR: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
@@ -70,7 +70,7 @@ export default function RulesTab() {
           ) },
         ]} />
 
-      <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={!!editing} title={editing ? `${editing.rule_id} ${editing.title}` : ''} onCancel={() => setEditing(null)} onOk={save} destroyOnClose>
+      <Drawer width={560} open={!!editing} title={editing ? `${editing.rule_id} ${editing.title}` : ""} onClose={() => setEditing(null)} destroyOnClose footer={<Space><Button onClick={() => setEditing(null)}>取消</Button><Button type="primary" onClick={save}>保存</Button></Space>}>
         {editing && (
           <Form form={form} layout="vertical">
             <Typography.Paragraph type="secondary">{editing.doc || editing.title}　依据：{editing.source}</Typography.Paragraph>
@@ -88,7 +88,7 @@ export default function RulesTab() {
             <Form.Item name="note" label="备注（调整依据）"><Input.TextArea rows={2} placeholder="如：本批次前附表 1.11.2 未作套话禁止要求" /></Form.Item>
           </Form>
         )}
-      </Modal>
+      </Drawer>
     </Space>
   )
 }
