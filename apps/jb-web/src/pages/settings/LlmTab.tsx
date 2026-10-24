@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Col, Descriptions, Form, Input, InputNumber, Row, Select, Space, Statistic, Table, Tag, Typography, message } from 'antd'
 import { api, fmtUtc, LlmConfig } from '../../api'
 
+import ConnectionManager from './ConnectionManager'
+
 const PURPOSE_CN: Record<string, string> = { parse: '解析兜底', qualify: '资格自检', draft: '起草', score: '模拟评分', test: '连接测试' }
 
 /** LLM 设置：端点/模型/温度/超时可在此覆盖（落 settings 表）；密钥只能在 .env，这里只显示是否已配置。用量按用途/按天汇总。 */
@@ -17,24 +19,25 @@ export default function LlmTab() {
 
   const save = useMutation({
     mutationFn: (v: Record<string, unknown>) => api.saveLlm(v),
-    onSuccess: () => { message.success('已保存并生效'); qc.invalidateQueries({ queryKey: ['llm-config'] }) },
+    onSuccess: () => { message.success('已保存原连接设置'); qc.invalidateQueries({ queryKey: ['llm-config'] }) },
     onError: (e) => message.error(String(e)),
   })
   const test = async () => {
     setTesting(true)
-    try { const v = form.getFieldsValue(); setTestResult(await api.testLlm(v.base_url || undefined, v.model || undefined)) } catch (e) { message.error(String(e)) } finally { setTesting(false); qc.invalidateQueries({ queryKey: ['llm-config'] }) }
+    try { setTestResult(await api.testLlm()) } catch (e) { message.error(String(e)) } finally { setTesting(false); qc.invalidateQueries({ queryKey: ['llm-config'] }) }
   }
   if (isLoading || !data) return null
   const u = data.usage
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      {!data.effective.key_configured && <Alert type="error" showIcon message="未配置 LLM_API_KEY：LLM 兜底/起草/评分均不可用。密钥只能写在仓库根 .env（或容器环境变量），不经页面、不入库。" />}
+      <ConnectionManager />
+      {!data.effective.key_configured && <Alert type="error" showIcon message="当前默认连接缺少密钥，请新增完整连接并设为默认，或配置原环境变量密钥。" />}
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card size="small" title="连接设置">
+          <Card size="small" title="原环境变量连接设置">
             <Descriptions size="small" column={1} bordered labelStyle={{ width: 110 }} style={{ marginBottom: 12 }}>
-              <Descriptions.Item label="密钥">{data.effective.key_configured ? <Tag color="green">已配置（环境变量）</Tag> : <Tag color="red">未配置</Tag>}</Descriptions.Item>
+              <Descriptions.Item label="默认连接密钥">{data.effective.key_configured ? <Tag color="green">已配置</Tag> : <Tag color="red">未配置</Tag>}</Descriptions.Item>
               <Descriptions.Item label="生效端点">{data.effective.base_url || <Typography.Text type="secondary">未设置</Typography.Text>}</Descriptions.Item>
               <Descriptions.Item label="生效模型">{data.effective.model}</Descriptions.Item>
               <Descriptions.Item label="环境变量">{data.env.base_url || '—'} / {data.env.model || '（默认）'}</Descriptions.Item>
@@ -48,8 +51,8 @@ export default function LlmTab() {
               </Space>
               <br />
               <Space>
-                <Button type="primary" htmlType="submit" loading={save.isPending}>保存并生效</Button>
-                <Button onClick={test} loading={testing}>测试连接（按表单值）</Button>
+                <Button type="primary" htmlType="submit" loading={save.isPending}>保存原连接设置</Button>
+                <Button onClick={test} loading={testing}>测试当前默认连接</Button>
               </Space>
             </Form>
             {testResult && (
@@ -82,6 +85,7 @@ export default function LlmTab() {
           columns={[
             { title: '时间', dataIndex: 'created_at', width: 150, render: fmtUtc },
             { title: '用途', dataIndex: 'purpose', width: 100, render: (p: string) => PURPOSE_CN[p] ?? p },
+            { title: '连接', dataIndex: 'connection_name', width: 160 },
             { title: '模型', dataIndex: 'model', width: 160 },
             { title: '结果', dataIndex: 'ok', width: 80, render: (ok: boolean) => ok ? <Tag color="green">成功</Tag> : <Tag color="red">失败</Tag> },
             { title: '延迟', dataIndex: 'latency_ms', width: 90, render: (v: number) => `${v} ms` },

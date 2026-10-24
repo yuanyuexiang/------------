@@ -2,7 +2,7 @@
 
 配置来自环境变量（或仓库根 .env，不覆盖已有环境变量）：
   LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
-密钥只放 .env（已 gitignore），严禁写入代码或提交。
+环境变量密钥兼容保留；命名连接由存储层解密，密钥严禁返回页面或日志。
 配置中心可在运行时覆盖端点/模型/温度/超时（`configure()`，API 层从 settings 表加载）；
 每次调用经 `set_usage_hook` 回调记账（用量表），密钥不经过任何落库路径。
 """
@@ -12,6 +12,8 @@ import json
 import os
 import re
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any, Callable, Optional
 
 import httpx
@@ -37,6 +39,38 @@ _JSON_BLOCK = re.compile(r"\{.*\}|\[.*\]", re.S)
 _overrides: dict[str, Any] = {}
 _usage_hook: Optional[Callable[[dict[str, Any]], None]] = None
 DEFAULT_MODEL = "mimo-v2.6-pro"
+
+
+_resolver = None
+_active = ContextVar('llm_connection', default=None)
+
+
+def set_resolver(resolver):
+    global _resolver
+    _resolver = resolver
+
+
+def connection():
+    active = _active.get()
+    if active is not None:
+        return dict(active)
+    if _resolver is not None:
+        return _resolver()
+    return {**settings(), 'api_key': os.getenv('LLM_API_KEY', '')}
+
+
+@contextmanager
+def using_connection(value=None):
+    token = _active.set(dict(value if value is not None else connection()))
+    try:
+        yield public_connection()
+    finally:
+        _active.reset(token)
+
+
+def public_connection():
+    return {k: v for k, v in connection().items()
+            if k not in ('api_key', 'secret', 'overrides')}
 
 
 def configure(**kw: Any) -> None:
@@ -65,7 +99,8 @@ def settings() -> dict[str, Any]:
 
 
 def available() -> bool:
-    return bool(os.environ.get("LLM_API_KEY") and settings()["base_url"])
+    cfg = connection()
+    return bool(cfg.get("api_key") and cfg.get("base_url"))
 
 
 def chat(prompt: str, system: str = "", temperature: Optional[float] = None,
@@ -74,22 +109,23 @@ def chat(prompt: str, system: str = "", temperature: Optional[float] = None,
     """单轮对话，返回文本。未配置或调用失败抛 RuntimeError。purpose 只用于用量记账。"""
     if not available():
         raise RuntimeError("LLM 未配置（缺 LLM_API_KEY/LLM_BASE_URL）")
-    cfg = settings()
+    cfg = connection()
     messages = ([{"role": "system", "content": system}] if system else []) + \
         [{"role": "user", "content": prompt}]
     rec: dict[str, Any] = {"model": cfg["model"], "purpose": purpose, "ok": False,
-                           "prompt_tokens": None, "completion_tokens": None, "error": ""}
+                           "prompt_tokens": None, "completion_tokens": None, "error": "", "connection_id": cfg.get("id", "legacy"),
+                           "connection_name": cfg.get("name", "现有连接")}
     payload = {"model": cfg["model"], "messages": messages,
-               "temperature": cfg["temperature"] if temperature is None else temperature}
-    if max_tokens is not None:
-        payload["max_tokens"] = max_tokens
+               "temperature": cfg["temperature"] if cfg.get("id") or temperature is None else temperature}
+    if cfg.get("max_tokens") or max_tokens is not None:
+        payload["max_tokens"] = min(max_tokens or cfg["max_tokens"], cfg.get("max_tokens") or max_tokens)
     t0 = time.monotonic()
     try:
         resp = httpx.post(
             cfg["base_url"].rstrip("/") + "/chat/completions",
-            headers={"Authorization": "Bearer " + os.environ["LLM_API_KEY"]},
+            headers={"Authorization": "Bearer " + cfg["api_key"]},
             json=payload,
-            timeout=cfg["timeout"] if timeout is None else timeout,
+            timeout=cfg["timeout"] if cfg.get("id") else (cfg["timeout"] if timeout is None else timeout),
         )
         resp.raise_for_status()
         data = resp.json()
@@ -104,7 +140,8 @@ def chat(prompt: str, system: str = "", temperature: Optional[float] = None,
         rec["ok"] = True
         return content
     except Exception as exc:
-        rec["error"] = str(exc)[:500]
+        rec["error"] = (f"HTTP {exc.response.status_code}" if isinstance(exc, httpx.HTTPStatusError)
+                        else "模型请求失败（网络、超时或返回格式异常）")
         raise
     finally:
         rec["latency_ms"] = int((time.monotonic() - t0) * 1000)
@@ -120,11 +157,11 @@ def test_connection() -> dict[str, Any]:
     t0 = time.monotonic()
     try:
         text = chat("回复“OK”两个字母即可。", timeout=30.0, purpose="test")
-        return {"ok": True, "latency_ms": int((time.monotonic() - t0) * 1000), "model": settings()["model"],
+        return {"ok": True, "latency_ms": int((time.monotonic() - t0) * 1000), "model": connection()["model"],
                 "reply": text.strip()[:50]}
-    except Exception as exc:
-        return {"ok": False, "latency_ms": int((time.monotonic() - t0) * 1000), "model": settings()["model"],
-                "error": str(exc)[:300]}
+    except Exception:
+        return {"ok": False, "latency_ms": int((time.monotonic() - t0) * 1000), "model": connection()["model"],
+                "error": "模型未配置或连接失败，请检查地址、密钥、模型及输出长度"}
 
 
 def chat_json(prompt: str, system: str = "只输出 JSON，不要任何解释。",

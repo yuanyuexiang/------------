@@ -40,6 +40,8 @@ async def lifespan(_: FastAPI):
     if auth_api.bootstrap():
         print("[jb-api] 已创建默认管理员 admin（密码 admin，首次登录请修改）")
     yield
+    import jb_llm
+    jb_llm.set_resolver(None)
 
 
 app = FastAPI(title="Jinbang API", version="0.2.0", lifespan=lifespan)

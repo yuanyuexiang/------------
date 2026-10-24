@@ -97,7 +97,8 @@ def set_setting(s: Session, key: str, value: dict) -> None:
 # ---------- LLM 用量 ----------
 
 def record_usage(s: Session, rec: dict[str, Any]) -> None:
-    s.add(LlmUsage(model=rec.get("model") or "", purpose=rec.get("purpose") or "", ok=bool(rec.get("ok")),
+    s.add(LlmUsage(connection_id=rec.get("connection_id", ""),
+                   connection_name=rec.get("connection_name", ""), model=rec.get("model") or "", purpose=rec.get("purpose") or "", ok=bool(rec.get("ok")),
                    latency_ms=int(rec.get("latency_ms") or 0), prompt_tokens=rec.get("prompt_tokens"),
                    completion_tokens=rec.get("completion_tokens"), error=rec.get("error") or ""))
 
@@ -118,7 +119,8 @@ def usage_summary(s: Session, days: int = 30) -> dict:
               for d, c, a, b in s.execute(
                   select(day, func.count(), func.sum(LlmUsage.prompt_tokens), func.sum(LlmUsage.completion_tokens))
                   .where(LlmUsage.created_at >= since).group_by(day).order_by(day))]
-    recent = [{"created_at": r.created_at.isoformat(), "model": r.model, "purpose": r.purpose, "ok": r.ok,
+    recent = [{"created_at": r.created_at.isoformat(), "model": r.model, "connection_id": r.connection_id,
+               "connection_name": r.connection_name, "purpose": r.purpose, "ok": r.ok,
                "latency_ms": r.latency_ms, "prompt_tokens": r.prompt_tokens, "completion_tokens": r.completion_tokens,
                "error": r.error[:120]}
               for r in s.execute(select(LlmUsage).order_by(LlmUsage.created_at.desc()).limit(20)).scalars()]

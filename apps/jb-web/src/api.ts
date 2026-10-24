@@ -145,6 +145,7 @@ export interface WorkflowState {
 export interface ItemScore { element: string; kind: string; score_min: number; score_max: number; predicted: number | null; method: string; basis: string; missing: string[] }
 export interface ScoreReport { pkg_no: string; items: ItemScore[]; tech_total: number | null; biz_total: number | null; tech_max: number; biz_max: number; weighted: number | null; notes: string[] }
 export interface GenResult {
+  llm_connection?: { name: string; model: string }
   summary: { commercial: string; technical: string; todo_count: number; export_blocked: boolean; tech_params: { spec_id: string; rows: number; satisfied: number; deviation: number; unknown: number; missing: number }[]; mode?: Record<string, 'master' | 'plain'>; notes?: string[] }
   draft_sources?: Record<string, string>
   confirmations?: { category: string; location: string; message: string; action: string }[]
@@ -159,6 +160,10 @@ export interface RuleEntry {
   rule_id: string; level: string; title: string; source: string; doc: string; default_params: Record<string, unknown>
   enabled: boolean; level_override: string; params: Record<string, unknown>; note: string; updated_at: string | null
 }
+export interface LlmConnection {
+  id: string; name: string; base_url: string; model: string; temperature: number; timeout: number; max_tokens: number; key_configured: boolean
+}
+
 export interface LlmConfig {
   effective: { base_url: string; model: string; temperature: number; timeout: number; key_configured: boolean }
   saved: { base_url: string | null; model: string | null; temperature: number | null; timeout: number | null }
@@ -168,7 +173,7 @@ export interface LlmConfig {
     days: number; calls: number; failed: number; prompt_tokens: number; completion_tokens: number; avg_latency_ms: number
     by_purpose: { purpose: string; calls: number; prompt_tokens: number; completion_tokens: number }[]
     by_day: { day: string; calls: number; tokens: number }[]
-    recent: { created_at: string; model: string; purpose: string; ok: boolean; latency_ms: number; prompt_tokens: number | null; completion_tokens: number | null; error: string }[]
+    recent: { connection_name: string; created_at: string; model: string; purpose: string; ok: boolean; latency_ms: number; prompt_tokens: number | null; completion_tokens: number | null; error: string }[]
   }
 }
 
@@ -198,6 +203,12 @@ export const api = {
   rules: () => req<{ levels: string[]; rules: RuleEntry[] }>('/api/config/rules'),
   updateRule: (id: string, body: Partial<Pick<RuleEntry, 'enabled' | 'level_override' | 'params' | 'note'>>) => req<{ ok: boolean }>(`/api/config/rules/${id}`, json(body)),
   resetRule: (id: string) => req<{ ok: boolean }>(`/api/config/rules/${id}`, { method: 'DELETE' }),
+  llmProviders: () => req<{ id: string; name: string; base_url: string }[]>('/api/config/llm/providers'),
+  discoverModels: (body: Record<string, unknown>) => req<{ models: string[]; message: string }>('/api/config/llm/models', { ...json(body), method: 'POST' }),
+  llmConnections: () => req<{ default_id: string; connections: LlmConnection[] }>('/api/config/llm/connections'),
+  saveConnection: (id: string | undefined, body: Record<string, unknown>) => req<LlmConnection>(`/api/config/llm/connections${id ? '/' + id : ''}`, { ...json(body), method: id ? 'PUT' : 'POST' }),
+  defaultConnection: (id: string) => req(`/api/config/llm/connections/${id}/default`, { method: 'POST' }),
+  testConnection: (id: string) => req<{ ok: boolean; error?: string }>(`/api/config/llm/connections/${id}/test`, { method: 'POST' }),
   llmConfig: (days = 30) => req<LlmConfig>(`/api/config/llm?days=${days}`),
   saveLlm: (body: Record<string, unknown>) => req<{ saved: Record<string, unknown>; effective: LlmConfig['effective'] }>('/api/config/llm', json(body)),
   testLlm: (base_url?: string, model?: string) => {

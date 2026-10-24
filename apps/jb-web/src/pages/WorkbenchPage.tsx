@@ -124,6 +124,7 @@ export default function WorkbenchPage() {
         </div>)}
       </Card>}
 
+      {gen?.llm_connection && <Typography.Text type="secondary">本次生成连接：{gen.llm_connection.name} · 模型：{gen.llm_connection.model}</Typography.Text>}
       {gen && (
         <Tabs items={[
           ...(gen.confirmations?.length ? [{ key: 'c', label: `集中核对（${gen.confirmations.length}）`, children: (

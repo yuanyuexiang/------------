@@ -1,7 +1,7 @@
 """配置中心路由：评分模板库 / 否决规则库 / LLM 设置与用量。
 
 薄 API：存取在 jb_store.config，规则目录在 jb_rules.catalog()，LLM 运行时配置在 jb_llm.configure()。
-LLM 密钥只从环境变量读，本路由只返回"是否已配置"，不接收、不落库。
+旧连接兼容环境变量；新连接密钥通过领域模块加密保存，不向页面回传。
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from jb_rules import LEVELS, RULE_PARAMS, RuleSetting, catalog
 from jb_store import ScoringTemplateRow, Setting, session
 from jb_store import auth as au
 from jb_store import config as cfg
+from jb_store import llm_connections as connections
 
 from .auth import require_admin
 
@@ -33,6 +34,7 @@ def load_llm_settings() -> dict:
     with session() as s:
         saved = cfg.get_setting(s, LLM_SETTING_KEY)
     jb_llm.configure(**{k: saved.get(k) for k in LLM_FIELDS})
+    jb_llm.set_resolver(connections.resolve)
     return jb_llm.settings()
 
 
@@ -213,7 +215,7 @@ def get_llm(days: int = 30):
     with session() as s:
         saved = cfg.get_setting(s, LLM_SETTING_KEY)
         usage = cfg.usage_summary(s, days)
-    cur = jb_llm.settings()
+    cur = connections.public(connections.resolve())
     return {"effective": {k: cur[k] for k in ("base_url", "model", "temperature", "timeout", "key_configured")},
             "saved": {k: saved.get(k) for k in LLM_FIELDS},
             "env": {"base_url": os.environ.get("LLM_BASE_URL", ""), "model": os.environ.get("LLM_MODEL", "")},
@@ -252,12 +254,71 @@ def put_llm(request: Request, body: dict):
 def test_llm(request: Request, base_url: Optional[str] = None, model: Optional[str] = None):
     """测试连接：可临时指定端点/模型（不保存）。"""
     require_admin(request)
-    if base_url or model:
-        backup = dict(jb_llm.settings()["overrides"])
-        jb_llm.configure(base_url=base_url, model=model)
-        try:
-            return jb_llm.test_connection()
-        finally:
-            jb_llm.configure(base_url=None, model=None)
-            jb_llm.configure(**backup)
-    return jb_llm.test_connection()
+    value = connections.resolve()
+    if base_url and base_url.rstrip('/') != value['base_url'].rstrip('/'):
+        raise HTTPException(400, '新地址请创建独立连接并填写对应密钥')
+    if model:
+        value['model'] = model
+    with jb_llm.using_connection(value):
+        return jb_llm.test_connection()
+
+
+@router.get('/llm/connections')
+def list_connections(request: Request):
+    require_admin(request)
+    return connections.listing()
+
+
+@router.post('/llm/connections')
+def create_connection(request: Request, body: dict):
+    require_admin(request)
+    try:
+        return connections.save(body)
+    except ValueError:
+        raise HTTPException(400, '连接参数无效：请检查名称、地址、模型、数值范围和 API Key') from None
+
+
+@router.put('/llm/connections/{connection_id}')
+def update_connection(request: Request, connection_id: str, body: dict):
+    require_admin(request)
+    try:
+        return connections.save(body, connection_id)
+    except ValueError:
+        raise HTTPException(400, '连接参数无效或连接不存在；环境变量连接请在原设置中修改') from None
+
+
+@router.post('/llm/connections/{connection_id}/default')
+def default_connection(request: Request, connection_id: str):
+    require_admin(request)
+    try:
+        connections.set_default(connection_id)
+        return {'ok': True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@router.post('/llm/connections/{connection_id}/test')
+def test_connection(request: Request, connection_id: str):
+    require_admin(request)
+    try:
+        value = connections.resolve(connection_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    with jb_llm.using_connection(value):
+        return jb_llm.test_connection()
+
+
+@router.get('/llm/providers')
+def llm_providers(request: Request):
+    require_admin(request)
+    from jb_llm.providers import PROVIDERS
+    return PROVIDERS
+
+
+@router.post('/llm/models')
+def llm_models(request: Request, body: dict):
+    require_admin(request)
+    try:
+        return connections.discover_models(body)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None

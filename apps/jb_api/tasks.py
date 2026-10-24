@@ -40,7 +40,7 @@ def _as_actor(task_id: str) -> None:
         au.set_actor(t.actor if t else "")
 
 
-def run_parse(task_id: str, project_id: str) -> None:
+def _run_parse(task_id: str, project_id: str) -> None:
     _as_actor(task_id)
     _update(task_id, status="running", progress=0.1, message="解压并分类文件")
     with session() as s:
@@ -73,6 +73,20 @@ def run_parse(task_id: str, project_id: str) -> None:
                      {"packages": pkg_nos, "deadline": p.deadline, "summary": trm.summary(), "warnings": trm.warnings})
     _update(task_id, status="done", progress=1.0, message=trm.summary(),
             result={"packages": len(trm.packages), "warnings": trm.warnings})
+
+
+
+def run_parse(task_id: str, project_id: str) -> None:
+    import jb_llm
+    from jb_store.llm_connections import resolve
+
+    from . import config as config_api
+    config_api.install_usage_hook()
+    try:
+        with jb_llm.using_connection(resolve()):
+            _run_parse(task_id, project_id)
+    except Exception:
+        _update(task_id, status="failed", message="解析任务失败，请检查模型连接及输入文件")
 
 
 def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: int,
@@ -181,7 +195,13 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
 
 def run_generate(task_id: str, *args) -> None:
     try:
-        _run_generate(task_id, *args)
+        import jb_llm
+        from jb_store.llm_connections import resolve
+        with jb_llm.using_connection(resolve()) as model_config:
+            _run_generate(task_id, *args)
+            with session() as s:
+                task = s.get(Task, task_id)
+                task.result = {**(task.result or {}), "llm_connection": model_config}
     except Exception as exc:
         _update(task_id, status="failed", message=f"生成失败: {exc}"[:2000])
 
