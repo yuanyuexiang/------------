@@ -1,10 +1,11 @@
 import { ReactNode, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Avatar, Breadcrumb, Button, Dropdown, Form, Input, Layout, Menu, Modal, Space, Tag, Typography, message } from 'antd'
-import { DatabaseOutlined, DownOutlined, FileTextOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FileSearchOutlined, SettingOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons'
+import { DatabaseOutlined, DownOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FileSearchOutlined, SettingOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import './AdminLayout.css'
+import { COMPANY_NAME, COPYRIGHT_NOTICE } from '../branding'
 import SidebarHelp from '../components/SidebarHelp'
 
 const { Sider, Header, Content } = Layout
@@ -66,7 +67,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     <Layout className="admin-shell">
       <Sider className="admin-sidebar" collapsed={collapsed} collapsedWidth={72} width={224}>
         <Link to="/" className="admin-logo" aria-label="金榜首页">
-          <span className="admin-logo-icon"><FileTextOutlined /></span>
+          <img className="admin-logo-icon" src="/logo.svg" alt="金榜" />
           {!collapsed && <span className="admin-logo-name">金榜<small>JINBANG</small></span>}
         </Link>
         <div className="admin-navigation">
@@ -106,10 +107,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           )}
         </Header>
         <Content className="admin-content">
-          <div className="admin-page-heading"><div><h1>{page.title}</h1><p>{page.description}</p></div><span className="admin-workspace-label">企业工作空间</span></div>
+          <div className="admin-page-heading"><div><h1>{page.title}</h1><p>{page.description}</p></div><span className="admin-workspace-label">{COMPANY_NAME}</span></div>
           {isAdmin && devSecret && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="正在使用开发默认签名密钥：部署时请设置环境变量 JB_SECRET_KEY（任意长随机串），否则令牌可被伪造。" />}
           {children}
         </Content>
+        <footer className="admin-copyright">{COPYRIGHT_NOTICE}</footer>
       </Layout>
       <PasswordModal open={pwOpen || !!user?.must_change_password} forced={!!user?.must_change_password} onClose={() => setPwOpen(false)} />
     </Layout>

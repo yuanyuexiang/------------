@@ -70,3 +70,5 @@ body:has(.login-page) { margin: 0; }
   .login-footer { justify-content: center; font-size: 9px; }
   .login-footer > span:last-child { display: none; }
 }
+
+.login-footer { flex-wrap: wrap; gap: 12px; }
