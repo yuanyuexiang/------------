@@ -20,7 +20,8 @@ import jb_store  # noqa: E402
 from jb_store.models import Base  # noqa: E402
 
 target_metadata = Base.metadata
-config.set_main_option("sqlalchemy.url", jb_store.database_url())
+# ConfigParser interprets percent signs; database URLs may contain percent-encoded values.
+config.set_main_option("sqlalchemy.url", jb_store.database_url().replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

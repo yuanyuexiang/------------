@@ -1,6 +1,8 @@
 """共享 fixture：独立临时 SQLite 的 API 客户端，默认以自动创建的管理员登录（Bearer）。"""
 import pytest
 
+ADMIN_PASSWORD = "admin-test-password-2026"
+
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
@@ -23,6 +25,9 @@ def client(tmp_path, monkeypatch):
         r = c.post("/api/auth/login", json={"username": "admin", "password": "admin"})
         assert r.status_code == 200, r.text
         c.headers.update({"Authorization": "Bearer " + r.json()["token"]})
+        changed = c.put('/api/auth/password', json={'old_password': 'admin', 'new_password': ADMIN_PASSWORD})
+        assert changed.status_code == 200, changed.text
+        c.headers.update({'Authorization': 'Bearer ' + changed.json()['token']})
         yield c
     jb_store.reset_engine()
     jb_llm.set_usage_hook(None)

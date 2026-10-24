@@ -16,7 +16,7 @@ function PasswordModal({ open, onClose, forced }: { open: boolean; onClose: () =
   const refresh = useAuth((s) => s.refresh)
   const submit = async () => {
     const v = await form.validateFields()
-    try { await api.changePassword(v.old_password, v.new_password); message.success('密码已修改'); await refresh(); onClose() } catch (e) { message.error(String(e)) }
+    try { await api.changePassword(v.old_password, v.new_password); message.success('密码已修改'); await refresh(); form.resetFields(); onClose() } catch (e) { message.error(String(e)) }
   }
   return (
     <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={open} title="修改密码" onOk={submit} onCancel={forced ? undefined : onClose} closable={!forced} maskClosable={false}
@@ -24,7 +24,7 @@ function PasswordModal({ open, onClose, forced }: { open: boolean; onClose: () =
       {forced && <Alert type="warning" showIcon message="当前是初始密码，请先修改后再使用系统" style={{ marginBottom: 12 }} />}
       <Form form={form} layout="vertical">
         <Form.Item name="old_password" label="原密码" rules={[{ required: true }]}><Input.Password /></Form.Item>
-        <Form.Item name="new_password" label="新密码（至少 6 位）" rules={[{ required: true, min: 6, message: '至少 6 位' }]}><Input.Password /></Form.Item>
+        <Form.Item name="new_password" label="新密码（15～128 位，可使用长口令）" rules={[{ required: true, min: 15, max: 128, message: '请输入 15～128 位密码' }]}><Input.Password /></Form.Item>
         <Form.Item name="confirm" label="确认新密码" dependencies={['new_password']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, v) => v === getFieldValue('new_password') ? Promise.resolve() : Promise.reject(new Error('两次输入不一致')) })]}><Input.Password /></Form.Item>
       </Form>
     </Modal>
@@ -109,7 +109,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <Content className="admin-content">
           <div className="admin-page-heading"><div><h1>{page.title}</h1><p>{page.description}</p></div><span className="admin-workspace-label">{COMPANY_NAME}</span></div>
           {isAdmin && devSecret && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="正在使用开发默认签名密钥：部署时请设置环境变量 JB_SECRET_KEY（任意长随机串），否则令牌可被伪造。" />}
-          {children}
+          {user?.must_change_password ? <Alert type="info" message="请先完成初始密码修改，再进入业务工作台。" /> : children}
         </Content>
         <footer className="admin-copyright">{COPYRIGHT_NOTICE}</footer>
       </Layout>

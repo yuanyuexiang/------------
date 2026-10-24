@@ -188,14 +188,24 @@ export interface User {
   can_view_price: boolean; active: boolean; must_change_password: boolean; created_at: string; last_login_at: string | null
 }
 
+export interface AccountAudit {
+  id: string; actor: string; target_id: string; target_name: string; action: string; ok: boolean
+  detail: { reason?: string; before?: Record<string, unknown>; after?: Record<string, unknown> }; created_at: string
+}
+
 export const api = {
   login: (username: string, password: string) => req<{ token: string; user: User; dev_secret: boolean }>('/api/auth/login', json({ username, password }, 'POST')),
   me: () => req<{ user: User; dev_secret: boolean }>('/api/auth/me'),
-  changePassword: (old_password: string, new_password: string) => req<{ ok: boolean }>('/api/auth/password', json({ old_password, new_password })),
-  users: () => req<User[]>('/api/users'),
-  createUser: (body: { username: string; password: string; display_name?: string; role?: string; can_view_price?: boolean }) => req<User>('/api/users', json(body, 'POST')),
-  updateUser: (id: string, body: Partial<Pick<User, 'display_name' | 'role' | 'can_view_price' | 'active'>> & { reset_password?: string }) => req<User>(`/api/users/${id}`, json(body)),
-  deleteUser: (id: string) => req<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
+  changePassword: async (old_password: string, new_password: string) => {
+    const result = await req<{ ok: boolean; token: string }>('/api/auth/password', json({ old_password, new_password }))
+    setToken(result.token)
+    return result
+  },
+  users: (params: Record<string, string | number> = {}) => req<{ total: number; rows: User[] }>('/api/users?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))),
+  accountAudit: (params: Record<string, string | number> = {}) => req<{ total: number; rows: AccountAudit[] }>('/api/users/audit?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))),
+  createUser: (body: { username: string; display_name?: string; role?: string; can_view_price?: boolean; confirmation_password?: string }) => req<{ user: User; temporary_password: string }>('/api/users', json(body, 'POST')),
+  updateUser: (id: string, body: Partial<Pick<User, 'display_name' | 'role' | 'can_view_price' | 'active'>> & { confirmation_password?: string }) => req<User>(`/api/users/${id}`, json(body)),
+  resetUserPassword: (id: string, confirmation_password: string) => req<{ user: User; temporary_password: string }>(`/api/users/${id}/reset-password`, json({ confirmation_password }, 'POST')),
   scoringTemplates: () => req<ScoringTemplateSummary[]>('/api/config/scoring-templates'),
   scoringTemplate: (id: string) => req<ScoringTemplateFull>(`/api/config/scoring-templates/${id}`),
   createScoringTemplate: (body: Partial<ScoringTemplateFull>) => req<ScoringTemplateFull>('/api/config/scoring-templates', json(body, 'POST')),

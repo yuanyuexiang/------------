@@ -1,7 +1,7 @@
 """用户与权限：密码哈希、签名令牌、操作人上下文。纯标准库（pbkdf2 + HMAC），不引入新依赖。
 
 - 角色只有 admin / member，价格可见性是按人的开关（can_view_price）；admin 天然可见。
-- 令牌：HMAC-SHA256 签名的 JSON（username/exp），密钥 JB_SECRET_KEY（未设置时用开发默认值并告警）。
+- 令牌：HMAC-SHA256 签名的 JSON（user id/username/session version/exp），密钥 JB_SECRET_KEY（未设置时用开发默认值并告警）。
 - 操作人：请求中间件 / worker 任务开头调 set_actor()，log_event 等落盘时自动带上。
 """
 from __future__ import annotations
@@ -74,26 +74,46 @@ def _unb64(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def issue_token(username: str, hours: float = 12.0) -> str:
-    payload = {"u": username, "exp": int((dt.datetime.utcnow() + dt.timedelta(hours=hours)).timestamp())}
+def issue_token(username: str, hours: float = 12.0, user: Optional[User] = None) -> str:
+    if user is None:
+        from . import session
+        with session() as s:
+            user = get_user(s, username)
+    if user is None:
+        raise ValueError("账号不存在")
+    payload = {"u": username, "id": user.id, "v": user.session_version,
+               "exp": int((dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=hours)).timestamp())}
     body = _b64(json.dumps(payload, separators=(",", ":")).encode())
     sig = _b64(hmac.new(secret_key().encode(), body.encode(), hashlib.sha256).digest())
     return f"{body}.{sig}"
 
 
-def verify_token(token: str) -> Optional[str]:
-    """返回用户名；签名错/过期返回 None。"""
+def token_claims(token: str) -> Optional[dict]:
     try:
         body, sig = token.split(".")
         expect = _b64(hmac.new(secret_key().encode(), body.encode(), hashlib.sha256).digest())
         if not hmac.compare_digest(sig, expect):
             return None
         payload = json.loads(_unb64(body))
-        if int(payload.get("exp", 0)) < int(dt.datetime.utcnow().timestamp()):
+        if not isinstance(payload, dict) or int(payload.get("exp", 0)) <= int(dt.datetime.now(dt.timezone.utc).timestamp()):
             return None
-        return payload.get("u") or None
-    except (ValueError, TypeError, json.JSONDecodeError):
+        if not isinstance(payload.get("id"), str) or type(payload.get("v")) is not int:
+            return None
+        return payload
+    except (ValueError, TypeError, UnicodeError):
         return None
+
+
+def verify_token(token: str) -> Optional[str]:
+    payload = token_claims(token)
+    if not payload:
+        return None
+    from . import session
+    with session() as s:
+        user = s.get(User, payload['id'])
+        if user and user.active and user.username == payload.get('u') and user.session_version == payload['v']:
+            return user.username
+    return None
 
 
 # ---------- 用户 ----------
@@ -135,6 +155,7 @@ def authenticate(s: Session, username: str, password: str) -> Optional[User]:
 
 
 def set_password(u: User, password: str, must_change: bool = False) -> None:
+    u.session_version = (u.session_version or 0) + 1
     u.password_hash = hash_password(password)
     u.must_change_password = must_change
 

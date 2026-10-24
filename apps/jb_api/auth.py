@@ -6,10 +6,13 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from jb_store import User, session
+from jb_store import User, accounts, session
 from jb_store import auth as au
+from pydantic import ValidationError
 
 router = APIRouter(prefix="/api", tags=["auth"])
 
@@ -28,18 +31,27 @@ async def auth_middleware(request: Request, call_next):
         token = header[7:].strip()
     elif "token" in request.query_params:           # 文件下载链接（<a href>）无法带 header
         token = request.query_params["token"]
-    username = au.verify_token(token) if token else None
-    if not username:
+    claims = au.token_claims(token) if token else None
+    if not claims:
         return JSONResponse({"detail": "未登录或登录已过期"}, status_code=401)
     with session() as s:
-        u = au.get_user(s, username)
-        if u is None or not u.active:
+        u = s.get(User, claims['id'])
+        if (u is None or not u.active or u.username != claims.get('u')
+                or u.session_version != claims['v']):
             return JSONResponse({"detail": "账号不存在或已停用"}, status_code=401)
         info = au.user_out(u)
+        info['_session_version'] = u.session_version
+    if info['must_change_password'] and (path, request.method) not in {
+        ('/api/auth/me', 'GET'), ('/api/auth/password', 'PUT')
+    }:
+        return JSONResponse({'detail': '请先修改初始密码', 'code': 'PASSWORD_CHANGE_REQUIRED'}, status_code=403)
     request.state.user = info
-    au.set_actor(username)
+    au.set_actor(info['username'])
     try:
-        return await call_next(request)
+        response = await call_next(request)
+        if path.startswith(('/api/auth/', '/api/users')):
+            response.headers['Cache-Control'] = 'no-store'
+        return response
     finally:
         au.set_actor("")
 
@@ -65,105 +77,106 @@ def require_price(request: Request) -> dict:
     return u
 
 
-# ---------- 登录 / 自己 ----------
+# ---------- Thin transport adapters; account rules live in jb_store.accounts ----------
 
-@router.post("/auth/login")
-def login(body: dict):
-    username, password = (body.get("username") or "").strip(), body.get("password") or ""
-    with session() as s:
-        u = au.authenticate(s, username, password)
-        if u is None:
-            raise HTTPException(401, "用户名或密码错误")
-        return {"token": au.issue_token(u.username), "user": au.user_out(u), "dev_secret": au.using_dev_secret()}
-
-
-@router.get("/auth/me")
-def me(request: Request):
-    return {"user": current_user(request), "dev_secret": au.using_dev_secret()}
-
-
-@router.put("/auth/password")
-def change_password(request: Request, body: dict):
-    u = current_user(request)
-    old, new = body.get("old_password") or "", body.get("new_password") or ""
-    if len(new) < 6:
-        raise HTTPException(400, "新密码至少 6 位")
-    with session() as s:
-        row = au.get_user(s, u["username"])
-        if row is None or not au.verify_password(old, row.password_hash):
-            raise HTTPException(400, "原密码错误")
-        au.set_password(row, new, must_change=False)
-    return {"ok": True}
-
-
-# ---------- 用户管理（admin） ----------
-
-@router.get("/users")
-def list_users(request: Request):
-    require_admin(request)
-    with session() as s:
-        return [au.user_out(u) for u in au.list_users(s)]
-
-
-@router.post("/users", status_code=201)
-def create_user(request: Request, body: dict):
-    require_admin(request)
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-    if not username or len(password) < 6:
-        raise HTTPException(400, "用户名必填，初始密码至少 6 位")
+def execute(action, actor: str = '', target_id: str = '', kind: str = ''):
+    error = None
     with session() as s:
         try:
-            u = au.create_user(s, username, password, display_name=body.get("display_name") or "",
-                               role=body.get("role") or "member", can_view_price=bool(body.get("can_view_price")),
-                               must_change_password=True)
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from None
-        return au.user_out(u)
+            result = action(s)
+        except accounts.AccountError as exc:
+            # Commit failed-attempt counters and safe audit records, never submitted secrets.
+            if kind:
+                accounts.audit(s, actor, s.get(User, target_id) if target_id else None,
+                               kind, False, {'reason': str(exc)})
+            error = exc
+    if error:
+        raise HTTPException(error.status, str(error))
+    return result
 
 
-@router.put("/users/{user_id}")
+def validated(schema, body: dict):
+    try:
+        return schema.model_validate(body)
+    except ValidationError:
+        raise HTTPException(400, '账号资料格式不正确，请检查账号、姓名和权限字段') from None
+
+
+@router.post('/auth/login')
+def login(request: Request, body: dict):
+    username, password = body.get('username', ''), body.get('password', '')
+    if not isinstance(username, str) or not isinstance(password, str) or len(username) > 64 or len(password) > 128:
+        raise HTTPException(400, '账号或密码格式不正确')
+    return JSONResponse(execute(lambda s: accounts.authenticate(
+        s, username.strip(), password, request.client.host if request.client else 'unknown')),
+        headers={'Cache-Control': 'no-store'})
+
+
+@router.get('/auth/me')
+def me(request: Request):
+    user = {k: v for k, v in current_user(request).items() if not k.startswith('_')}
+    return {'user': user, 'dev_secret': au.using_dev_secret()}
+
+
+@router.put('/auth/password')
+def change_password(request: Request, body: dict):
+    user = current_user(request)
+    old, new = body.get('old_password', ''), body.get('new_password', '')
+    if not isinstance(old, str) or not isinstance(new, str) or len(old) > 128:
+        raise HTTPException(400, '密码格式不正确')
+    return execute(lambda s: accounts.change_password(s, user, old, new),
+                   user['username'], user['id'], 'change_password')
+
+
+@router.get('/users')
+def list_users(request: Request, q: str = Query('', max_length=64),
+               role: Literal['', 'admin', 'member'] = '',
+               active: Literal['', 'enabled', 'disabled'] = '',
+               price: Literal['', 'allowed', 'denied'] = '',
+               page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100)):
+    require_admin(request)
+    with session() as s:
+        return accounts.list_page(s, q.strip(), role, active, price, page, page_size)
+
+
+@router.get('/users/audit')
+def account_audit(request: Request, target_id: str = Query('', max_length=12),
+                  action: str = Query('', max_length=32), result: Literal['', 'success', 'failed'] = '',
+                  page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100)):
+    require_admin(request)
+    with session() as s:
+        return accounts.audit_page(s, target_id, action, result, page, page_size)
+
+
+@router.post('/users', status_code=201)
+def create_user(request: Request, body: dict):
+    user = require_admin(request)
+    value = validated(accounts.CreateAccount, body)
+    return execute(lambda s: accounts.create(s, user, value), user['username'], kind='create')
+
+
+@router.put('/users/{user_id}')
 def update_user(request: Request, user_id: str, body: dict):
-    """改显示名/角色/价格权限/启停；reset_password 给新初始密码（登录后强制改）。"""
-    me_ = require_admin(request)
-    with session() as s:
-        u = s.get(User, user_id)
-        if u is None:
-            raise HTTPException(404, "用户不存在")
-        role = body.get("role", u.role)
-        if role not in au.ROLES:
-            raise HTTPException(400, "角色只能是 admin 或 member")
-        active = bool(body.get("active", u.active))
-        # 不能把最后一个管理员降级/停用（包括自己）
-        if u.role == "admin" and (role != "admin" or not active) and au.admin_count(s) <= 1:
-            raise HTTPException(400, "至少保留一个启用的管理员")
-        if u.username == me_["username"] and (role != "admin" or not active):
-            raise HTTPException(400, "不能降级或停用自己")
-        u.display_name = body.get("display_name", u.display_name) or u.username
-        u.role, u.active = role, active
-        u.can_view_price = bool(body.get("can_view_price", u.can_view_price))
-        if body.get("reset_password"):
-            if len(body["reset_password"]) < 6:
-                raise HTTPException(400, "初始密码至少 6 位")
-            au.set_password(u, body["reset_password"], must_change=True)
-        s.flush()
-        return au.user_out(u)
+    user = require_admin(request)
+    value = validated(accounts.UpdateAccount, body)
+    return execute(lambda s: accounts.modify(s, user, user_id, value),
+                   user['username'], user_id, 'update')
 
 
-@router.delete("/users/{user_id}")
+@router.post('/users/{user_id}/reset-password')
+def reset_password(request: Request, user_id: str, body: dict):
+    user = require_admin(request)
+    password = body.get('confirmation_password', '')
+    if not isinstance(password, str) or len(password) > 128:
+        raise HTTPException(400, '确认密码格式不正确')
+    return execute(lambda s: accounts.reset_password(s, user, user_id, password),
+                   user['username'], user_id, 'reset_password')
+
+
+@router.delete('/users/{user_id}')
 def delete_user(request: Request, user_id: str):
-    """删除用户（历史事件里的 actor 仍保留用户名）。"""
-    me_ = require_admin(request)
-    with session() as s:
-        u = s.get(User, user_id)
-        if u is None:
-            raise HTTPException(404, "用户不存在")
-        if u.username == me_["username"]:
-            raise HTTPException(400, "不能删除自己")
-        if u.role == "admin" and au.admin_count(s) <= 1:
-            raise HTTPException(400, "至少保留一个启用的管理员")
-        s.delete(u)
-    return {"ok": True}
+    require_admin(request)
+    raise HTTPException(409, '为保留历史身份，请停用账号；不再提供永久删除')
 
 
 def bootstrap() -> bool:
