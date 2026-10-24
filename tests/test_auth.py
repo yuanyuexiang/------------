@@ -208,3 +208,63 @@ def test_token_cannot_transfer_to_recreated_identity(client):
     with session() as s:
         au.create_user(s, 'zhang', 'another-long-password')
     assert client.get('/api/auth/me', headers={'Authorization': token}).status_code == 401
+
+
+def test_password_eight_and_128_character_boundaries(client):
+    assert client.put('/api/auth/password', json={'old_password': ADMIN_PASSWORD, 'new_password': 'short12'}).status_code == 400
+    response = client.put('/api/auth/password', json={'old_password': ADMIN_PASSWORD, 'new_password': 'short123'})
+    assert response.status_code == 200
+    client.headers.update({'Authorization': 'Bearer ' + response.json()['token']})
+    assert client.put('/api/auth/password', json={'old_password': 'short123', 'new_password': 'x' * 129}).status_code == 400
+    response = client.put('/api/auth/password', json={'old_password': 'short123', 'new_password': 'x' * 128})
+    assert response.status_code == 200
+    login_as(client, 'admin', 'x' * 128)
+    assert client.get('/api/projects').status_code == 200
+
+
+def test_avatar_upload_normalize_remove_and_ownership(client):
+    import base64
+    import io
+
+    from PIL import Image
+    from PIL.PngImagePlugin import PngInfo
+    image = io.BytesIO()
+    info = PngInfo()
+    info.add_text('private_note', 'discard-this-metadata')
+    Image.new('RGB', (400, 200), 'blue').save(image, format='PNG', pnginfo=info)
+    member = create(client)
+    activate(client, 'zhang', member['temporary_password'])
+    response = client.post('/api/auth/avatar', files={'file': ('photo.png', image.getvalue(), 'image/png')})
+    assert response.status_code == 200
+    avatar = response.json()['avatar']
+    assert avatar.startswith('data:image/png;base64,')
+    with Image.open(io.BytesIO(base64.b64decode(avatar.split(',')[1]))) as normalized:
+        assert normalized.size == (256, 256)
+        assert 'private_note' not in normalized.info
+    assert client.get('/api/auth/me').json()['user']['avatar'] == avatar
+    # Members can only write their own avatar; there is no target-user write endpoint.
+    assert client.post('/api/users/admin/avatar', files={'file': ('a.png', image.getvalue())}).status_code in (404, 405)
+    assert client.delete('/api/auth/avatar').status_code == 200
+    assert client.get('/api/auth/me').json()['user']['avatar'] == ''
+    login_as(client, 'admin', ADMIN_PASSWORD)
+    assert client.get('/api/auth/me').json()['user']['avatar'] == ''
+    logs = client.get('/api/users/audit', params={'target_id': member['user']['id']}).json()
+    assert {'avatar_update', 'avatar_remove'} <= {row['action'] for row in logs['rows']}
+    assert 'data:image' not in str(logs)
+
+
+def test_avatar_rejects_invalid_oversized_animated_and_forced_accounts(client):
+    import io
+
+    from PIL import Image
+    for payload, name in [(b'<svg xmlns="http://www.w3.org/2000/svg"/>', 'evil.png'),
+                          (b'x' * (2 * 1024 * 1024 + 1), 'huge.jpg')]:
+        response = client.post('/api/auth/avatar', files={'file': (name, payload, 'image/png')})
+        assert response.status_code == 400
+    animated = io.BytesIO()
+    Image.new('RGB', (10, 10), 'blue').save(animated, format='PNG', save_all=True,
+        append_images=[Image.new('RGB', (10, 10), 'red')], duration=100, loop=0)
+    assert client.post('/api/auth/avatar', files={'file': ('a.png', animated.getvalue())}).status_code == 400
+    member = create(client)
+    login_as(client, 'zhang', member['temporary_password'])
+    assert client.post('/api/auth/avatar', files={'file': ('a.png', b'bad')}).status_code == 403

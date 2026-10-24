@@ -184,7 +184,7 @@ export interface LlmConfig {
 
 // ---- 用户与权限 ----
 export interface User {
-  id: string; username: string; display_name: string; role: 'admin' | 'member'; role_cn: string
+  id: string; username: string; display_name: string; avatar?: string; role: 'admin' | 'member'; role_cn: string
   can_view_price: boolean; active: boolean; must_change_password: boolean; created_at: string; last_login_at: string | null
 }
 
@@ -201,6 +201,8 @@ export const api = {
     setToken(result.token)
     return result
   },
+  uploadAvatar: (file: File) => { const body = new FormData(); body.append('file', file); return req<User>('/api/auth/avatar', { method: 'POST', body }) },
+  removeAvatar: () => req<User>('/api/auth/avatar', { method: 'DELETE' }),
   users: (params: Record<string, string | number> = {}) => req<{ total: number; rows: User[] }>('/api/users?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))),
   accountAudit: (params: Record<string, string | number> = {}) => req<{ total: number; rows: AccountAudit[] }>('/api/users/audit?' + new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))),
   createUser: (body: { username: string; display_name?: string; role?: string; can_view_price?: boolean; confirmation_password?: string }) => req<{ user: User; temporary_password: string }>('/api/users', json(body, 'POST')),

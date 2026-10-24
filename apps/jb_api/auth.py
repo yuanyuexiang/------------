@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from jb_store import User, accounts, session
 from jb_store import auth as au
 from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
 
 router = APIRouter(prefix="/api", tags=["auth"])
 
@@ -183,3 +184,21 @@ def bootstrap() -> bool:
     """启动时建默认管理员（仅空库）。"""
     with session() as s:
         return au.ensure_admin(s)
+
+
+@router.post('/auth/avatar')
+async def upload_avatar(request: Request, file: UploadFile):
+    user = current_user(request)
+    try:
+        content = await file.read(accounts.MAX_AVATAR_BYTES + 1)
+    finally:
+        await file.close()
+    return await run_in_threadpool(execute, lambda s: accounts.set_avatar(s, user, content),
+                                  user['username'], user['id'], 'avatar_update')
+
+
+@router.delete('/auth/avatar')
+def remove_avatar(request: Request):
+    user = current_user(request)
+    return execute(lambda s: accounts.set_avatar(s, user, None),
+                   user['username'], user['id'], 'avatar_remove')

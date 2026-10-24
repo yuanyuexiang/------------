@@ -1,12 +1,14 @@
 import { ReactNode, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Alert, Avatar, Breadcrumb, Button, Dropdown, Form, Input, Layout, Menu, Modal, Space, Tag, Typography, message } from 'antd'
-import { DatabaseOutlined, DownOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FileSearchOutlined, SettingOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons'
+import { Alert, Breadcrumb, Button, Dropdown, Form, Input, Layout, Menu, Modal, Space, Tag, Typography, message } from 'antd'
+import { DatabaseOutlined, DownOutlined, MenuFoldOutlined, MenuUnfoldOutlined, FileSearchOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { useAuth } from '../auth'
 import './AdminLayout.css'
 import { COMPANY_NAME, COPYRIGHT_NOTICE } from '../branding'
 import SidebarHelp from '../components/SidebarHelp'
+import UserAvatar from '../components/UserAvatar'
+import ProfileModal from '../components/ProfileModal'
 
 const { Sider, Header, Content } = Layout
 
@@ -24,7 +26,7 @@ function PasswordModal({ open, onClose, forced }: { open: boolean; onClose: () =
       {forced && <Alert type="warning" showIcon message="当前是初始密码，请先修改后再使用系统" style={{ marginBottom: 12 }} />}
       <Form form={form} layout="vertical">
         <Form.Item name="old_password" label="原密码" rules={[{ required: true }]}><Input.Password /></Form.Item>
-        <Form.Item name="new_password" label="新密码（15～128 位，可使用长口令）" rules={[{ required: true, min: 15, max: 128, message: '请输入 15～128 位密码' }]}><Input.Password /></Form.Item>
+        <Form.Item name="new_password" label="新密码（8～128 位，可使用长口令）" rules={[{ required: true, min: 8, max: 128, message: '请输入 8～128 位密码' }]}><Input.Password /></Form.Item>
         <Form.Item name="confirm" label="确认新密码" dependencies={['new_password']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, v) => v === getFieldValue('new_password') ? Promise.resolve() : Promise.reject(new Error('两次输入不一致')) })]}><Input.Password /></Form.Item>
       </Form>
     </Modal>
@@ -47,6 +49,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     catch { /* Storage may be unavailable; keep the current session usable. */ }
   }
   const [pwOpen, setPwOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const selected = pathname.startsWith('/kb') ? '/kb'
     : pathname.startsWith('/settings') ? '/settings'
     : pathname.startsWith('/users') ? '/users' : '/'
@@ -92,12 +95,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <div className="admin-header-spacer" />
           {user && (
             <Dropdown menu={{ items: [
+              { key: 'profile', label: '个人资料', disabled: user.must_change_password, onClick: () => setProfileOpen(true) },
               { key: 'pw', label: '修改密码', onClick: () => setPwOpen(true) },
               { type: 'divider' },
               { key: 'logout', label: '退出登录', onClick: () => { logout(); nav('/login') } },
             ] }}>
               <Space className="admin-user-menu">
-                <Avatar size={30} icon={<UserOutlined />} />
+                <UserAvatar user={user} size={30} />
                 <span>{user.display_name || user.username}</span>
                 <Tag color={isAdmin ? 'gold' : 'blue'} style={{ marginInlineEnd: 0 }}>{user.role_cn}</Tag>
                 {user.can_view_price && <Tag color="green" style={{ marginInlineEnd: 0 }}>可见价格</Tag>}
@@ -113,6 +117,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </Content>
         <footer className="admin-copyright">{COPYRIGHT_NOTICE}</footer>
       </Layout>
+      {profileOpen && <ProfileModal onClose={() => setProfileOpen(false)} />}
       <PasswordModal open={pwOpen || !!user?.must_change_password} forced={!!user?.must_change_password} onClose={() => setPwOpen(false)} />
     </Layout>
   )

@@ -196,8 +196,8 @@ def reset_password(s: Session, info: dict, user_id: str, confirmation: str) -> d
 
 def change_password(s: Session, info: dict, old: str, new: str) -> dict:
     actor = actor_for_write(s, info, admin=False)
-    if not 15 <= len(new) <= 128 or not new.strip():
-        raise AccountError('新密码须为 15～128 位，可使用长口令')
+    if not 8 <= len(new) <= 128 or not new.strip():
+        raise AccountError('新密码须为 8～128 位，可使用长口令')
     confirm_identity(s, actor, old)
     if auth.verify_password(new, actor.password_hash):
         raise AccountError('新密码不能与原密码相同')
@@ -241,3 +241,45 @@ def audit_page(s: Session, target_id: str = '', action: str = '', result: str = 
     return {'total': total, 'rows': [dict(id=r.id, actor=r.actor, target_id=r.target_id,
             target_name=r.target_name, action=r.action, ok=r.ok, detail=r.detail,
             created_at=r.created_at.isoformat()) for r in rows]}
+
+
+MAX_AVATAR_BYTES = 2 * 1024 * 1024
+
+
+def normalize_avatar(content: bytes) -> str:
+    """Decode actual image content, crop and re-encode; never retain source metadata."""
+    import base64
+    import io
+
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    if not content or len(content) > MAX_AVATAR_BYTES:
+        raise AccountError('请选择不超过 2 MB 的头像图片')
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            if image.format not in ('JPEG', 'PNG', 'WEBP'):
+                raise AccountError('头像仅支持 JPG、PNG、WebP 静态图片')
+            if image.width * image.height > 16_000_000:
+                raise AccountError('图片像素过大，请缩小至 1600 万像素以内')
+            if getattr(image, 'n_frames', 1) != 1:
+                raise AccountError('请使用静态头像图片')
+            thumbnail = ImageOps.fit(ImageOps.exif_transpose(image).convert('RGBA'),
+                                     (256, 256), method=Image.Resampling.LANCZOS)
+            clean = Image.new('RGBA', (256, 256))
+            clean.paste(thumbnail)
+            output = io.BytesIO()
+            clean.save(output, format='PNG', optimize=True)
+        return 'data:image/png;base64,' + base64.b64encode(output.getvalue()).decode('ascii')
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
+        if isinstance(exc, AccountError):
+            raise
+        raise AccountError('无法读取图片，请选择有效的 JPG、PNG 或 WebP 文件') from None
+
+
+def set_avatar(s: Session, info: dict, content: Optional[bytes]) -> dict:
+    # Decode before taking the short database write lock.
+    value = normalize_avatar(content) if content is not None else ''
+    actor = actor_for_write(s, info, admin=False)
+    actor.avatar_data = value
+    audit(s, actor.username, actor, 'avatar_update' if content is not None else 'avatar_remove', True)
+    return auth.user_out(actor)

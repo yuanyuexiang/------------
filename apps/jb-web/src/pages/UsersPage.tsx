@@ -4,8 +4,9 @@ import { Alert, Button, Card, Descriptions, Drawer, Form, Input, Modal, Select, 
 import { PlusOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { AccountAudit, api, fmtUtc, User } from '../api'
 import { useAuth } from '../auth'
+import UserAvatar from '../components/UserAvatar'
 
-const ACTIONS: Record<string, string> = { create: '新增账号', update: '修改资料或权限', enable: '恢复账号', disable: '停用账号', reset_password: '重置密码', change_password: '修改密码', login: '登录' }
+const ACTIONS: Record<string, string> = { create: '新增账号', update: '修改资料或权限', enable: '恢复账号', disable: '停用账号', reset_password: '重置密码', change_password: '修改密码', login: '登录', avatar_update: '设置头像', avatar_remove: '移除头像' }
 const FIELDS: Record<string, string> = { display_name: '姓名', role: '角色', can_view_price: '单独授予价格权限', active: '启用状态' }
 const valueLabel = (value: unknown) => value === true ? '是' : value === false ? '否' : value === 'admin' ? '管理员' : value === 'member' ? '成员' : String(value ?? '—')
 function changes(before: Record<string, unknown> = {}, after: Record<string, unknown> = {}) {
@@ -117,7 +118,7 @@ export default function UsersPage() {
       </Space>
       {error && <Alert type="error" message={String(error)} />}
       <Table<User> rowKey="id" loading={isFetching} dataSource={data?.rows ?? []} scroll={{ x: 800 }} pagination={{ current: filters.page, pageSize: 10, total: data?.total ?? 0, showSizeChanger: false, showTotal: total => `共 ${total} 人`, onChange: page => setFilters(f => ({ ...f, page })) }} columns={[
-        { title: '姓名 / 账号', render: (_, u) => <><Typography.Text strong>{u.display_name}</Typography.Text> {u.id === me?.id && <Tag>我</Tag>}<br /><Typography.Text type="secondary">{u.username}</Typography.Text></> },
+        { title: '姓名 / 账号', render: (_, u) => <Space><UserAvatar user={u} size={36} /><span><Typography.Text strong>{u.display_name}</Typography.Text> {u.id === me?.id && <Tag>我</Tag>}<br /><Typography.Text type="secondary">{u.username}</Typography.Text></span></Space> },
         { title: '角色', dataIndex: 'role_cn', render: v => <Tag>{v}</Tag> },
         { title: '价格权限', render: (_, u) => u.role === 'admin' ? '管理员自带' : u.can_view_price ? '已授权' : '未授权' },
         { title: '状态', render: (_, u) => <Space direction="vertical" size={4}><Tag color={u.active ? 'green' : 'default'}>{u.active ? '已启用' : '已停用'}</Tag>{u.must_change_password && <Tag color="orange">待改初始密码</Tag>}</Space> },

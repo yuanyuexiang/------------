@@ -119,7 +119,7 @@ def verify_token(token: str) -> Optional[str]:
 # ---------- 用户 ----------
 
 def user_out(u: User) -> dict[str, Any]:
-    return {"id": u.id, "username": u.username, "display_name": u.display_name, "role": u.role,
+    return {"id": u.id, "avatar": u.avatar_data, "username": u.username, "display_name": u.display_name, "role": u.role,
             "role_cn": ROLE_CN.get(u.role, u.role), "can_view_price": u.can_view_price or u.role == "admin",
             "active": u.active, "must_change_password": u.must_change_password,
             "created_at": u.created_at.isoformat(), "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None}

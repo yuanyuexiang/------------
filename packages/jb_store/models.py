@@ -234,6 +234,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(64), default="")
     password_hash: Mapped[str] = mapped_column(String(255))
+    avatar_data: Mapped[str] = mapped_column(Text, default="", server_default="")
     session_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     role: Mapped[str] = mapped_column(String(16), default="member")
     can_view_price: Mapped[bool] = mapped_column(Boolean, default=False)
