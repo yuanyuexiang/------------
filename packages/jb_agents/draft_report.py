@@ -9,7 +9,7 @@ from .writer import Draft
 
 
 class ConfirmationItem(BaseModel):
-    category: Literal['企业事实待补充', 'AI 起草需重试', '拟实施方案待确认', '原文需核对', '方案响应待完善', '引用依据待核对']
+    category: Literal['本次投标事实待确认', '企业事实待补充', 'AI 起草需重试', '拟实施方案待确认', '原文需核对', '方案响应待完善', '引用依据待核对']
     location: str
     message: str
     action: str
@@ -38,6 +38,12 @@ def confirmation_items(draft: Draft | None,
                     '由投标负责人审阅生成稿；变更基础资料后重新生成并复查')
     for filename, entries in todos.items():
         for message in entries:
+            if '人员关系' in message or '关系说明' in message:
+                original = '原文' in message
+                add('原文需核对' if original else '本次投标事实待确认', filename, message,
+                    '核对本次招标原文及格式，无需另行提供承诺书模板' if original else
+                    '在工作台确认本包关系情况；存在相关情形时填写双方人员信息，再重新生成')
+                continue
             retry = any(word in message for word in ('LLM', '模型未配置', 'AI 起草失败', '起草失败'))
             plan = any(word in message for word in ('具体响应', '逐项响应', '逐条编制', '本节内容'))
             evidence = any(word in message for word in ('数值需核实来源', '引用来源需核实'))

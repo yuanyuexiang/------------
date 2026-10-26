@@ -55,7 +55,10 @@ def test_shaanxi_master(tmp_path):
     assert "投标人名称：样本测试企业" in text and "授权代表职务：销售经理" in text
     # 国网原表格原位填充：基本情况表 / 人员关系表 / 财务表 / 商务偏差表
     assert "投标人名称 | 样本测试企业" in text and "统一社会信用代码 | 91320000MA1234567X" in text
-    assert "张三 | 【待补充：性别】" in text and "2024年 | XX年 | XX年 | 平均" in text
+    assert "【待补充：本包国网系统人员关系情况待企业确认】" in text
+    assert "张三 | 【待补充：性别】" not in text  # 不把法人自动列为有关联人员
+    assert "【1.不存在相关情形的适用】" in text and "【2.存在相关情形的适用】" in text
+    assert "2024年 | XX年 | XX年 | 平均" in text
     assert "资产总额 | 8000万元" in text and "1 | / | / | / | 无偏差" in text
     # 第六章以外的章节与投标工具指引行不在成品里
     heads = {p.text.strip() for p in d.paragraphs}
@@ -77,3 +80,24 @@ def test_jiangxi_master(tmp_path):
     text, _ = _full_text(res.commercial_path)
     assert "样本测试企业（投标人名称）为中华人民共和国合法企业" in text
     assert "投标人名称 | 样本测试企业" in text
+
+
+@pytest.mark.skipif(not os.path.exists(SHAANXI_044), reason="样本缺失")
+def test_shaanxi_confirmed_none_preserves_source(tmp_path):
+    from jb_docgen.builder import GenContext
+    from jb_docgen.master import carve
+    from jb_docgen.relationships import apply_master
+    trm = parse(SHAANXI_044)
+    pkg = trm.packages[0]
+    master = main_doc_for_package(SHAANXI_044, pkg.sub_no, pkg.pkg_no, str(tmp_path / "src"))
+    d = carve(master, "commercial")
+    original = next(p.text for p in d.paragraphs if p.text.startswith("【1.不存在"))
+    tables_before = len(d.tables)
+    ctx = GenContext(trm, pkg, _profile(), relationship_confirmation={"status": "none"})
+    apply_master(d, ctx)
+    text = "\n".join(p.text for p in d.paragraphs)
+    assert original in text and "【2.存在相关情形的适用】" not in text
+    assert len(d.tables) == tables_before
+    assert any("不适用" in c.text for t in d.tables for r in t.rows for c in r.cells)
+    assert "投标人基本情况表" in text and "本表的人员只统计" in text
+    assert not ctx.todos

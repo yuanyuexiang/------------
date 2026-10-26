@@ -325,6 +325,37 @@ def put_materials(project_id: str, profile: str, data: dict, pkg_index: int = 0)
     return {"ok": True}
 
 
+@app.get("/api/projects/{project_id}/relationship")
+def get_relationship(project_id: str, profile: str, pkg_index: int = 0):
+    trm, _ = _load_trm_profile(project_id, profile)
+    if not 0 <= pkg_index < len(trm.packages):
+        raise HTTPException(400, "pkg_index 越界")
+    with session() as s:
+        return workflow.relationship_state(_get_project(s, project_id), pkg_index, profile, preview=True)
+
+
+@app.put("/api/projects/{project_id}/relationship")
+def put_relationship(project_id: str, profile: str, data: dict, pkg_index: int = 0):
+    trm, _ = _load_trm_profile(project_id, profile)
+    if not 0 <= pkg_index < len(trm.packages):
+        raise HTTPException(400, "pkg_index 越界")
+    with session() as s:
+        p = s.scalar(select(Project).where(Project.id == project_id).with_for_update())
+        if not p:
+            raise HTTPException(404, "项目不存在")
+        active = s.scalar(select(Task.id).where(Task.project_id == project_id,
+                          Task.kind == "generate", Task.status.in_(["queued", "running"])).limit(1))
+        if active:
+            raise HTTPException(409, "文件正在生成，请完成后再更新本包事实确认")
+        try:
+            saved = workflow.save_relationship(p, pkg_index, profile, data, au.current_actor())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        pm.log_event(s, p.id, "relationship", "确认本包人员关系情况，已有产出需要重新生成",
+                     {"pkg_index": pkg_index, "profile": profile, "status": saved["status"]})
+    return {"ok": True}
+
+
 @app.post("/api/projects/{project_id}/review")
 def review_docs(project_id: str, profile: str, pkg_index: int = 0):
     """审查当前包的最新生成版本，并保留完整问题清单。"""

@@ -343,11 +343,13 @@ _SKIP_TITLE = ("格式", "目录", "参考以下")
 _BARE_TITLES = ("投标函", "应答函", "商务偏差表", "技术偏差表", "投标人基本情况表", "应答人基本情况表",
                 "法定代表人（单位负责人）授权委托书", "授权委托书", "投标保证信用承诺书", "应答保证信用承诺书",
                 "联合体协议书", "投标函价格表", "报价明细表", "公章对投标专用章授权书", "制造商授权委托书",
-                "投标人与国家电网公司系统人员关系说明", "投标保证金明细表", "业绩和实施经验表")
+                "投标人与国家电网公司系统人员关系说明", "应答人与国家电网公司系统人员关系说明", "投标保证金明细表", "业绩和实施经验表")
 
 
 def extract_format_blocks(doc, chapters) -> list[FormatBlock]:
-    ch6 = next((c for c in chapters if c.no == 6), None)
+    ch6 = next((c for c in chapters if "文件格式" in c.title), None)
+    if ch6 is None:
+        ch6 = next((c for c in chapters if c.no == 6), None)
     if ch6 is None:
         return []
     blocks: list[FormatBlock] = []
@@ -363,8 +365,9 @@ def extract_format_blocks(doc, chapters) -> list[FormatBlock]:
             # 数字编号行：仅短标题算格式块标题，条款句（含"我方/承诺/，"）算正文
             body = m.group(2)
             is_title = len(body) <= 16 and not any(w in body for w in ("我方", "承诺", "，", "。"))
-        if not is_title and t in _BARE_TITLES:
-            is_title, title = True, t
+        bare = re.sub(r"^\d+(?:\.\d+)*[.．、]?\s*", "", t)
+        if not is_title and bare in _BARE_TITLES:
+            is_title, title = True, bare
         if is_title and (title.startswith("）") or title.endswith(("；", "：", "。"))):
             is_title = False  # "（1）xxx；"被编号正则误切，属正文
         if is_title:

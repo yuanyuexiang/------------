@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Empty, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
 import MaterialPicker from '../components/MaterialPicker'
+import RelationshipConfirmation from '../components/RelationshipConfirmation'
 
 const LEVEL: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
 const VERDICT: Record<string, string> = { satisfied: 'green', deviation: 'red', unknown: 'orange', missing: 'default' }
@@ -103,6 +104,7 @@ export default function WorkbenchPage() {
         )}
       </Card>
 
+      {profile && <RelationshipConfirmation key={`relationship:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow() }} />}
       {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow() }} />}
 
       {!gen && !running && !flowError && <Card className="business-empty"><Empty description={<span>开始准备本包投标文件<br /><small>选择企业档案与分包，生成文件后查看待补充项并进行合规审查</small></span>} /></Card>}

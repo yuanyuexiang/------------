@@ -233,6 +233,11 @@ export const api = {
     const q = new URLSearchParams(); if (base_url) q.set('base_url', base_url); if (model) q.set('model', model)
     return req<{ ok: boolean; latency_ms: number; model: string; reply?: string; error?: string }>(`/api/config/llm/test${q.toString() ? `?${q}` : ''}`, { method: 'POST' })
   },
+  relationship: (id: string, profile: string, pkgIndex: number) =>
+    req<{ source: string; stale: boolean; labels: string[]; options: string[];
+      confirmation: { status: 'none' | 'exists'; people: string[][]; confirmed_by: string; confirmed_at: string } | null }>(`/api/projects/${id}/relationship?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
+  saveRelationship: (id: string, profile: string, pkgIndex: number, data: { source: string; status: 'none' | 'exists'; people: string[][] }) =>
+    req<{ ok: boolean }>(`/api/projects/${id}/relationship?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json(data)),
   materials: (id: string, profile: string, pkgIndex: number) =>
     req<{ selection: MaterialSelection; profile: CompanyProfile }>(`/api/projects/${id}/materials?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
   saveMaterials: (id: string, profile: string, pkgIndex: number, selection: MaterialSelection) =>

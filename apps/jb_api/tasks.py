@@ -93,7 +93,13 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                  with_draft: bool, product_model: str = "") -> None:
     """生成商务/技术文件；with_draft=True 时先由写作 Agent 起草技术方案（LLM，分钟级）。"""
     from jb_docgen import generate
-    from jb_docgen.workflow import file_hash, inputs, save_artifact, selected_profile
+    from jb_docgen.workflow import (
+        file_hash,
+        inputs,
+        relationship_snapshot,
+        save_artifact,
+        selected_profile,
+    )
     from jb_kb.attachments import absolute_path, list_attachments
     from jb_parser import package_files
 
@@ -110,6 +116,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
             return
         trm, cp, input_hash = inputs(s, p, profile_name)
         cp = selected_profile(p, pkg_index, cp)
+        relationship = relationship_snapshot(p, pkg_index, profile_name)
         zip_dir = os.path.dirname(p.zip_path)
         zip_path = p.zip_path
         att_paths = {a.id: absolute_path(a) for a in list_attachments(s, profile_name)}
@@ -147,7 +154,8 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
             _update(task_id, progress=0.8, message="装配商务/技术文件")
             res = generate(trm, pkg, cp, staging, product_model or None, drafts=drafts,
                            master_docx=master, attachment_paths=att_paths, spec_paths=spec_paths,
-                           response_plans=d.response_plans if d else None)
+                           response_plans=d.response_plans if d else None,
+                           relationship_confirmation=relationship)
             if d:
                 res.notes.extend(d.warnings)
             if master_note:

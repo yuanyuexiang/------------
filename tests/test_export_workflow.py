@@ -311,3 +311,28 @@ def test_generation_defaults_to_ai_and_restores_confirmation_list(bid, monkeypat
     })
     assert result.status_code == 202
     assert len(calls) == 1
+
+
+def test_relationship_confirmation_revokes_export_and_reaches_generation(bid, monkeypatch):
+    c, url = bid['client'], bid['url']
+    name = generate(bid)
+    review(bid)
+    formal = export(bid, name)['docx']
+    params = {'profile': '测试企业', 'pkg_index': 0}
+    source = c.get(url + '/relationship', params=params).json()['source']
+    assert c.put(url + '/relationship', params=params,
+                 json={'source': source, 'status': 'none'}).status_code == 200
+    assert c.get(url + '/files/' + formal).status_code == 409
+    import jb_docgen
+    original = jb_docgen.generate
+    captured = []
+
+    def capture(*args, **kwargs):
+        captured.append(kwargs['relationship_confirmation'])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(jb_docgen, 'generate', capture)
+    generate(bid)
+    assert captured[0]['status'] == 'none' and captured[0]['confirmed_by'] == 'admin'
+    generate(bid, 1)
+    assert captured[1] is None

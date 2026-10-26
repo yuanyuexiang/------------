@@ -163,13 +163,8 @@ def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
                          [("条目", "item"), ("招标文件条款|采购文件条款", "req"), ("投标文件条款|应答文件条款", "resp"),
                           ("偏差说明", "note")])
 
-    t = M.find_table(doc, ["人员姓名", "身份证号", "与国网公司系统人员关系"])
-    if t is not None:
-        M.fill_by_header(t, [{"name": ctx.need(k.legal_person, "法定代表人姓名"), "sex": ctx.need(k.legal_person_gender, "性别"),
-                              "idno": ctx.need(k.legal_person_id_no, "法定代表人身份证号"), "post": "法定代表人",
-                              "since": ctx.need(k.legal_person_since, "任职时间"), "rel": ctx.need(k.sgcc_relationship, "与国网系统人员关系声明")}],
-                         [("人员姓名", "name"), ("性别", "sex"), ("身份证号", "idno"), ("职务", "post"),
-                          ("任职时间", "since"), ("关系", "rel")])
+    from .relationships import apply_master
+    apply_master(doc, ctx)
 
     fin_tbl = _fill_financials(doc, ctx)
     if fin_tbl is not None:

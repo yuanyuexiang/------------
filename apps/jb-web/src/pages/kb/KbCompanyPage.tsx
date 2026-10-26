@@ -37,7 +37,7 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
         {text('legal_person_id_no', '法定代表人身份证号')}
         {text('legal_person_gender', '法定代表人性别')}
         {text('legal_person_since', '法定代表人任职起始日')}
-        {text('sgcc_relationship', '与国网系统人员关系声明')}
+        {text('sgcc_relationship', '国网人员关系历史资料（本次情况请在工作台确认）')}
         {text('legal_or_admin', '行政/技术负责人')}
         {text('company_type', '单位性质')}
         {text('founded', '成立时间')}

@@ -67,6 +67,7 @@ class GenContext:
     attachment_paths: dict = field(default_factory=dict)   # 知识库附件 id → 本地绝对路径（扫描件插图用）
     spec_paths: dict = field(default_factory=dict)         # 规范书 spec_id（或 source）→ 原 docx 路径（逐条响应用）
     response_plans: dict = field(default_factory=dict)
+    relationship_confirmation: Optional[dict] = None
     todos: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)          # 生成过程说明（母版回退原因等）
 
@@ -249,8 +250,8 @@ def build_commercial(ctx: GenContext, out_path: str) -> str:
            [["1", "/", "/", "/", "无偏差"]])
 
     _h(d, "投标人与国家电网公司系统人员关系说明", 1)
-    _table(d, ["姓名", "身份证号", "任职时间", "职务", "与国网系统人员关系", "国网系统人员姓名/单位"],
-           [[ctx.need(k.legal_person, "法定代表人姓名"), ctx.need(k.legal_person_id_no, "身份证号"), ctx.need(k.legal_person_since, "任职时间"), "法定代表人", ctx.need(k.sgcc_relationship, "与国网系统人员关系声明"), "/"]])
+    from .relationships import append_plain
+    append_plain(d, ctx)
 
     _h(d, "投标人基本情况表", 1)
     _table(d, ["项目", "内容"], [

@@ -11,6 +11,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -54,7 +55,9 @@ def inputs(s, p: Project, profile: str):
         select(KbAttachment).where(KbAttachment.company == profile).order_by(KbAttachment.id))]
     digest = fingerprint({"trm": trm.model_dump(), "profile": cp.model_dump(),
                           "attachments": attachments, "open_time": p.open_time,
-                          "deadline": p.deadline, "material_selections": (p.results or {}).get("material_selections", {})})
+                          "deadline": p.deadline,
+                          "relationship_confirmations": (p.results or {}).get("relationship_confirmations", {}),
+                          "material_selections": (p.results or {}).get("material_selections", {})})
     return trm, cp, digest
 
 
@@ -279,3 +282,68 @@ def validate_download(s, p: Project, filename: str, out_dir: str) -> None:
                 return
     if filename.startswith("正式_"):
         raise WorkflowError("正式文件缺少有效导出记录，请重新导出")
+
+
+def relationship_source(p: Project, pkg_index: int, profile: str) -> str:
+    return fingerprint({"trm": p.trm_confirmed or p.trm, "package": pkg_index,
+                        "profile": profile, "deadline": p.deadline, "zip_path": p.zip_path})
+
+
+@lru_cache(maxsize=16)
+def _relationship_original(zip_path: str, mtime_ns: int, size: int, pkg_json: str) -> tuple[str, ...]:
+    from jb_parser import package_files
+    from jb_parser.trm import PackageTRM
+
+    from .master import carve
+    from .relationships import OPTION
+    with tempfile.TemporaryDirectory(prefix="jb-relationship-") as folder:
+        files = package_files(zip_path, PackageTRM.model_validate_json(pkg_json), workdir=folder)
+        if not files.main_doc:
+            return ()
+        document = carve(files.main_doc, "commercial")
+        if document is None:
+            return ()
+        return tuple(dict.fromkeys(p.text for p in document.paragraphs if OPTION.search(p.text)))
+
+
+def relationship_state(p: Project, pkg_index: int, profile: str, preview: bool = False) -> dict:
+    from .relationships import LABELS, source_options
+    saved = (p.results or {}).get("relationship_confirmations", {}).get(
+        material_key(pkg_index, profile))
+    source = relationship_source(p, pkg_index, profile)
+    stale = bool(saved and saved.get("source") != source)
+    trm = TRM.model_validate(p.trm_confirmed or p.trm)
+    options = source_options(trm)
+    if preview and p.zip_path and Path(p.zip_path).is_file():
+        try:
+            stat = Path(p.zip_path).stat()
+            options = list(_relationship_original(p.zip_path, stat.st_mtime_ns, stat.st_size,
+                                                 trm.packages[pkg_index].model_dump_json()))
+        except Exception:
+            # 老项目不要求重新解析；原件无法读取时仅展示已有提取结果，生成仍有门禁。
+            pass
+    return {"confirmation": saved, "stale": stale, "source": source, "labels": LABELS,
+            "options": options}
+
+
+def relationship_snapshot(p: Project, pkg_index: int, profile: str):
+    state = relationship_state(p, pkg_index, profile)
+    return None if state["stale"] else state["confirmation"]
+
+
+def save_relationship(p: Project, pkg_index: int, profile: str, data: dict, actor: str):
+    from datetime import datetime, timezone
+
+    from .relationships import RelationshipConfirmation
+    data = dict(data)
+    if data.pop("source", None) != relationship_source(p, pkg_index, profile):
+        raise WorkflowError("招标要求已变化，请刷新后重新确认")
+    confirmation = RelationshipConfirmation.model_validate(data).model_dump()
+    if confirmation["status"] == "none":
+        confirmation["people"] = []
+    confirmation.update(source=relationship_source(p, pkg_index, profile),
+                        confirmed_by=actor, confirmed_at=datetime.now(timezone.utc).isoformat())
+    saved = dict((p.results or {}).get("relationship_confirmations", {}))
+    saved[material_key(pkg_index, profile)] = confirmation
+    pm.set_result(p, "relationship_confirmations", saved)
+    return confirmation
