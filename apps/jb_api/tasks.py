@@ -119,6 +119,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
             _update(task_id, status="failed", message="项目/档案/TRM 不存在")
             return
         trm, cp, input_hash = inputs(s, p, profile_name)
+        full_profile = cp.model_copy(deep=True)
         cp = selected_profile(p, pkg_index, cp)
         relationship = relationship_snapshot(p, pkg_index, profile_name)
         zip_dir = os.path.dirname(p.zip_path)
@@ -144,6 +145,18 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
             item['message'] for item in issues if item['blocking']))
         return
     drafts = None
+    if with_draft:
+        from jb_agents.preparation import collect_evidence
+        _update(task_id, progress=0.07, message='自动检索已有人员证明；扫描页进行本地OCR')
+        with session() as evidence_session:
+            evidence, notes = collect_evidence(evidence_session, full_profile, 'team')
+        budget, selected_evidence = 24000, []
+        for item in evidence:
+            if item['id'].startswith('attachment-') and len(item['text']) <= budget:
+                selected_evidence.append(item)
+                budget -= len(item['text'])
+        cp.bid_context['personnel_evidence'] = selected_evidence
+        cp.bid_context['evidence_coverage'] = notes
     draft_md = ""
     d = None
     try:
@@ -216,6 +229,8 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                     "draft_response_plans": d.response_plans if d else {},
                     "draft_sources": d.source_registry if d else {},
                     "draft_sections": [section.model_dump() for section in d.sections] if d else [],
+                    "review_checks": d.review_checks if d else {},
+                    "gap_details": res.gap_details,
                     "confirmations": [item.model_dump() for item in confirmation_items(d, res.docx_todos)],
                     "tech_params": [{"spec_id": r.spec_id, "responses": [x.__dict__ for x in r.responses]} for r in res.tech_params]})
 
@@ -249,7 +264,11 @@ def run_suggestion(task_id, project_id, profile_name, pkg_index, kind, item_id):
             p = s.get(Project, project_id)
             _, cp, revision = inputs(s, p, profile_name)
             with jb_llm.using_connection({**resolve(), 'project_id': project_id, 'task_id': task_id}):
-                result = suggest(s, cp, kind, item_id, jb_llm)
+                if kind == 'team':
+                    from jb_docgen.preparation import requirements
+                    result = suggest(s, cp, kind, item_id, jb_llm, roles=requirements(p, pkg_index)[1])
+                else:
+                    result = suggest(s, cp, kind, item_id, jb_llm)
         _update(task_id, status='done', progress=1, message='资料建议已准备，请核实后采用',
                 result={**result, 'revision': revision, 'kind': kind, 'item_id': item_id,
                         'profile': profile_name, 'pkg_index': pkg_index})

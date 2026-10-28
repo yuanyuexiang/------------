@@ -24,6 +24,7 @@ REGISTRATION = ('主管部门', '批准部门', '批准文号')
 TITLES = {'authorization': '本次授权', 'relationship': '国网人员关系确认',
           'team': '本次项目团队', 'statistics': '企业人员统计',
           'registration': '登记与股权信息', 'performance': '历史业绩合同日期',
+          'system': '系统引用与生成修复',
           'other': '其他原文或生成问题'}
 
 
@@ -52,6 +53,9 @@ def _key(index, company):
 
 
 def group_for(message: str) -> str:
+    from .gaps import is_team_gap
+    if any(w in message for w in ('数值需核实来源', '引用来源需核实', 'AI角色', 'AI 起草失败', '模型未配置')):
+        return 'system'
     if any(w in message for w in ('人员关系', '关系说明')):
         return 'relationship'
     if '被授权人' in message:
@@ -62,7 +66,7 @@ def group_for(message: str) -> str:
         return 'registration'
     if any(w in message for w in ('签约日期', '历史业绩', '合同签订日期补充')):
         return 'performance'
-    if any(w in message for w in ('拟任', '拟投入', '拟派', '项目负责人', '技术服务人员', '到岗', '可投入')):
+    if is_team_gap(message):
         return 'team'
     return 'other'
 
@@ -79,8 +83,9 @@ def _basis(p, index, cp, kind, data):
 def fact_state(p, index, cp):
     saved = (p.results or {}).get('bid_facts', {}).get(_key(index, cp.name), {})
     return {kind: {'confirmation': saved.get(kind),
-                   'stale': bool(saved.get(kind) and saved[kind]['basis'] != _basis(
-                       p, index, cp, kind, saved[kind]['data']))}
+                   'stale': bool(saved.get(kind) and (
+                       (kind == 'team' and not saved[kind]['data'].get('members')) or
+                       saved[kind]['basis'] != _basis(p, index, cp, kind, saved[kind]['data'])))}
             for kind in ('authorization', 'team')}
 
 
@@ -89,7 +94,8 @@ def apply_facts(p, index, cp):
     full = cp
     states = fact_state(p, index, full)
     result = cp.model_copy(deep=True)
-    context = {}
+    context = {'personnel_candidates': [x.model_dump(exclude={'id_no'}) for x in full.personnel
+                                       if x.status == 'approved']}
     for kind, state in states.items():
         saved = state['confirmation']
         if not saved or state['stale']:
@@ -138,6 +144,10 @@ def save_facts(s, p, index, cp, kind, data, actor):
         if any(key not in person.attachments or key not in owned for key in validated['identity_attachments']):
             raise ValueError('身份证明附件必须属于所选人员及本企业')
     if kind == 'team':
+        if not validated['members']:
+            raise ValueError('请先选择团队成员；空名单不能保存为已确认团队，也不能确认到岗承诺')
+        if validated['arrival_commitment'] and any(not x['available'] for x in validated['members']):
+            raise ValueError('仍有不可投入人员，不能确认全体到岗承诺')
         from .workflow import material_selection, save_selection
         selection = material_selection(p, index, cp.name).model_dump()
         selection['personnel'] = ids
@@ -265,8 +275,30 @@ def state(s, p, index, cp):
     selection = material_selection(p, index, cp.name)
     perfs = [x for x in approved.performances if not x.signed_date
              and (selection.performances is None or x.id in selection.performances)]
+    relationship = relationship_state(p, index, cp.name)
+    for key in ('authorization', 'team'):
+        current = facts[key]
+        valid = current['confirmation'] and not current['stale']
+        groups[key]['status'] = '已保存，待资格核验' if valid else '待确认本包安排'
+        groups[key]['current_notes'] = []
+    team = facts['team']
+    if team['confirmation'] and not team['confirmation']['data'].get('members'):
+        groups['team']['current_notes'].append('原记录为空团队，已停止作为有效确认；请从已有人员中选择或让AI推荐')
+    groups['team']['current_notes'] += team_blockers(p, index, cp)
+    groups['team']['current_notes'].append(f'知识库有{len(approved.personnel)}名已审核候选；不代表已确认本包投入')
+    groups['relationship']['status'] = ('已确认' if relationship['confirmation'] and not relationship['stale'] else '待本次确认')
+    missing_stats = [key for key in STATS if getattr(cp, key) in (None, '')]
+    groups['statistics']['status'] = '已录入，待核对口径' if not missing_stats else '统计字段待核对'
+    missing_registration = [label for label in REGISTRATION if not cp.registration.get(label) or not (
+        cp.registration[label].value or cp.registration[label].not_applicable and cp.registration[label].reason)]
+    groups['registration']['status'] = '登记与股权待核对' if missing_registration or not cp.shareholders else '已录入，待原件核对'
+    groups['registration']['current_notes'] = missing_registration + ([] if cp.shareholders else ['股东出资明细尚未录入'])
+    groups['performance']['status'] = f'{len(perfs)}项历史合同日期待核对' if perfs else '所选业绩日期已录入'
+    groups['performance']['current_notes'] = [x.project for x in perfs]
+    groups['other']['status'] = '系统生成核查，不等同于缺少企业资料'
+    groups['system']['status'] = '系统需重试或核查，不要求补交企业资料'
     return {'revision': revision, 'profile': cp.model_dump(), 'facts': facts,
-            'tasks': [v for k, v in groups.items() if k != 'other' or v['items']],
+            'tasks': [v for k, v in groups.items() if k not in ('other', 'system') or v['items']],
             'generation_stale': bool(artifact and artifact['input_hash'] != revision),
             'generation_id': artifact['id'] if task else None,
             'attachments': [a.model_dump() for a in attachments.list_attachments(s, cp.name)],
@@ -275,7 +307,7 @@ def state(s, p, index, cp):
             'team_requirements': [{'id': k, 'text': v} for k, v in sources.items()
                                   if k.startswith('req-spec') and any(w in v for w in
                                       ('人员', '岗位', '学历', '社保', '工作经验'))],
-            'relationship': relationship_state(p, index, cp.name)}
+            'relationship': relationship}
 
 
 def save(s, p, index, cp, kind, payload, actor):
@@ -294,9 +326,8 @@ def save(s, p, index, cp, kind, payload, actor):
 
 def team_blockers(p, index, cp):
     saved = fact_state(p, index, cp)['team']
-    if not saved['confirmation'] or saved['stale']:
-        return []
-    data = saved['confirmation']['data']
+    data = (saved['confirmation']['data'] if saved['confirmation'] and not saved['stale']
+            else {'members': [], 'arrival_commitment': False})
     _, roles = requirements(p, index)
     issues = []
     for role in roles:
@@ -305,7 +336,7 @@ def team_blockers(p, index, cp):
             issues.append(f"本包{role['role']}要求{role['count']}人，已确认可投入{count}人")
     if any(not x['available'] for x in data['members']):
         issues.append('项目团队中仍有暂不可投入人员，请调整本次名单')
-    if not data['arrival_commitment']:
+    if (roles or data['members']) and not data['arrival_commitment']:
         issues.append('本包到岗承诺尚未确认')
     return issues
 

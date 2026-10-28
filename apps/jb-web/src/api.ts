@@ -131,7 +131,7 @@ export interface ProfileSummary { name: string; credit_code: string; updated_at:
 export interface ExpiryItem { kind: string; id: string; name: string; number: string; valid_until: string; days_left: number | null; level: 'expired' | 'd30' | 'd60' | 'd90' | 'ok' | 'unknown' }
 export interface ExpiryReport { items: ExpiryItem[]; summary: Record<string, number> }
 
-export interface PreparationTask { id: string; title: string; occurrences: number; items: { message: string; file: string }[] }
+export interface PreparationTask { id: string; title: string; occurrences: number; items: { message: string; file: string }[]; status?: string; current_notes?: string[] }
 export interface BidMember { person_id: string; role: string; available: boolean }
 export interface BidFactState { stale: boolean; confirmation: { data: { person_id?: string; title?: string; members?: BidMember[]; arrival_commitment?: boolean }; confirmed_by: string; confirmed_at: string } | null }
 export interface PreparationState {
@@ -141,6 +141,7 @@ export interface PreparationState {
   team_requirements: { id: string; text: string }[]
 }
 export interface FactSuggestions {
+  recommendations?: { person_id: string; name: string; role: string; reason: string; quote: string; source: string; attachment_id: string; missing: string[] }[]
   revision: string; kind: string; item_id: string; profile: string; pkg_index: number; message: string
   candidates: { field: string; value: unknown; quote: string; source: string; attachment_id: string; note: string }[]
   unreadable: string[]; checked: { title: string; attachment_id: string }[]

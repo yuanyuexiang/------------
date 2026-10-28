@@ -210,3 +210,20 @@ def test_suggestion_job_does_not_write_candidate_to_company(preparation_project,
         assert task.result['revision'] == before['revision']
         assert task.result['candidates'][0]['value'] == 20
     assert state(case)['profile']['staff_total'] is None
+
+
+def test_empty_team_is_rejected_and_legacy_record_does_not_become_confirmation(preparation_project):
+    case = preparation_project
+    assert save(case, 'team', {'members': [], 'arrival_commitment': True}).status_code == 409
+    assert save(case, 'team', {'members': [], 'arrival_commitment': False}).status_code == 409
+    assert save(case, 'team', {'members': [{'person_id': 'person-a', 'role': '项目负责人', 'available': False}], 'arrival_commitment': True}).status_code == 409
+    with session() as s:
+        p = s.get(Project, case[1])
+        cp = repo.load_profile(s, '准备测试企业')
+        data = {'members': [], 'arrival_commitment': True}
+        p.results = {'bid_facts': {preparation._key(0, cp.name): {'team': {
+            'data': data, 'basis': preparation._basis(p, 0, cp, 'team', data)}}}}
+        assert preparation.fact_state(p, 0, cp)['team']['stale']
+        effective = preparation.apply_facts(p, 0, cp)
+        assert 'team' not in effective.bid_context
+        assert effective.bid_context['personnel_candidates'][0]['name'] == '甲'

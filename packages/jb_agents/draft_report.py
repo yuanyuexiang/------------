@@ -3,18 +3,19 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .writer import Draft
 
 
 class ConfirmationItem(BaseModel):
-    category: Literal['本次投标事实待确认', '企业事实待补充', 'AI 起草需重试', '拟实施方案待确认', '原文需核对', '方案响应待完善', '引用依据待核对', '招标原文待核对']
+    category: Literal['本次投标事实待确认', '企业事实待补充', 'AI 起草需重试', '拟实施方案待确认', '原文需核对', '方案响应待完善', '引用依据待核对', '招标原文待核对', '系统生成待修复']
     location: str
     message: str
     action: str
     occurrences: int = 1
     locations: list[str] = []
+    details: list[dict[str, str]] = Field(default_factory=list)
 
 
 def confirmation_items(draft: Draft | None,
@@ -23,16 +24,24 @@ def confirmation_items(draft: Draft | None,
     seen: dict[str, ConfirmationItem] = {}
 
     def add(category, location, message, action):
-        key = message
+        from jb_docgen.gaps import is_team_gap
+        detail = {'message': message, 'location': location}
+        key = 'team-facts' if is_team_gap(message) else message
+        if key == 'team-facts':
+            message = '本包团队名单、岗位与资格证据（集中核对）'
+            category = '本次投标事实待确认'
+            action = '在本次项目团队中让AI检索现有证据、推荐岗位；确认人选与可投入状态，各章节共用'
         if key in seen:
             item = seen[key]
             item.occurrences += 1
+            if detail not in item.details:
+                item.details.append(detail)
             if location not in item.locations:
                 item.locations.append(location)
                 item.location = '；'.join(item.locations)
         else:
             item = ConfirmationItem(category=category, location=location, message=message,
-                                    action=action, locations=[location])
+                                    action=action, locations=[location], details=[detail])
             items.append(item)
             seen[key] = item
 
@@ -48,6 +57,10 @@ def confirmation_items(draft: Draft | None,
                     '由投标负责人审阅生成稿；变更基础资料后重新生成并复查')
     for filename, entries in todos.items():
         for message in entries:
+            if any(word in message for word in ('数值需核实来源', '引用来源需核实', 'AI角色')):
+                add('系统生成待修复', filename, message,
+                    '系统先规范引用并检索本包证据后重试；不要求企业补交资料，修复失败保留核查记录')
+                continue
             if '人员关系' in message or '关系说明' in message:
                 original = '原文' in message
                 add('原文需核对' if original else '本次投标事实待确认', filename, message,

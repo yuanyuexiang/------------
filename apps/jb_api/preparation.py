@@ -46,7 +46,7 @@ def save_preparation(project_id: str, kind: str, profile: str, payload: dict, pk
 def suggest(project_id: str, kind: str, profile: str, background: BackgroundTasks,
             pkg_index: int = 0, item_id: str = ''):
     from .tasks import submit_suggestion
-    if kind not in ('statistics', 'registration', 'performance'):
+    if kind not in ('statistics', 'registration', 'performance', 'team'):
         raise HTTPException(400, '该任务需要企业确认本次安排，不能由AI代为决定')
     with session() as s:
         p, cp = load(s, project_id, profile, pkg_index, lock=True)

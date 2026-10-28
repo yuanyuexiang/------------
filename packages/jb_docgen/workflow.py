@@ -53,7 +53,7 @@ def inputs(s, p: Project, profile: str):
     trm = TRM.model_validate(p.trm_confirmed or p.trm)
     attachments = [{"id": a.id, "sha256": a.sha256} for a in s.scalars(
         select(KbAttachment).where(KbAttachment.company == profile).order_by(KbAttachment.id))]
-    digest = fingerprint({"trm": trm.model_dump(), "profile": cp.model_dump(),
+    digest = fingerprint({"generation_rules_version": 2, "trm": trm.model_dump(), "profile": cp.model_dump(),
                           "attachments": attachments, "open_time": p.open_time,
                           "deadline": p.deadline,
                           "bid_facts": (p.results or {}).get("bid_facts", {}),

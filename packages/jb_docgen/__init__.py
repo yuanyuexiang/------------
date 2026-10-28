@@ -23,6 +23,7 @@ class GenResult:
     tech_params: list[TechParamResult] = field(default_factory=list)
     mode: dict[str, str] = field(default_factory=dict)      # 文件→ master（母版切片）| plain（自建版式）
     notes: list[str] = field(default_factory=list)          # 母版回退原因等说明
+    gap_details: dict = field(default_factory=dict)
 
     @property
     def export_blocked(self) -> bool:
@@ -100,6 +101,8 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
     append_authorization_document(com, ctx)
     res = GenResult(commercial_path=com, technical_path=tech, todos=ctx.todos, tech_params=results,
                     mode=mode, notes=ctx.notes)
+    from .gaps import consolidate_team_gaps
+    res.gap_details = {'team': consolidate_team_gaps(tech)}
     if profile.is_demo:
         import docx
         for path in (com, tech):

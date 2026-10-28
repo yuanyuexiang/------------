@@ -3,12 +3,11 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
-from pathlib import Path
 
 from jb_docgen.preparation import STATS
 from jb_kb import attachments
 from jb_kb.models import Shareholder
+from jb_kb.text_evidence import read_evidence
 from pydantic import ValidationError
 
 
@@ -16,42 +15,39 @@ def collect_evidence(s, cp, kind, item_id=''):
     evidence, unreadable = [], []
     item = next((x for x in cp.performances if x.id == item_id), None)
     allowed = set(item.attachments) if item else None
-    records = ([item] if item else [*cp.certificates, *cp.boilerplates])
+    records = ([x for x in cp.personnel if x.status == 'approved'] if kind == 'team' else
+               [item] if item else [*cp.certificates, *cp.boilerplates])
     for record in records:
         if record is None:
             continue
-        text = getattr(record, 'source', '') + '\n' + getattr(record, 'text', '')
+        text = (json.dumps(record.model_dump(), ensure_ascii=False) if kind == 'team' else
+                getattr(record, 'source', '') + '\n' + getattr(record, 'text', ''))
         if text.strip():
             evidence.append({'id': 'record-' + record.id, 'title': getattr(record, 'project', '') or
                              getattr(record, 'name', '') or getattr(record, 'title', ''),
-                             'text': text[:12000], 'attachment_id': ''})
+                             'text': text[:12000], 'attachment_id': '',
+                             'person_ids': [record.id] if kind == 'team' else []})
     words = ('员工', '人员', '统计', '补充', '说明') if kind == 'statistics' else (
         ('营业', '信用', '公示', '股东', '章程', '补充', '说明') if kind == 'registration' else ('合同', '说明'))
     files = attachments.list_attachments(s, cp.name)
+    if kind == 'team':
+        allowed = {aid for person in records for aid in person.attachments}
+        words = ('毕业', '学历', '职称', '社保', '权益', '劳动合同')
     files = [a for a in files if (a.id in allowed if allowed is not None else
                                   any(word in a.filename for word in words))]
     # 先检索最相关文件；扫描件无可读文字时明确报告，不把空文本当成不存在事实。
     files.sort(key=lambda a: sum(w in a.filename for w in words), reverse=True)
-    for attachment in files[:12]:
-        path = Path(attachments.absolute_path(attachment))
-        if path.suffix.lower() != '.pdf':
-            unreadable.append(attachment.filename + '：需查看图片或原件')
-            continue
-        try:
-            result = subprocess.run(['pdftotext', '-f', '1', '-l', '30', '-layout', str(path), '-'],
-                                    capture_output=True, text=True, timeout=15)
-            pages = result.stdout.split('\f')
-            found = False
-            for number, page in enumerate(pages, 1):
-                if page.strip():
-                    found = True
-                    evidence.append({'id': f'attachment-{attachment.id}-p{number}',
-                                     'title': f'{attachment.filename} 第{number}页',
-                                     'text': page.strip()[:8000], 'attachment_id': attachment.id})
-            if not found:
-                unreadable.append(attachment.filename + '：扫描件未提取到文字，请查看原件')
-        except (OSError, subprocess.TimeoutExpired):
-            unreadable.append(attachment.filename + '：文本读取失败，请查看原件')
+    for attachment in files[:8]:
+        result = read_evidence(attachments.absolute_path(attachment))
+        unreadable.extend(attachment.filename + '：' + note for note in result['notes'])
+        for page in result['pages']:
+            evidence.append({'id': f"attachment-{attachment.id}-p{page['page']}",
+                             'title': f"{attachment.filename} 第{page['page']}页（{page['method']}）",
+                             'text': page['text'], 'attachment_id': attachment.id,
+                             'person_ids': [person.id for person in records
+                                            if kind == 'team' and attachment.id in person.attachments]})
+    if len(files) > 8:
+        unreadable.extend(a.filename + '：本次检索上限之外，尚未读取' for a in files[8:])
     return evidence, unreadable
 
 
@@ -104,7 +100,7 @@ def validate_candidates(result, evidence, kind):
     return candidates
 
 
-def suggest(s, cp, kind, item_id, llm):
+def suggest(s, cp, kind, item_id, llm, roles=None):
     evidence, unreadable = collect_evidence(s, cp, kind, item_id)
     # 控制输入长度，明确告知截断范围；不声称已经检查全部附件。
     selected, used = [], 0
@@ -117,6 +113,11 @@ def suggest(s, cp, kind, item_id, llm):
              '登记字段：主管部门、批准部门、批准文号、shareholders。shareholders的value为数组，'
              '每项含name、amount_wan（万元数值或null）、ratio（百分数或null）、source。'
              if kind == 'registration' else '字段：signed_date（YYYY-MM-DD）。只认合同签署日，不能用发票日或约略日期替代。')
+    if kind == 'team':
+        shape = ('输出recommendations数组，每项person_id、role、source_id、quote、reason、missing（待核实字段数组）。'
+                 '只推荐属于本企业已审核人员、且可能匹配原文岗位的人选；不把授权代表自动当负责人。'
+                 '已提供的学历专业及证件不得重复索要；工作年限未知须列为待核实，不按年龄推断。'
+                 '建议不代表符合资格、可投入或已确认到岗。岗位原文：' + json.dumps(roles or [], ensure_ascii=False))
     if not selected:
         return {'candidates': [], 'unreadable': unreadable, 'checked': [],
                 'message': '现有资料未获得可核验文字，请打开关联附件人工核对；没有自动补值。'}
@@ -127,7 +128,34 @@ def suggest(s, cp, kind, item_id, llm):
         '每项含field,value,source_id,quote,note。' + shape + '\n企业：' + cp.name + '\n资料：' +
         json.dumps(selected, ensure_ascii=False), purpose='prepare', temperature=0, timeout=120,
         max_tokens=4000)
-    return {'candidates': validate_candidates(result, selected, kind), 'unreadable': unreadable,
+    recommendations = validate_recommendations(result, selected, cp, roles or []) if kind == 'team' else []
+    return {'recommendations': recommendations,
+            'candidates': validate_candidates(result, selected, kind) if kind != 'team' else [], 'unreadable': unreadable,
             'checked': [{'title': x['title'], 'attachment_id': x['attachment_id']} for x in selected],
             'message': '仅为待核实建议；请对照原文确认后保存。未覆盖文件或扫描件请人工查看。'
             if result else '模型未返回可用结果，请重试或查看原件；现有数据未改变。'}
+
+
+def validate_recommendations(result, evidence, cp, roles):
+    sources = {x['id']: x for x in evidence}
+    people = {x.id: x for x in cp.personnel if x.status == 'approved'}
+    allowed_roles = {x['role'] for x in roles}
+    accepted, seen = [], set()
+    for item in result.get('recommendations', []) if isinstance(result, dict) else []:
+        if not isinstance(item, dict):
+            continue
+        person, role = item.get('person_id'), item.get('role')
+        source = sources.get(item.get('source_id'))
+        quote = str(item.get('quote', '')).strip()
+        if (person not in people or role not in allowed_roles or not source or len(quote) < 4
+                or person not in source.get('person_ids', [])
+                or re.sub(r'\s+', '', quote) not in re.sub(r'\s+', '', source['text'])
+                or (person, role) in seen):
+            continue
+        seen.add((person, role))
+        missing = item.get('missing', [])
+        accepted.append({'person_id': person, 'name': people[person].name, 'role': role,
+                         'reason': str(item.get('reason', ''))[:1000], 'quote': quote,
+                         'source': source['title'], 'attachment_id': source['attachment_id'],
+                         'missing': [str(x)[:300] for x in missing] if isinstance(missing, list) else []})
+    return accepted

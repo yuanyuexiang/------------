@@ -145,10 +145,10 @@ export default function WorkbenchPage() {
       {gen?.llm_connection && <Typography.Text type="secondary">本次生成连接：{gen.llm_connection.name} · 模型：{gen.llm_connection.model}</Typography.Text>}
       {gen && (
         <Tabs items={[
-          ...(gen.confirmations?.length ? [{ key: 'c', label: `集中核对（${gen.confirmations.length}）`, children: (
+          ...(gen.confirmations?.length ? [{ key: 'c', label: `${flow?.stale ? '历史版本核对' : '集中核对'}（${gen.confirmations.length}）`, children: (
             <Space direction="vertical" style={{ width: '100%' }}>
-              <Alert type="info" showIcon message="AI 负责起草方案；请核对事实、实施安排与对外承诺"
-                description="此清单用于集中处理，不代表已确认，也不替代合规审查。起草失败应重新生成，无需人工补写整章。" />
+              <Alert type="info" showIcon message={flow?.stale ? '历史文件问题，仅供追溯；当前待办请查看上方投标准备任务' : '企业事实与系统修复分开处理'}
+                description="引用及生成错误由系统先修复；团队资料集中核对一次。此清单不替代合规审查。" />
               <Select allowClear placeholder="全部问题类型" style={{ minWidth: 220 }} value={issueCategory} onChange={setIssueCategory}
                 options={[...new Set(gen.confirmations.map(x => x.category))].map(category => ({ value: category, label: `${category}（${gen.confirmations!.filter(x => x.category === category).length}）` }))} />
               <Button disabled={running || !profile || flow?.stale} onClick={run}>重试起草失败章节</Button>

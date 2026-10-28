@@ -3,7 +3,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 # poppler-utils：扫描件 PDF 转页图（jb_docgen.scans）
-RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-chi-sim && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml .
 COPY packages/ packages/
 COPY apps/jb_api/ apps/jb_api/

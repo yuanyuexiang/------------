@@ -26,6 +26,15 @@ from jb_agents.draft_context import (
 
 _NUM = re.compile(r"\d+(?:\.\d+)?")
 _SRC = re.compile(r"\[来源:([^\]]+)\]")
+
+
+def normalize_citations(text: str) -> str:
+    """接受模型常见的合并引用写法；仅拆分格式，真实性仍由校验器检查。"""
+    def expand(match):
+        values = re.split(r'[；;,，]', match.group(1))
+        return ''.join('[来源:' + re.sub(r'^来源\s*[:：]\s*', '', v.strip()) + ']'
+                       for v in values if v.strip())
+    return re.sub(r'[\[【]来源\s*[:：]([^\]】]+)[\]】]', expand, text)
 _TABLE_NUMBER = re.compile(r"^\s*\|\s*(?:\d+|[（(]\d+[)）])\s*\|")
 _FORMAT_NUMBER = re.compile(
     r"^\s*(?:#{1,6}\s+\d+(?:\.\d+)*(?:[.、．]\s*|\s+)|(?:\*\*)?"
@@ -64,6 +73,8 @@ class Draft(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     source_registry: dict[str, str] = Field(default_factory=dict)
     response_plans: dict[str, dict[str, str]] = Field(default_factory=dict)
+    review_context: dict = Field(default_factory=dict, exclude=True)
+    review_checks: dict = Field(default_factory=dict)
 
     def markdown(self) -> str:
         out = []
@@ -121,9 +132,17 @@ def _facts_block(profile: CompanyProfile) -> tuple[str, set[str]]:
         "test_reports", "boilerplates", "sources", "legal_person_id_no",
     }, exclude_none=True)
     lines = [f"[来源:fact-company] {company}"]
-    if profile.bid_context:
-        lines.append(f"[来源:fact-bid-confirmed] 本次标包已确认的授权和团队安排：{profile.bid_context}。"
-                     "名单和到岗安排不代替学历、相关工作年限等证据；缺证据时必须指明具体人员及缺失字段。")
+    context = profile.bid_context
+    confirmed = {key: context[key] for key in ('authorization', 'team') if context.get(key)}
+    if confirmed:
+        lines.append(f"[来源:fact-bid-confirmed] 本包已确认事项：{confirmed}。"
+                     "authorization仅为签字授权，不能推断为项目负责人或团队成员；"
+                     "只有team.members中非空的岗位安排才是已确认团队。资格仍须证据核验。")
+    for person in context.get('personnel_candidates', []):
+        lines.append(f"[来源:fact-candidate-{person['id']}] 知识库候选（未承诺本包投入）：{person}")
+    for item in context.get('personnel_evidence', []):
+        lines.append(f"[来源:fact-evidence-{item['id']}] " + str(item).replace('\n', ' ') +
+                     '；附件识别文字供核对，OCR可能有误，不自动证明资格或本包可投入。')
     lines.append(f"[来源:fact-selection] 当前选用已审核人员{len(profile.personnel)}名、"
                  f"历史业绩{len(profile.performances)}项；选用不代表已确认本包投入或满足资格。")
     for category, records in (
@@ -172,6 +191,8 @@ def _prompt(section: DraftSection, pkg: PackageTRM, facts: str, chunks: list[tup
 10. 每个含数字的分句必须紧跟来源。拟定步骤、里程碑和相对进度用中文序号及阶段名称，不写无依据的数字。不输出来源ID本身作为正文内容。
 11. 不输出占位符示例、写作规则或“对无证据内容保留待补充”等编辑说明，直接写本项目实质响应。
 12. fact-bid-confirmed 是本包经用户确认的安排，不得再次笼统要求提供已确认名单或到岗承诺。结合人员毕业日期、相关工作年限及经历出处核验资格；缺项写具体人名和字段，不能把选定人员直接说成资格全部满足。
+13. 授权代表仅负责签字授权，绝不能默认担任项目负责人或履约统筹。候选人员已有学历、专业和证件不重复索要；尚未选定团队时使用岗位描述，不替企业任命人员。团队事实集中引用“本次项目团队与资格核对”，不要在每节重复列整套材料。
+14. 入场安规考试、采购人面试、入场保密协议签署记录属于执行安排；除非本包原文明确要求投标时提交，否则写入场前组织、采购人核验的步骤，不作为投标前缺项。
 只输出章节正文。"""
 
 
@@ -180,6 +201,7 @@ def _check_numbers(text: str, sources: dict[str, str]) -> tuple[str, list[str]]:
 
     只做确定性溯源检查，非数字事实及语义支持仍需人工审阅。
     """
+    text = normalize_citations(text)
     violations: list[str] = []
     out_lines = []
     table_sequence = False
@@ -245,7 +267,7 @@ def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: b
     index = index or build_index(profile)
     facts, _ = _facts_block(profile)
     requirements, warnings = requirement_sources(trm, pkg, spec_paths)
-    draft = Draft(pkg_no=pkg.pkg_no, warnings=warnings)
+    draft = Draft(pkg_no=pkg.pkg_no, warnings=warnings, review_context=profile.bid_context)
     llm = None
     if use_llm:
         try:
@@ -295,32 +317,17 @@ def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: b
                             for m in [_SRC.search(line)] if m}
             source_texts.update(dict(chunks))
             source_texts.update(reqs)
+            text = normalize_citations(text)
             sec.raw_text = text
             text = attribute_schedule_dates(text, source_texts)
             text = attribute_contract_duration(text, source_texts)
             sec.source_evidence = {sid: source_texts[sid] for sid in _SRC.findall(text)
                                    if sid in source_texts}
-            text, viol = _check_numbers(text, source_texts)
-            if viol and sec.by_llm:
-                # 一次有界修正；修正仍必须经过同一溯源规则，不直接放行数字。
-                try:
-                    repaired = llm.chat(
-                        "修正以下投标章节的证据引用。仅使用所列来源；招标数字必须表述为招标要求。"
-                        "不得将要求推断为企业已达标。无证据的事实保留待补充；拟定步骤可改为不带数值的表述。"
-                        "每个含阿拉伯数字的句子均须在句末就近引用包含该数字及其含义的来源；不能跨句借用引用。"
-                        "列表、表格序号和里程碑用中文序号；拟定进度用阶段名称。"
-                        "不要删除实质性要求或企业缺项。保留完整正文，只输出修正章节。\n"
-                        + str(source_texts) + "\n原稿：\n" + sec.raw_text,
-                        temperature=0, timeout=300, purpose="draft", max_tokens=12000)
-                    repaired = attribute_contract_duration(repaired, source_texts)
-                    candidate, remaining = _check_numbers(repaired, source_texts)
-                    original_todos = set(re.findall(r"【待补充：([^】]*)】", sec.raw_text))
-                    if (repaired.strip() and len(repaired) >= len(sec.raw_text) * 0.6
-                            and len(remaining) < len(viol)
-                            and all(f"【待补充：{todo}】" in repaired for todo in original_todos)):
-                        text, viol = candidate, remaining
-                except Exception:
-                    pass  # 保留已核对结果及缺项，不能把修正失败当成证据通过。
+            from .draft_review import review_batch
+            reviewed, checks = review_batch({sec.title: text}, source_texts, facts,
+                                             profile.bid_context, llm if sec.by_llm else None)
+            text, viol = reviewed[sec.title], checks[sec.title]['violations']
+            draft.review_checks[sec.title] = checks[sec.title]
             sec.text, sec.fact_violations = text, viol
             sec.sources = sorted(set(_SRC.findall(text)))
             sec.source_evidence = {sid: source_texts[sid] for sid in sec.sources if sid in source_texts}
