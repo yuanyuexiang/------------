@@ -115,3 +115,11 @@ def attribute_schedule_dates(text: str, sources: dict[str, str]) -> str:
                 line += f' [来源:{candidates[0]}]'
         lines.append(line)
     return '\n'.join(lines)
+
+
+def attribute_contract_duration(text: str, sources: dict[str, str]) -> str:
+    """合同起算期限逐字匹配需求原文后补引用；不推算工期或使用近似数值。"""
+    requirement = re.sub(r'[\s，,]', '', sources.get('req-package', ''))
+    for phrase in set(re.findall(r'合同签订之日起\d+个月', requirement)):
+        text = text.replace(phrase, phrase + '[来源:req-package]')
+    return text

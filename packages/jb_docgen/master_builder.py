@@ -92,19 +92,40 @@ def _cover(ctx: GenContext, kind: str) -> list[tuple[str, bool]]:
 
 def _fill_basic_info(doc, ctx: GenContext) -> None:
     k = ctx.profile
-    t = M.find_table(doc, ["投标人名称", "应答人名称", "单位名称", "注册地址", "统一社会信用代码", "成立时间"], min_hits=2)
+    t = M.find_table(doc, ["投标人名称", "应答人名称", "单位名称", "单位地址及邮编", "注册地址", "统一社会信用代码", "成立时间"], min_hits=2)
     if t is None:
         return
     cap = _wan(k.registered_capital_wan)
     M.set_kv_cells(t, {
         "投标人名称": k.name, "应答人名称": k.name, "单位名称": k.name,
         "注册地址": k.address, "单位地址及邮编": k.address, "单位地址": k.address,
-        "联系人": k.contact, "电话": k.phone, "网址": k.website,
+        "联系人": k.contact, "电话": k.phone, "网址": k.website, "E-mail": k.email,
+        "单位性质": k.company_type, "开户银行及账号": k.bank,
         "成立时间": k.founded, "统一社会信用代码": k.credit_code,
         "注册资金": cap, "注册资本": cap, "开户银行": k.bank, "经营范围": k.business_scope,
         "高级职称人员": _s(k.senior_engineers), "中级职称人员": _s(k.engineers),
+        "员工总数": ctx.need(_s(k.staff_total), "企业员工总数及统计日期"),
+        "其中：技术人员数": ctx.need(_s(k.staff_technical), "企业技术人员数及统计日期"),
+        "高级工程师": ctx.need(_s(k.senior_engineers), "企业高级工程师人数"),
+        "工程师": ctx.need(_s(k.engineers), "企业工程师人数"),
+        "注册资金（万元）": cap,
+        "企业资质等级": '；'.join(f'{c.name}：{c.level}' for c in k.certificates
+                                if '资质' in c.name and c.level),
         "法定代表人（单位负责人）": k.legal_person, "法定代表人": k.legal_person, "技术负责人": k.legal_or_admin,
     }, row_scoped={"法定代表人": {"姓名": k.legal_person}, "技术负责人": {"姓名": k.legal_or_admin}})
+    # 此类母版还包含未结构化的管理信息，不能把未填空表当成已完成。
+    remaining = []
+    for row in t.rows:
+        cells = M.distinct_cells(row)
+        for i, cell in enumerate(cells[:-1]):
+            key = M.norm(cell.text).rstrip('：:')
+            if key in ('主管部门', '批准部门', '批准文号', '企业资质等级', '助理工程师', '技术员') and not cells[i + 1].text.strip():
+                remaining.append(key)
+    if remaining:
+        M.insert_paragraph_after(doc, t._tbl, todo('企业基本情况表未核实字段：' + '、'.join(remaining)))
+    owners = M.find_table(doc, ['股东或上级管理单位名称', '出资金额', '出资比例'], min_hits=3, head_rows=1)
+    if owners is not None and M.data_rows(owners):
+        M.insert_paragraph_after(doc, owners._tbl, todo('股东或上级管理单位名称、出资金额及出资比例'))
 
 
 def _fill_financials(doc, ctx: GenContext) -> Optional[Table]:

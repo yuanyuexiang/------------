@@ -86,3 +86,67 @@ def test_service_deliverable_table_uses_plan_without_claiming_product_performanc
     respond_service_table(table, {key: '拟整理验收记录并提交采购方审核。[来源:req-service-0]'})
     assert len(table.columns) == 4
     assert table.rows[1].cells[3].text == '拟整理验收记录并提交采购方审核。'
+
+
+def test_service_table_without_response_column_keeps_original_width():
+    from docx import Document
+    from jb_docgen.spec_response import respond_service_table, service_table_rows
+
+    table = Document().add_table(rows=2, cols=3)
+    for cell, text in zip(table.rows[0].cells, ['序号', '岗位名称', '数量']):
+        cell.text = text
+    for cell, text in zip(table.rows[1].cells, ['1', '项目负责人', '1']):
+        cell.text = text
+    widths = [column.width for column in table.columns]
+    key = service_table_rows(table)[0][1]
+    following = respond_service_table(table, {key: '拟核对负责人资格。'})
+    assert [column.width for column in table.columns] == widths
+    assert following == ['表中第1项响应：拟核对负责人资格。']
+
+
+def test_compound_requirement_sentence_and_deposit_do_not_become_ability_claims():
+    from jb_agents.writer import _check_numbers
+    text = '招标要求服务期4个月、保证金21120元；不据此声称本企业已具备履约能力。[来源:req-package]'
+    sources = {'req-package': '服务期4个月；保证金21120元'}
+    assert _check_numbers(text, sources) == (text, [])
+    false_claim = '招标要求4个月；我司已达到4个月交付能力。[来源:req-package]'
+    assert _check_numbers(false_claim, sources)[1]
+    ordinal = '| 序号 | 内容 |\n| （1） | 项目调研 |'
+    assert _check_numbers(ordinal, {}) == (ordinal, [])
+
+
+def test_contract_duration_attribution_requires_exact_source_and_keeps_claim_guard():
+    from jb_agents.draft_context import attribute_contract_duration
+    from jb_agents.writer import _check_numbers
+    sources = {'req-package': '服务期原文：自合同签订之日起，4个月内完成服务'}
+    text = '服务期按合同签订之日起4个月编排。'
+    attributed = attribute_contract_duration(text, sources)
+    assert _check_numbers(attributed, sources)[1] == []
+    unmatched = '服务期按合同签订之日起5个月编排。'
+    assert attribute_contract_duration(unmatched, sources) == unmatched
+    claim = attribute_contract_duration('我司已实现合同签订之日起4个月交付。', sources)
+    assert _check_numbers(claim, sources)[1]
+
+
+def test_industry_basic_info_layout_fills_known_fields_and_marks_missing_counts():
+    from jb_docgen.builder import GenContext
+    from jb_docgen.master_builder import _fill_basic_info
+    from jb_kb.models import CompanyProfile
+    doc = Document()
+    labels = ['单位名称', '单位地址及邮编', '主管部门', '单位性质', '开户银行及账号',
+              '注册资金（万元）', 'E-mail', '员工总数', '其中：技术人员数']
+    table = doc.add_table(rows=len(labels), cols=2)
+    for row, label in zip(table.rows, labels):
+        row.cells[0].text = label
+    profile = CompanyProfile(name='测试公司', address='测试地址', company_type='有限责任公司',
+                             bank='测试银行', registered_capital_wan=100, email='test@example.com',
+                             staff_total=0)
+    _fill_basic_info(doc, GenContext(TRM(), PackageTRM(), profile))
+    assert table.rows[0].cells[1].text == '测试公司'
+    assert table.rows[1].cells[1].text == '测试地址'
+    assert table.rows[4].cells[1].text == '测试银行'
+    assert table.rows[5].cells[1].text == '100万元'
+    assert table.rows[6].cells[1].text == 'test@example.com'
+    assert table.rows[7].cells[1].text == '0'
+    assert '待补充' in table.rows[8].cells[1].text
+    assert any('主管部门' in p.text and '待补充' in p.text for p in doc.paragraphs)

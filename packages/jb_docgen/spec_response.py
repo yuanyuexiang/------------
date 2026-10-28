@@ -228,7 +228,8 @@ def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], titl
         if el.tag == qn("w:tbl"):
             t = Table(new, doc._body)
             if service_mode and service_table_rows(t):
-                respond_service_table(t, plans or {})
+                for response in respond_service_table(t, plans or {}):
+                    last = M.insert_paragraph_after(doc, last, response)._p
                 responded += 1
             elif respond_table(t, product):
                 responded += 1
@@ -268,12 +269,14 @@ def service_table_rows(table):
 def respond_service_table(table, plans):
     rows = service_table_rows(table)
     if not rows:
-        return
+        return []
     column = rows[0][2]
-    if column is None:
-        column = len(table.columns)
-        table.add_column(Cm(5))
-        table.rows[0].cells[column].text = '应答人响应'
+    following = []
     for index, key, _ in rows:
         text = plans.get(key) or todo('服务条目响应待完善：' + key[:45])
-        table.rows[index].cells[column].text = re.sub(r'\s*\[来源:[^\]]+\]', '', text)
+        text = re.sub(r'\s*\[来源:[^\]]+\]', '', text)
+        if column is None:
+            following.append(f'表中第{index}项响应：{text}')
+        else:
+            table.rows[index].cells[column].text = text
+    return following

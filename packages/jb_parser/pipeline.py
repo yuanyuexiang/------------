@@ -107,10 +107,19 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
         matched = [sd for sd in pkg.spec_docs if pkg.project_name in sd.source
                    or pkg.project_name in sd.title]
         if matched:
+            covers = []
             for sd in pkg.spec_docs:
-                if sd not in matched:
-                    trm.warnings.append(f"{pkg.pkg_no}: 排除与需求清单项目名称不一致的规范文件：{sd.source}")
-            pkg.spec_docs = matched
+                if sd in matched or sd.n_paragraphs > 20 or sd.param_rows:
+                    continue
+                source_doc = docx_utils.load(os.path.join(root, sd.source))
+                names = [p.text.split('：', 1)[1].strip() for p in source_doc.paragraphs
+                         if p.text.strip().startswith('项目名称：')]
+                if names and all(name and name != pkg.project_name for name in names):
+                    covers.append(sd)
+            for sd in covers:
+                trm.warnings.append(f"{pkg.pkg_no}: 排除与需求清单项目名称不一致的规范文件：{sd.source}")
+            # 通用技术正文可能没有项目名，不能仅凭名称不匹配就丢弃。
+            pkg.spec_docs = [sd for sd in pkg.spec_docs if sd not in covers]
 
     trm.packages.append(pkg)
 
