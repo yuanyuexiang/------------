@@ -45,6 +45,7 @@ class Section:
     tables: list = field(default_factory=list)      # 源表格元素
     has_children: bool = False
     prose: int = 0
+    prose_texts: list[str] = field(default_factory=list)
 
 
 def _heading_level(p) -> Optional[int]:
@@ -84,6 +85,7 @@ def analyse(src) -> list[Section]:
                     cur.items.append(p.text.strip())
                 else:
                     cur.prose += 1
+                cur.prose_texts.append(p.text.strip())
         elif el.tag == qn("w:tbl") and cur is not None:
             cur.tables.append(el)
     return sections
@@ -206,7 +208,7 @@ def _clean_copy(el):
 
 
 def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], title: str,
-                plans: Optional[dict[str, str]] = None) -> tuple[object, int, bool]:
+                plans: Optional[dict[str, str]] = None, service_mode: bool = False) -> tuple[object, int, bool]:
     """把一本规范书复制到 anchor 之后并逐节响应。返回 (新锚点, 响应小节数, 是否跳过)。"""
     src = docx.Document(spec_path)
     sections = analyse(src)
@@ -225,14 +227,53 @@ def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], titl
         last = new
         if el.tag == qn("w:tbl"):
             t = Table(new, doc._body)
-            if respond_table(t, product):
+            if service_mode and service_table_rows(t):
+                respond_service_table(t, plans or {})
+                responded += 1
+            elif respond_table(t, product):
                 responded += 1
             continue
         sec = by_el.get(id(el))
-        if sec is None or sec.has_children or not sec.items:
+        if sec is None:
+            continue
+        items = sec.items + (sec.prose_texts if service_mode and not sec.has_children else [])
+        if not items:
             continue
         last = M.insert_paragraph_after(doc, last, RESP_TAG, bold=True)._p
-        for line in _respond_items(sec.items, product, plans):
+        for line in _respond_items(items, product, plans):
             last = M.insert_paragraph_after(doc, last, line)._p
         responded += 1
     return last, responded, False
+
+
+def service_table_rows(table):
+    """已知服务表保留整行要求作为键，不按物资参数推断保证值。"""
+    if not table.rows:
+        return []
+    headers = [c.text.strip() for c in table.rows[0].cells]
+    if not any(word in ' '.join(headers) for word in ('岗位名称', '成果名称', '采购内容说明')):
+        return []
+    response_col = next((i for i, h in enumerate(headers) if '应答' in h or '响应' in h), None)
+    out = []
+    for index, row in enumerate(table.rows[1:], 1):
+        cells = [c.text.strip() for c in row.cells]
+        if not cells[0].isdigit():
+            continue
+        key = '；'.join(f'{h}：{v}' for i, (h, v) in enumerate(zip(headers, cells))
+                       if i != response_col and h != '序号' and v not in ('', '/'))
+        out.append((index, key, response_col))
+    return out
+
+
+def respond_service_table(table, plans):
+    rows = service_table_rows(table)
+    if not rows:
+        return
+    column = rows[0][2]
+    if column is None:
+        column = len(table.columns)
+        table.add_column(Cm(5))
+        table.rows[0].cells[column].text = '应答人响应'
+    for index, key, _ in rows:
+        text = plans.get(key) or todo('服务条目响应待完善：' + key[:45])
+        table.rows[index].cells[column].text = re.sub(r'\s*\[来源:[^\]]+\]', '', text)

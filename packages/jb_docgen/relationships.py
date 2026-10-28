@@ -8,7 +8,7 @@ from typing import Literal
 from docx.table import Table
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-TITLE = re.compile(r"(?:投标人|应答人)与国家电网公司系统人员关系说明")
+TITLE = re.compile(r"(?:投标人|应答人|响应供应商)与国家电网公司系统人员关系说明")
 OPTION = re.compile(r"【\s*([12])[.．、]?\s*(不存在|存在)相关情形的适用\s*】")
 LABELS = ["本企业人员姓名", "性别", "身份证号", "职务", "任职时间", "与国网系统人员关系",
           "国网人员姓名", "性别", "身份证号", "（曾）任职单位名称", "职务", "任职状态", "离职/退休时间"]

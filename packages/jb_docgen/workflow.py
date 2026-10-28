@@ -211,16 +211,21 @@ def scoring_draft(s, p: Project, pkg_index: int, profile: str, task_id: str, out
 
 
 def workflow_state(s, p: Project, pkg_index: int, profile: str, out_dir: str) -> dict:
-    active = s.scalar(select(Task.id).where(Task.project_id == p.id, Task.kind == "generate",
+    from jb_agents.preflight import generation_issues
+    trm = TRM.model_validate(p.trm_confirmed or p.trm)
+    preflight = generation_issues(trm, trm.packages[pkg_index])
+    active = s.scalar(select(Task.id).where(Task.project_id == p.id, Task.kind.in_(["generate", "parse"]),
                                            Task.status.in_(["queued", "running"])).limit(1))
     a = latest(p, pkg_index)
     if not a:
-        return {"generation_id": None, "generation": None, "review": None,
+        return {"preflight": preflight, "stale": False, "generation_id": None, "generation": None, "review": None,
                 "blockers": ["请先生成文件，再审查和正式导出"], "exports": [], "active_task_id": active,
                 "profile": None}
     task = s.get(Task, a["id"])
     reasons = blockers(s, p, a, out_dir, profile)
-    return {"generation_id": a["id"], "generation": task.result if task else None,
+    return {"preflight": preflight,
+            "stale": any("已变化" in reason or "不一致" in reason for reason in reasons),
+            "generation_id": a["id"], "generation": task.result if task else None,
             "review": a.get("review"), "blockers": reasons,
             "exports": [] if reasons else a.get("exports", []), "active_task_id": active,
             "profile": a["profile"]}

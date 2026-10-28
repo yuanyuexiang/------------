@@ -109,6 +109,27 @@ async def create_project(file: UploadFile, background: BackgroundTasks):
     return {"id": pid, "task_id": tid, "mode": mode}
 
 
+@app.post("/api/projects/{project_id}/reparse", status_code=202)
+def reparse_project(project_id: str, background: BackgroundTasks):
+    """复用已上传原包重新解析；旧确认版留在事件记录，不沿用到新解析。"""
+    with session() as s:
+        p = s.scalar(select(Project).where(Project.id == project_id).with_for_update())
+        if p is None:
+            raise HTTPException(404, "项目不存在")
+        if not os.path.isfile(p.zip_path):
+            raise HTTPException(409, "原始采购包不存在，请重新上传")
+        active = s.scalar(select(Task.id).where(Task.project_id == project_id,
+                          Task.status.in_(["queued", "running"])))
+        if active:
+            raise HTTPException(409, "项目已有运行任务，请等待完成")
+        t = Task(project_id=project_id, kind="parse", actor=au.current_actor())
+        s.add(t)
+        s.flush()
+        tid = t.id
+    mode = tasks.submit_parse(background, tid, project_id)
+    return {"task_id": tid, "mode": mode}
+
+
 @app.get("/api/projects")
 def list_projects(active: Optional[bool] = None):
     """项目列表：在投按截止日升序在前，已结束在后；active 过滤在投/已结束。"""
@@ -280,6 +301,11 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
     trm, _ = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):
         raise HTTPException(400, "pkg_index 越界")
+    from jb_agents.preflight import generation_issues
+    issues = generation_issues(trm, trm.packages[pkg_index])
+    if with_draft and any(item['blocking'] for item in issues):
+        raise HTTPException(409, "生成前检查未通过：" + "；".join(
+            item['message'] for item in issues if item['blocking']) + "。请先重新解析并核对原件；可关闭AI起草生成部分骨架。")
     with session() as s:
         p = s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
         try:
@@ -287,10 +313,10 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         active = s.scalar(select(Task.id).where(Task.project_id == project_id,
-                                               Task.kind == "generate",
+                                               Task.kind.in_(["parse", "generate"]),
                                                Task.status.in_(["queued", "running"])).limit(1))
         if active:
-            raise HTTPException(409, "项目已有生成任务，请等待任务完成")
+            raise HTTPException(409, "项目已有解析或生成任务，请等待任务完成")
         t = Task(project_id=project_id, kind="generate", actor=au.current_actor())
         s.add(t)
         s.flush()

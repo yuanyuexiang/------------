@@ -42,7 +42,7 @@ def test_full_flow(client):
     assert {p["pkg_no"] for p in q["report"]["packages"]} == {"包147", "包148"}
     assert "可投性矩阵" in q["markdown"]
     # 文件生成 + 下载
-    g = client.post(f"/api/projects/{pid}/generate", params={"profile": "测试企业", "pkg_index": 0})
+    g = client.post(f"/api/projects/{pid}/generate", params={"profile": "测试企业", "pkg_index": 0, "with_draft": False})
     assert g.status_code == 202
     gt = client.get(f"/api/tasks/{g.json()['task_id']}").json()
     assert gt["status"] == "done" and gt["result"]["summary"]["export_blocked"] is True

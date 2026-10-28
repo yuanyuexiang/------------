@@ -142,6 +142,9 @@ class PackageTRM(BaseModel):
     budget_yuan: Optional[float] = None
     max_price: str = ""
     duration_days: Optional[int] = None
+    duration_text: str = ""
+    demand_details: dict[str, str] = Field(default_factory=dict)
+    identity_source: str = ""
     price_mode: str = ""            # 金额总价报价 / 折扣比例报价 ...
     allow_consortium: Optional[bool] = None
     scoring_ref: ScoringRef = Field(default_factory=ScoringRef)

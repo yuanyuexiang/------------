@@ -15,7 +15,7 @@ _DATE_PAT = re.compile(r"(\d{4}年\d{1,2}月\d{1,2}日[\d:：时分\s]*)")
 # 招标公告 5.1：投标文件提交的截止时间（投标截止时间，下同）为2026年8月7日14:00时（北京时间）
 #   变体（四样本实测）："…截止时间…为…" / "…截止时间…：…"；"上午8:00" / "09:30时" / "8:00时"；竞谈为"首次应答截止时间"
 _DEADLINE_PAT = re.compile(
-    r"(?:投标|应答)文件提交的截止时间[^\n。]{0,40}?(\d{4})年(\d{1,2})月(\d{1,2})日\s*(上午|下午)?\s*(\d{1,2})[:：](\d{2})")
+    r"(?:投标|应答|响应)文件提交的截止时间[^\n。]{0,40}?(\d{4})年(\d{1,2})月(\d{1,2})日\s*(上午|下午)?\s*(\d{1,2})[:：](\d{2})")
 _OPEN_SAME_PAT = re.compile(r"开标时间[:：]?\s*同(?:投标|应答)截止时间")
 _OPEN_PAT = re.compile(r"开标时间[:：]?\s*(\d{4})年(\d{1,2})月(\d{1,2})日\s*(上午|下午)?\s*(\d{1,2})[:：](\d{2})")
 
@@ -55,7 +55,7 @@ def _find(clauses: list[PrenoticeClause], *keywords: str) -> Optional[PrenoticeC
 def extract_key_terms(clauses: list[PrenoticeClause]) -> KeyTerms:
     kt = KeyTerms()
 
-    c = _find(clauses, "投标有效期") or _find(clauses, "应答有效期")
+    c = _find(clauses, "投标有效期") or _find(clauses, "应答有效期") or _find(clauses, "响应有效期")
     if c:
         kt.validity_clause = c.clause_no
         m = _VALIDITY_PAT.search(c.content)

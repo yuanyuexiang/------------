@@ -9,23 +9,33 @@ from .writer import Draft
 
 
 class ConfirmationItem(BaseModel):
-    category: Literal['本次投标事实待确认', '企业事实待补充', 'AI 起草需重试', '拟实施方案待确认', '原文需核对', '方案响应待完善', '引用依据待核对']
+    category: Literal['本次投标事实待确认', '企业事实待补充', 'AI 起草需重试', '拟实施方案待确认', '原文需核对', '方案响应待完善', '引用依据待核对', '招标原文待核对']
     location: str
     message: str
     action: str
+    occurrences: int = 1
+    locations: list[str] = []
 
 
 def confirmation_items(draft: Draft | None,
                        todos: dict[str, list[str]]) -> list[ConfirmationItem]:
     items: list[ConfirmationItem] = []
-    seen: set[tuple[str, str]] = set()
+    seen: dict[str, ConfirmationItem] = {}
 
     def add(category, location, message, action):
-        key = (location, message)
-        if key not in seen:
-            items.append(ConfirmationItem(category=category, location=location,
-                                          message=message, action=action))
-            seen.add(key)
+        key = message
+        if key in seen:
+            item = seen[key]
+            item.occurrences += 1
+            if location not in item.locations:
+                item.locations.append(location)
+                item.location = '；'.join(item.locations)
+        else:
+            item = ConfirmationItem(category=category, location=location, message=message,
+                                    action=action, locations=[location])
+            items.append(item)
+            seen[key] = item
+
 
     if draft:
         for warning in draft.warnings:
@@ -43,6 +53,14 @@ def confirmation_items(draft: Draft | None,
                 add('原文需核对' if original else '本次投标事实待确认', filename, message,
                     '核对本次招标原文及格式，无需另行提供承诺书模板' if original else
                     '在工作台确认本包关系情况；存在相关情形时填写双方人员信息，再重新生成')
+                continue
+            if any(word in message for word in ('招标编号', '采购编号', '分标名称', '招标文件', '招标范围', '技术规范', '采购方要求')):
+                add('招标原文待核对', filename, message,
+                    '由系统从采购文件和本包规范正文提取；确实没有原件时才补交文件')
+                continue
+            if any(word in message for word in ('被授权人', '拟任', '拟投入', '可投入', '签约日期', '开工日期')):
+                add('本次投标事实待确认', filename, message,
+                    '由投标负责人确认本次人选、安排或日期；不要求补写章节')
                 continue
             retry = any(word in message for word in ('LLM', '模型未配置', 'AI 起草失败', '起草失败'))
             plan = any(word in message for word in ('具体响应', '逐项响应', '逐条编制', '本节内容'))

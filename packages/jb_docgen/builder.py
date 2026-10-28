@@ -44,7 +44,9 @@ def append_spec_responses(doc, anchor_el, ctx) -> object:
         try:
             last, n, skipped = append_spec(
                 doc, last, path, ctx.product, f"技术规范书 {sd.spec_id or ''} {sd.title}".strip(),
-                plans=ctx.response_plans.get(sd.spec_id),
+                plans=ctx.response_plans.get(sd.spec_id or sd.source),
+                service_mode=not ctx.pkg.materials and any(word in ctx.pkg.sub_name for word in
+                    ('服务', '科技项目', '研究', '咨询', '设计', '运维', '监理', '培训')),
             )
         except Exception as exc:  # 单本规范书失败不拖垮整份文件
             ctx.notes.append(f"规范书 {sd.spec_id or sd.source} 逐条响应失败：{exc!r}")

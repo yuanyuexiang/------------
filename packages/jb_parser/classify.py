@@ -66,7 +66,7 @@ def classify_file(relpath: str) -> str:
             return QUAL_PERF_XLSX
         if "货物清单" in name:
             return GOODS_LIST_XLSX
-        if "需求一览表" in name:
+        if "需求一览表" in name or "采购需求清单" in name:
             return SERVICE_DEMAND_XLSX
         if "报价" in name:
             return PRICE_SHEET

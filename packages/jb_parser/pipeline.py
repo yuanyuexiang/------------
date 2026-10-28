@@ -15,7 +15,7 @@ from typing import Optional
 from . import classify, docx_utils, extract, normalize, scoring, unpack
 from .trm import TRM, PackageTRM
 
-PKG_ZIP_PAT = re.compile(r"包(\d+)_完整(?:招标|采购)文件_\d+")
+PKG_ZIP_PAT = re.compile(r"(?P<package>包\d+|[A-Z]+\d+-\d+)_完整(?:招标|采购)文件_\d+")
 SUB_DIR_PAT = re.compile(r"分标(\d+)([^/]*)")
 ECP_IDENTITY_PAT = re.compile(r"(\d{6}-\d{7}-\d{4})、([^/]+?)、(包\d+)(?:/|$)")
 
@@ -73,11 +73,12 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
         pkg.qualification = mine if mine else all_rows
 
     demand_rel = manifest.first(classify.SERVICE_DEMAND_XLSX)
-    if demand_rel and pkg_no:
-        rec = extract.extract_service_demand(os.path.join(root, demand_rel), pkg_no,
+    if demand_rel and pkg.pkg_no:
+        rec = extract.extract_service_demand(os.path.join(root, demand_rel), pkg.pkg_no,
                                              sub_no=pkg.sub_no, sub_name=pkg.sub_name)
         if rec:
             extract.apply_service_demand(pkg, rec, trm)
+            pkg.identity_source = demand_rel + "；包号=" + pkg.pkg_no
         else:
             trm.warnings.append(f"{pkg_no}: 需求一览表中未找到本包行")
 
@@ -92,7 +93,7 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
 
     for spec_rel in manifest.by_category.get(classify.SPEC_DOC, []):
         sd = extract.extract_spec(os.path.join(root, spec_rel), spec_rel)
-        if sd and (sd.spec_id or sd.param_rows):
+        if sd and (sd.spec_id or sd.param_rows or sd.n_paragraphs > 10):
             pkg.spec_docs.append(sd)
     # 同一规范书正文与封面 docx 都会命中，按 spec_id 去重，保留参数行多的；都无参数表时保留正文长的
     dedup = {}
@@ -101,6 +102,15 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
         if key not in dedup or (len(sd.param_rows), sd.n_paragraphs) > (len(dedup[key].param_rows), dedup[key].n_paragraphs):
             dedup[key] = sd
     pkg.spec_docs = list(dedup.values())
+    # 需求表项目名称与规范正文/文件名匹配时，隔离混入的其他项目封面。
+    if pkg.project_name:
+        matched = [sd for sd in pkg.spec_docs if pkg.project_name in sd.source
+                   or pkg.project_name in sd.title]
+        if matched:
+            for sd in pkg.spec_docs:
+                if sd not in matched:
+                    trm.warnings.append(f"{pkg.pkg_no}: 排除与需求清单项目名称不一致的规范文件：{sd.source}")
+            pkg.spec_docs = matched
 
     trm.packages.append(pkg)
 
@@ -131,7 +141,7 @@ def parse(zip_path: str, workdir: Optional[str] = None) -> TRM:
                 sub_no, sub_name = "分标" + msub.group(1), msub.group(2)
             mpkg = PKG_ZIP_PAT.search(pkg_root)
             if mpkg:
-                pkg_no = "包" + mpkg.group(1)
+                pkg_no = mpkg.group("package")
             parse_package_dir(os.path.join(workdir, pkg_root), files, trm,
                               sub_no=sub_no, sub_name=sub_name, pkg_no=pkg_no)
     else:
@@ -142,7 +152,7 @@ def parse(zip_path: str, workdir: Optional[str] = None) -> TRM:
             sub_no, sub_name = "分标" + msub.group(1), msub.group(2).split("/")[0]
         mpkg = PKG_ZIP_PAT.search(os.path.basename(zip_path))
         if mpkg:
-            pkg_no = "包" + mpkg.group(1)
+            pkg_no = mpkg.group("package")
         parse_package_dir(workdir, res.files, trm,
                           sub_no=sub_no, sub_name=sub_name, pkg_no=pkg_no)
     return trm
@@ -175,7 +185,7 @@ def package_files(zip_path: str, pkg: Optional[PackageTRM] = None, sub_no: str =
             if not any(m.group(1) == sub_no and (not pkg_no or m.group(3) == pkg_no) for m in identities):
                 return False
         return (not msub or not sub_no or "分标" + msub.group(1) == sub_no) and (
-            not mpkg or not pkg_no or "包" + mpkg.group(1) == pkg_no)
+            not mpkg or not pkg_no or mpkg.group("package") == pkg_no)
 
     # 仅在指定分标/包内选取。单包 ZIP 可能没有包目录，此时只接受唯一候选。
     cands = [f for f in cands if matches(f)]

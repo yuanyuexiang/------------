@@ -228,7 +228,8 @@ def _check_numbers(text: str, sources: dict[str, str]) -> tuple[str, list[str]]:
 
 def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = True,
                   index: Optional[Index] = None, spec_paths: dict[str, str] | None = None,
-                  on_progress: Callable[[int, int, str], None] | None = None) -> Draft:
+                  on_progress: Callable[[int, int, str], None] | None = None,
+                  previous_sections: list[dict] | None = None) -> Draft:
     profile = approved_profile(profile)
     index = index or build_index(profile)
     facts, _ = _facts_block(profile)
@@ -244,9 +245,15 @@ def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: b
     if llm is None:
         draft.warnings.append("AI 起草未执行：模型未配置；本次仅生成待补充骨架，不代表完整方案")
     outline = build_outline(trm, pkg)
+    previous = {item['title']: DraftSection.model_validate(item) for item in previous_sections or []}
     for position, sec in enumerate(outline):
         if on_progress:
             on_progress(position, len(outline), sec.title)
+        cached = previous.get(sec.title)
+        if cached and cached.by_llm and cached.text and not cached.fact_violations:
+            draft.sections.append(cached)
+            draft.source_registry.update(cached.source_evidence)
+            continue
         reqs = section_requirements(
             requirements, f"{sec.title} {sec.score_hint} {pkg.sub_name} {pkg.scope}",
         )
@@ -259,9 +266,16 @@ def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: b
             sec.todos.append(sec.title)
         else:
             try:
-                text = llm.chat(_prompt(sec, pkg, facts, chunks, reqs), temperature=0.3, timeout=300, purpose="draft", max_tokens=12000)
-                if not text.strip():
-                    raise ValueError("模型返回空正文")
+                for attempt in range(2):
+                    try:
+                        text = llm.chat(_prompt(sec, pkg, facts, chunks, reqs), temperature=0.3,
+                                        timeout=300, purpose="draft", max_tokens=12000)
+                        if not text.strip():
+                            raise ValueError("模型返回空正文")
+                        break
+                    except Exception:
+                        if attempt == 1:
+                            raise
                 sec.by_llm = True
             except Exception:
                 text = f"【待补充：{sec.title}——AI 起草失败，请重试或检查模型配置】"
@@ -275,8 +289,26 @@ def draft_package(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, use_llm: b
             sec.source_evidence = {sid: source_texts[sid] for sid in _SRC.findall(text)
                                    if sid in source_texts}
             text, viol = _check_numbers(text, source_texts)
+            if viol and sec.by_llm:
+                # 一次有界修正；修正仍必须经过同一溯源规则，不直接放行数字。
+                try:
+                    repaired = llm.chat(
+                        "修正以下投标章节的证据引用。仅使用所列来源；招标数字必须表述为招标要求。"
+                        "不得将要求推断为企业已达标。无证据的事实保留待补充；拟定步骤可改为不带数值的表述。"
+                        "不要删除实质性要求或企业缺项。保留完整正文，只输出修正章节。\n"
+                        + str(source_texts) + "\n原稿：\n" + sec.raw_text,
+                        temperature=0, timeout=300, purpose="draft", max_tokens=12000)
+                    candidate, remaining = _check_numbers(repaired, source_texts)
+                    original_todos = set(re.findall(r"【待补充：([^】]*)】", sec.raw_text))
+                    if (repaired.strip() and len(repaired) >= len(sec.raw_text) * 0.6
+                            and len(remaining) < len(viol)
+                            and all(f"【待补充：{todo}】" in repaired for todo in original_todos)):
+                        text, viol = candidate, remaining
+                except Exception:
+                    pass  # 保留已核对结果及缺项，不能把修正失败当成证据通过。
             sec.text, sec.fact_violations = text, viol
             sec.sources = sorted(set(_SRC.findall(text)))
+            sec.source_evidence = {sid: source_texts[sid] for sid in sec.sources if sid in source_texts}
             draft.source_registry.update({key: source_texts[key] for key in sec.sources
                                           if key in source_texts})
             sec.todos = re.findall(r"【待补充：([^】]*)】", text)

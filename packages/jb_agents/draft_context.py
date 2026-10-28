@@ -16,9 +16,14 @@ def requirement_sources(trm: TRM, pkg: PackageTRM,
     warnings: list[str] = []
     sources["req-package"] = (
         f"项目：{pkg.project_name or trm.batch_name}；本包：{pkg.sub_no} {pkg.sub_name} {pkg.pkg_no}；范围：{pkg.scope}；"
-        f"工期：{pkg.duration_days if pkg.duration_days is not None else '未录入'}天；"
+        f"服务期原文：{pkg.duration_text}；工期天数：{pkg.duration_days if pkg.duration_days is not None else '未录入'}天；"
         f"最高限价：{pkg.max_price or '未录入'}"
     )
+    for i, (key, value) in enumerate(pkg.demand_details.items()):
+        sources[f"req-demand-{i}"] = f"{pkg.identity_source}；{key}：{value}"
+    for i, template in enumerate(trm.scoring_templates):
+        for j, item in enumerate(template.items):
+            sources[f"req-score-{i}-{j}"] = f"{template.source}；{item.element}：{item.content}"
     for i, material in enumerate(pkg.materials):
         sources[f"req-material-{i}"] = material.model_dump_json()
     for i, q in enumerate(pkg.qualification):

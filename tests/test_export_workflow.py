@@ -5,7 +5,7 @@ import docx
 import pytest
 from jb_docgen import GenResult
 from jb_docgen.placeholders import scan_docx
-from jb_parser.trm import TRM, PackageTRM, SubmissionItem
+from jb_parser.trm import TRM, PackageTRM, SpecDoc, SubmissionItem
 from jb_store import Project, Task, session
 
 
@@ -28,8 +28,11 @@ def bid(client, tmp_path, monkeypatch):
 
     monkeypatch.setattr("jb_docgen.generate", generate)
     client.put("/api/profiles/测试企业", json={"name": "测试企业"})
-    trm = TRM(packages=[PackageTRM(sub_no="A", pkg_no="包1"),
-                        PackageTRM(sub_no="B", pkg_no="包1")],
+    trm = TRM(batch_name="合成采购", batch_no="TEST001",
+              packages=[PackageTRM(sub_no="A", sub_name="服务A", pkg_no="包1",
+                                   spec_docs=[SpecDoc(source="合成正文", n_paragraphs=20)]),
+                        PackageTRM(sub_no="B", sub_name="服务B", pkg_no="包1",
+                                   spec_docs=[SpecDoc(source="合成正文", n_paragraphs=20)])],
               submission_table=[SubmissionItem(section="商务文件", item="基本情况")]).model_dump()
     with session() as s:
         p = Project(filename="合成.zip", zip_path="", trm=trm, trm_confirmed=trm,
@@ -336,3 +339,50 @@ def test_relationship_confirmation_revokes_export_and_reaches_generation(bid, mo
     assert captured[0]['status'] == 'none' and captured[0]['confirmed_by'] == 'admin'
     generate(bid, 1)
     assert captured[1] is None
+
+
+def test_reparse_preserves_old_confirmation_in_history(client, tmp_path):
+    import zipfile
+
+    from jb_store import ProjectEvent
+    from sqlalchemy import select
+
+    document = docx.Document()
+    document.add_paragraph('采购编号：TEST123')
+    document.add_paragraph('测试公司公开谈判采购项目')
+    main = tmp_path / '采购文件.docx'
+    document.save(main)
+    archive = tmp_path / '原包.zip'
+    with zipfile.ZipFile(archive, 'w') as z:
+        z.write(main, '采购文件.docx')
+    old = TRM(batch_name='旧确认版', packages=[PackageTRM(pkg_no='包1')]).model_dump()
+    with session() as s:
+        p = Project(filename='原包.zip', zip_path=str(archive), trm=old, trm_confirmed=old)
+        s.add(p)
+        s.flush()
+        pid = p.id
+    response = client.post(f'/api/projects/{pid}/reparse')
+    assert response.status_code == 202
+    assert client.get('/api/tasks/' + response.json()['task_id']).json()['status'] == 'done'
+    with session() as s:
+        p = s.get(Project, pid)
+        assert p.trm_confirmed is None and p.trm['batch_no'] == 'TEST123'
+        event = s.scalar(select(ProjectEvent).where(ProjectEvent.project_id == pid, ProjectEvent.kind == 'reparsed'))
+        assert event.data['previous_confirmed'] == old
+
+
+def test_preflight_blocks_ai_with_missing_identity_but_allows_partial_skeleton(bid):
+    with session() as s:
+        p = s.get(Project, bid['id'])
+        p.trm = p.trm_confirmed = TRM(packages=[PackageTRM()]).model_dump()
+    c, url = bid['client'], bid['url']
+    assert c.post(url + '/generate', params={'profile': '测试企业'}).status_code == 409
+    assert c.post(url + '/generate', params={'profile': '测试企业', 'with_draft': False}).status_code == 202
+
+
+def test_generation_waits_for_running_reparse(bid):
+    with session() as s:
+        s.add(Task(project_id=bid['id'], kind='parse', status='running'))
+    response = bid['client'].post(bid['url'] + '/generate', params={'profile': '测试企业'})
+    assert response.status_code == 409
+    assert '解析' in response.json()['detail']

@@ -134,6 +134,8 @@ export interface ExpiryReport { items: ExpiryItem[]; summary: Record<string, num
 export interface Finding { rule_id: string; level: string; title: string; message: string; location: string; source: string }
 export interface ReviewResult { generation_id: string; blocked: boolean; counts: Record<string, number>; findings: Finding[]; markdown: string }
 export interface WorkflowState {
+  stale?: boolean
+  preflight?: { category: string; message: string; action: string; blocking: boolean }[]
   profile: string | null
   active_task_id: string | null
   generation_id: string | null
@@ -148,7 +150,7 @@ export interface GenResult {
   llm_connection?: { name: string; model: string }
   summary: { commercial: string; technical: string; todo_count: number; export_blocked: boolean; tech_params: { spec_id: string; rows: number; satisfied: number; deviation: number; unknown: number; missing: number }[]; mode?: Record<string, 'master' | 'plain'>; notes?: string[] }
   draft_sources?: Record<string, string>
-  confirmations?: { category: string; location: string; message: string; action: string }[]
+  confirmations?: { category: string; location: string; message: string; action: string; occurrences?: number; locations?: string[] }[]
   todos: Record<string, string[]>; files: string[]; draft_markdown: string
   tech_params: { spec_id: string; responses: { row: number; name: string; required: string; star: boolean; response: string; verdict: string; reason: string }[] }[]
 }
@@ -242,6 +244,7 @@ export const api = {
     req<{ selection: MaterialSelection; profile: CompanyProfile }>(`/api/projects/${id}/materials?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
   saveMaterials: (id: string, profile: string, pkgIndex: number, selection: MaterialSelection) =>
     req<{ ok: boolean }>(`/api/projects/${id}/materials?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json(selection)),
+  reparse: (id: string) => req<{ task_id: string; mode: string }>(`/api/projects/${id}/reparse`, { method: 'POST' }),
   generate: (id: string, profile: string, pkgIndex: number, withDraft: boolean) =>
     req<{ task_id: string; mode: string }>(`/api/projects/${id}/generate?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&with_draft=${withDraft}`, { method: 'POST' }),
   review: (id: string, profile: string, pkgIndex: number) =>

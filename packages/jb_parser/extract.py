@@ -120,12 +120,13 @@ def extract_submission_table(doc) -> list[SubmissionItem]:
 
 
 def batch_name_from_doc(doc, limit: int = 60) -> str:
-    name = ""
     for p in doc.paragraphs[:limit]:
         t = p.text.strip()
-        if len(t) > len(name) and ("招标采购" in t or "采购项目" in t or "谈判采购" in t) and len(t) < 80:
-            name = t
-    return name
+        if (8 < len(t) < 100 and re.search(r"(?:招标采购|采购项目|谈判采购)", t)
+                and not re.search(r"[。；]|登录|登陆|通知路径|采购条件|以下简称", t)
+                and not re.match(r"^[（(]?\d+[）).、]", t)):
+            return t
+    return ""
 
 
 def extract_batch_info(doc, filename: str) -> tuple[str, str, str]:
@@ -134,7 +135,10 @@ def extract_batch_info(doc, filename: str) -> tuple[str, str, str]:
     m = BATCH_NO_PAT.search(os.path.basename(filename))
     no = m.group(1) if m else ""
     text_head = "\n".join(p.text for p in doc.paragraphs[:200])
-    term = "应答" if ("应答人" in text_head and "投标人" not in text_head[:2000]) else "投标"
+    explicit = re.search(r"(?:采购|招标)编号[：:]\s*([A-Z0-9][A-Z0-9-]{5,})", text_head)
+    if explicit:
+        no = explicit.group(1)
+    term = "应答" if ("响应供应商" in text_head or ("应答人" in text_head and "投标人" not in text_head[:2000])) else "投标"
     return name, no, term
 
 
@@ -294,13 +298,20 @@ def apply_service_demand(pkg, rec: dict, trm=None) -> None:
             trm.batch_no = rec["分标编号"].split("-")[0]
         if not trm.batch_name and rec.get("计划批次名称"):
             trm.batch_name = rec["计划批次名称"]
-    pkg.project_name = rec.get("招标项目标段名称", "") or rec.get("包名称（采购项目名称）", "") or rec.get("项目名称", "")
+    pkg.pkg_no = rec.get("包号", "") or pkg.pkg_no
+    pkg.duration_text = rec.get("服务期", "")
+    pkg.demand_details = {k: v for k, v in rec.items() if k and v}
+    if trm is not None and not trm.batch_no:
+        trm.batch_no = rec.get("采购编号(分标编号)", "")
+    pkg.project_name = rec.get("招标项目标段名称", "") or rec.get("包名称（采购项目名称）", "") or rec.get("项目名称", "") or rec.get("包名称", "")
     pkg.project_unit = rec.get("项目单位", "")
-    pkg.scope = rec.get("招标范围", "") or rec.get("项目概况", "")
+    pkg.scope = rec.get("招标范围", "") or rec.get("项目概况", "") or rec.get("采购范围", "")
     pkg.budget_yuan = _f(rec.get("招标金额（元）", ""))
     pkg.max_price = rec.get("最高限价（元或折扣比例）", "")
     if not pkg.max_price and rec.get("行报价最高限价（含税/万元）"):
         pkg.max_price = rec["行报价最高限价（含税/万元）"] + "万元（含税）"
+    if not pkg.max_price and rec.get("最高限价（总）（万元）") not in (None, "", "/"):
+        pkg.max_price = rec["最高限价（总）（万元）"] + "万元"
     d = _f(rec.get("标段工期（日）", ""))
     pkg.duration_days = int(d) if d is not None else None
     pkg.price_mode = rec.get("报价方式", "")
@@ -314,13 +325,17 @@ def apply_service_demand(pkg, rec: dict, trm=None) -> None:
     sr.weight_biz = _f(rec.get("商务分权重（%）", "") or rec.get("商务权重（%）", ""))
     sr.weight_tech = _f(rec.get("技术分权重（%）", "") or rec.get("技术权重（%）", ""))
     sr.weight_price = _f(rec.get("价格分权重（%）", "") or rec.get("价格权重（%）", ""))
+    weights = rec.get("打分权重（技术：价格：商务）", "").replace("：", ":").split(":")
+    if len(weights) == 3:
+        sr.weight_tech, sr.weight_price, sr.weight_biz = map(_f, weights)
+    sr.price_method = sr.price_method or rec.get("价格打分办法", "")
     if not pkg.sub_name:
         pkg.sub_name = rec.get("分标名称", "")
     if not pkg.sub_no:
-        pkg.sub_no = rec.get("分标编号", "")
+        pkg.sub_no = rec.get("分标编号", "") or rec.get("采购编号(分标编号)", "")
     q = QualificationItem(
         sub_name=rec.get("分标名称", ""), pkg=pkg_no_of(rec),
-        performance_req=_slash(rec.get("企业业绩要求", "")),
+        performance_req=_slash(rec.get("企业业绩要求", "") or rec.get("专用资格要求", "")),
         other_reqs={k: v for k, v in (("企业资质条件", _slash(rec.get("企业资质条件", ""))),
                                      ("主要人员要求", _slash(rec.get("主要人员要求", ""))),
                                      ("技术规范书ID", rec.get("技术规范书ID", "") or rec.get("技术规范ID号", ""))) if v})
@@ -343,7 +358,7 @@ _SKIP_TITLE = ("格式", "目录", "参考以下")
 _BARE_TITLES = ("投标函", "应答函", "商务偏差表", "技术偏差表", "投标人基本情况表", "应答人基本情况表",
                 "法定代表人（单位负责人）授权委托书", "授权委托书", "投标保证信用承诺书", "应答保证信用承诺书",
                 "联合体协议书", "投标函价格表", "报价明细表", "公章对投标专用章授权书", "制造商授权委托书",
-                "投标人与国家电网公司系统人员关系说明", "应答人与国家电网公司系统人员关系说明", "投标保证金明细表", "业绩和实施经验表")
+                "投标人与国家电网公司系统人员关系说明", "应答人与国家电网公司系统人员关系说明", "响应供应商与国家电网公司系统人员关系说明", "投标保证金明细表", "业绩和实施经验表")
 
 
 def extract_format_blocks(doc, chapters) -> list[FormatBlock]:

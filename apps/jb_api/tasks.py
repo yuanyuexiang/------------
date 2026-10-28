@@ -57,6 +57,10 @@ def _run_parse(task_id: str, project_id: str) -> None:
         return
     with session() as s:
         p = s.get(Project, project_id)
+        if p.trm_confirmed:
+            pm.log_event(s, project_id, "reparsed", "重新解析：原确认版已存档，新结果待核对",
+                         {"previous_confirmed": p.trm_confirmed})
+            p.trm_confirmed = None
         p.trm = trm.model_dump()
         p.batch_name, p.batch_no, p.status = trm.batch_name, trm.batch_no, "parsed"
         if not p.deadline_manual:            # 人工改过的截止时间不被重新解析覆盖
@@ -120,10 +124,25 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
         zip_dir = os.path.dirname(p.zip_path)
         zip_path = p.zip_path
         att_paths = {a.id: absolute_path(a) for a in list_attachments(s, profile_name)}
+        from jb_docgen.workflow import latest
+        previous = latest(p, pkg_index)
+        previous_sections = None
+        if previous and previous.get('input_hash') == input_hash:
+            previous_task = s.get(Task, previous['id'])
+            previous_result = (previous_task.result or {}) if previous_task else {}
+            sections = previous_result.get('draft_sections', [])
+            if any(not section.get('by_llm') for section in sections):
+                previous_sections = sections
     if not (0 <= pkg_index < len(trm.packages)):
         _update(task_id, status="failed", message="pkg_index 越界")
         return
     pkg = trm.packages[pkg_index]
+    from jb_agents.preflight import generation_issues
+    issues = generation_issues(trm, pkg)
+    if with_draft and any(item['blocking'] for item in issues):
+        _update(task_id, status="failed", message="生成前检查未通过：" + "；".join(
+            item['message'] for item in issues if item['blocking']))
+        return
     drafts = None
     draft_md = ""
     d = None
@@ -149,7 +168,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                             message=f"AI 起草 {done + 1}/{total}：《{title}》")
 
                 d = draft_package(trm, pkg, cp, use_llm=True, spec_paths=spec_paths,
-                                  on_progress=report_progress)
+                                  on_progress=report_progress, previous_sections=previous_sections)
                 drafts, draft_md = d.sections, d.markdown()
             _update(task_id, progress=0.8, message="装配商务/技术文件")
             res = generate(trm, pkg, cp, staging, product_model or None, drafts=drafts,

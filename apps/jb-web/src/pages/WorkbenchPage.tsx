@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Empty, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
 import MaterialPicker from '../components/MaterialPicker'
@@ -14,6 +14,7 @@ const VERDICT_CN: Record<string, string> = { satisfied: '满足', deviation: '�
 export default function WorkbenchPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
+  const qc = useQueryClient()
   const { data: trm } = useQuery({ queryKey: ['trm', id], queryFn: () => api.trm(id, true) })
   const { data: profiles = [] } = useQuery({ queryKey: ['profiles'], queryFn: api.profiles })
   const [profile, setProfile] = useState<string>()
@@ -31,6 +32,7 @@ export default function WorkbenchPage() {
     refetchInterval: (q) => ['done', 'failed'].includes(q.state.data?.status ?? '') ? false : 2000,
   })
   const gen = flow?.generation
+  const [issueCategory, setIssueCategory] = useState<string>()
   const review = flow?.review
   const running = busy || (!!effectiveTaskId && !['done', 'failed'].includes(task?.status ?? ''))
   const [score, setScore] = useState<{ items: ItemScore[]; tech_total: number | null; tech_max: number; biz_total: number | null; biz_max: number; weighted: number | null } | null>(null)
@@ -38,8 +40,12 @@ export default function WorkbenchPage() {
   useEffect(() => { if (!profile && flow?.profile) setProfile(flow.profile) }, [profile, flow?.profile])
   useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]) }, [id, profile, pkgIndex])
   useEffect(() => {
-    if (task?.status === 'done' || task?.status === 'failed') void refreshFlow()
-  }, [task?.status, refreshFlow])
+    if (task?.status === 'done' || task?.status === 'failed') {
+      void refreshFlow()
+      void qc.invalidateQueries({ queryKey: ['trm', id] })
+      void qc.invalidateQueries({ queryKey: ['relationship', id] })
+    }
+  }, [task?.status, refreshFlow, qc, id])
 
   const run = async () => {
     if (!profile) return message.warning('请选择企业档案')
@@ -82,12 +88,17 @@ export default function WorkbenchPage() {
         <div className="workbench-inputs">
           <div><label htmlFor="workbench-profile">企业档案</label><Select id="workbench-profile" placeholder="请选择企业档案" disabled={running} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} /></div>
           <div><label htmlFor="workbench-package">本次分包</label><Select id="workbench-package" placeholder="请选择分包" disabled={running} value={pkgIndex} onChange={setPkgIndex}
-            options={(trm?.packages ?? []).map((p, i) => ({ value: i, label: `${p.sub_no} ${p.sub_name} ${p.pkg_no}`.trim() }))} /></div>
+            options={(trm?.packages ?? []).map((p, i) => ({ value: i, label: `${p.pkg_no} ${p.project_name || p.sub_name || "分包信息待解析"}`.trim() }))} /></div>
           <div className="workbench-draft"><span>技术方案起草<small>AI 先写方案，人工核对事实与承诺</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
         </div>
         <div className="workbench-action-bar">
           <Space wrap>
             <Button type="primary" onClick={run} disabled={running || !profile}>生成商务 / 技术文件</Button>
+            <Button disabled={running} onClick={async () => {
+              setBusy(true)
+              try { const result = await api.reparse(id); setTaskId(result.task_id); await refreshFlow() }
+              catch (e) { message.error(String(e)) } finally { setBusy(false) }
+            }}>重新解析原文件</Button>
             <Button onClick={doReview} disabled={!gen || !profile || running}>合规审查 / 复查</Button>
           </Space>
           <Space wrap>
@@ -104,6 +115,10 @@ export default function WorkbenchPage() {
         )}
       </Card>
 
+      {!!flow?.preflight?.length && <Alert showIcon type={flow.preflight.some(x => x.blocking) ? 'error' : 'warning'}
+        message="生成前检查" description={<ul>{flow.preflight.map((x, i) => <li key={i}>{x.message} — {x.action}</li>)}</ul>} />}
+      {flow?.stale && <Alert showIcon type="warning" message="以下为已过期生成结果，不代表当前资料缺口"
+        description="采购要求、企业资料或本次确认已变化，请重新生成；旧文件仅供追溯。" />}
       {profile && <RelationshipConfirmation key={`relationship:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow() }} />}
       {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow() }} />}
 
@@ -133,22 +148,26 @@ export default function WorkbenchPage() {
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert type="info" showIcon message="AI 负责起草方案；请核对事实、实施安排与对外承诺"
                 description="此清单用于集中处理，不代表已确认，也不替代合规审查。起草失败应重新生成，无需人工补写整章。" />
-              <Table size="small" rowKey={(_, i) => String(i)} dataSource={gen.confirmations} pagination={{ pageSize: 15 }}
+              <Select allowClear placeholder="全部问题类型" style={{ minWidth: 220 }} value={issueCategory} onChange={setIssueCategory}
+                options={[...new Set(gen.confirmations.map(x => x.category))].map(category => ({ value: category, label: `${category}（${gen.confirmations!.filter(x => x.category === category).length}）` }))} />
+              <Button disabled={running || !profile || flow?.stale} onClick={run}>重试起草失败章节</Button>
+              <Table size="small" rowKey={(_, i) => String(i)} dataSource={gen.confirmations.filter(x => !issueCategory || x.category === issueCategory)} pagination={{ pageSize: 15 }}
                 columns={[
                   { title: '类型', dataIndex: 'category', width: 160 },
                   { title: '章节 / 文件', dataIndex: 'location', width: 220 },
                   { title: '核对事项', dataIndex: 'message' },
+                  { title: '出现次数', dataIndex: 'occurrences', width: 85, render: (v) => v ?? 1 },
                   { title: '处理方式', dataIndex: 'action' },
                 ]} />
             </Space>
           ) }] : []),
-          { key: 'f', label: '文件与待补充', children: (
+          { key: 'f', label: '文件与问题位置', children: (
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert type={gen.summary.export_blocked ? 'warning' : 'success'}
-                message={gen.summary.export_blocked ? `共 ${gen.summary.todo_count} 处【待补充】，请按集中核对清单处理后重新生成` : '无待补充；正式导出还需通过本版本合规审查'} />
+                message={gen.summary.export_blocked ? `文件共 ${gen.summary.todo_count} 处标记，重复问题已在集中核对中合并；不等于缺少同等数量的企业材料` : '无待补充；正式导出还需通过本版本合规审查'} />
               {gen.summary.mode && (
                 <Typography.Text type="secondary">
-                  版式：{Object.values(gen.summary.mode).every((m) => m === 'master') ? '招标文件第六章母版（原版式）' : Object.values(gen.summary.mode).every((m) => m === 'plain') ? '系统自建版式（未取到母版）' : `商务 ${gen.summary.mode.commercial === 'master' ? '母版' : '自建'} / 技术 ${gen.summary.mode.technical === 'master' ? '母版' : '自建'}`}
+                  版式：{Object.values(gen.summary.mode).every((m) => m === 'master') ? '采购文件规定格式（原版式）' : Object.values(gen.summary.mode).every((m) => m === 'plain') ? '系统自建版式（未取到母版）' : `商务 ${gen.summary.mode.commercial === 'master' ? '母版' : '自建'} / 技术 ${gen.summary.mode.technical === 'master' ? '母版' : '自建'}`}
                   {(gen.summary.notes ?? []).length > 0 && <>；{gen.summary.notes!.join('；')}</>}
                 </Typography.Text>
               )}
@@ -161,7 +180,7 @@ export default function WorkbenchPage() {
               ))}
               {Object.entries(gen.todos).map(([f, list]) => list.length > 0 && (
                 <Card key={f} size="small" title={`${f} 待补充清单`}>
-                  <ul style={{ margin: 0, paddingLeft: 20, columns: 2 }}>{list.slice(0, 60).map((t, i) => <li key={i}>{t}</li>)}</ul>
+                  <ul style={{ margin: 0, paddingLeft: 20, columns: 2 }}>{[...new Set(list)].map((t, i) => <li key={i}>{t}{list.filter(x => x === t).length > 1 ? `（${list.filter(x => x === t).length}处）` : ""}</li>)}</ul>
                   {list.length > 60 && <Typography.Text type="secondary">…共 {list.length} 处</Typography.Text>}
                 </Card>
               ))}
