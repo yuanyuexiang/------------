@@ -58,9 +58,14 @@ def public(row):
 def listing():
     with session() as s:
         data = config.get_setting(s, KEY)
-        return {'default_id': data.get('default_id', 'legacy'),
-                'connections': [{**r, 'validation': validation_status(r['id'])} for r in
-                                [public(legacy(s)), *[public(r) for r in data.get('rows', [])]]]}
+        default_id = data.get('default_id', 'legacy')
+        rows = [public(r) for r in data.get('rows', [])]
+        # 已切换到接入的服务商后，不再展示重复的部署连接。
+        # 旧部署仍在使用环境变量时保留入口；运行中的旧任务仍可解析其连接。
+        if default_id == 'legacy':
+            rows.insert(0, public(legacy(s)))
+        return {'default_id': default_id,
+                'connections': [{**r, 'validation': validation_status(r['id'])} for r in rows]}
 
 
 def resolve(connection_id=None):

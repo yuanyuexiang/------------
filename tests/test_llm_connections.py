@@ -26,6 +26,7 @@ def test_encrypted_storage_edit_and_default(client):
     assert connections.resolve(row['id'])['api_key'] == 'secret-test-key'
     listing = client.get('/api/config/llm/connections').json()
     assert listing['default_id'] == 'legacy'
+    assert any(r['id'] == 'legacy' for r in listing['connections'])
     assert 'secret' not in json.dumps(listing)
     body = {k: v for k, v in row.items() if k not in ('id', 'key_configured')}
     body.update(name='改名', api_key='')
@@ -33,6 +34,10 @@ def test_encrypted_storage_edit_and_default(client):
     assert connections.resolve(row['id'])['api_key'] == 'secret-test-key'
     assert client.post('/api/config/llm/connections/' + row['id'] + '/default').status_code == 200
     assert client.get('/api/config/llm').json()['effective']['model'] == 'model-test'
+    listing = client.get('/api/config/llm/connections').json()
+    assert listing['default_id'] == row['id']
+    assert [r['id'] for r in listing['connections']] == [row['id']]
+    assert connections.resolve('legacy')['id'] == 'legacy'  # 兼容已有任务快照
     body['api_key'] = 'replacement-key'
     client.put('/api/config/llm/connections/' + row['id'], json=body)
     assert connections.resolve(row['id'])['api_key'] == 'replacement-key'
