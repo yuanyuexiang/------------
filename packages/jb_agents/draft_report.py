@@ -58,7 +58,11 @@ def confirmation_items(draft: Draft | None,
                 add('招标原文待核对', filename, message,
                     '由系统从采购文件和本包规范正文提取；确实没有原件时才补交文件')
                 continue
-            if any(word in message for word in ('被授权人', '拟任', '拟投入', '可投入', '签约日期', '开工日期')):
+            if '签约日期' in message:
+                add('企业事实待补充', filename, message,
+                    '在投标准备任务的历史合同日期中选择对应业绩，对照合同签署页填写日期和依据')
+                continue
+            if any(word in message for word in ('被授权人', '拟任', '拟投入', '可投入', '开工日期')):
                 add('本次投标事实待确认', filename, message,
                     '由投标负责人确认本次人选、安排或日期；不要求补写章节')
                 continue

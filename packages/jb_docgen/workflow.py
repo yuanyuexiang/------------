@@ -56,6 +56,7 @@ def inputs(s, p: Project, profile: str):
     digest = fingerprint({"trm": trm.model_dump(), "profile": cp.model_dump(),
                           "attachments": attachments, "open_time": p.open_time,
                           "deadline": p.deadline,
+                          "bid_facts": (p.results or {}).get("bid_facts", {}),
                           "relationship_confirmations": (p.results or {}).get("relationship_confirmations", {}),
                           "material_selections": (p.results or {}).get("material_selections", {})})
     return trm, cp, digest
@@ -71,7 +72,9 @@ def material_selection(p: Project, pkg_index: int, profile: str) -> MaterialSele
 
 
 def selected_profile(p: Project, pkg_index: int, profile: CompanyProfile):
-    return select_profile(profile, material_selection(p, pkg_index, profile.name))
+    from .preparation import apply_facts
+    return select_profile(apply_facts(p, pkg_index, profile),
+                          material_selection(p, pkg_index, profile.name))
 
 
 def qualify_selected(p: Project, trm: TRM, profile: CompanyProfile, use_llm: bool):
@@ -85,6 +88,13 @@ def qualify_selected(p: Project, trm: TRM, profile: CompanyProfile, use_llm: boo
 def save_selection(p: Project, pkg_index: int, profile: CompanyProfile, data: dict) -> None:
     selection = MaterialSelection.model_validate(data)
     select_profile(profile, selection)  # 校验所有引用属于本企业且已审核
+    # 改变选材人员后，原来的项目岗位与到岗确认不能继续生效。
+    if selection.personnel != material_selection(p, pkg_index, profile.name).personnel:
+        facts = dict((p.results or {}).get('bid_facts', {}))
+        key = material_key(pkg_index, profile.name)
+        if facts.get(key, {}).get('team'):
+            facts[key] = {k: v for k, v in facts[key].items() if k != 'team'}
+            pm.set_result(p, 'bid_facts', facts)
     selections = dict((p.results or {}).get("material_selections", {}))
     selections[material_key(pkg_index, profile.name)] = selection.model_dump()
     pm.set_result(p, "material_selections", selections)
@@ -117,7 +127,7 @@ def source_blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> 
     reasons = []
     if not p.trm_confirmed:
         reasons.append("TRM 尚未人工确认，请先确认招标要求")
-    active = s.scalar(select(Task.id).where(Task.project_id == p.id, Task.kind == "generate",
+    active = s.scalar(select(Task.id).where(Task.project_id == p.id, Task.kind.in_(["parse", "generate"]),
                                            Task.status.in_(["queued", "running"])).limit(1))
     if active:
         reasons.append("文件正在生成，请等待任务完成")
@@ -126,8 +136,14 @@ def source_blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> 
     if profile and profile != a["profile"]:
         reasons.append("当前企业与生成文件使用的企业不一致，请重新生成")
     try:
-        if inputs(s, p, a["profile"])[2] != a["input_hash"]:
+        _, current_profile, digest = inputs(s, p, a["profile"])
+        if digest != a["input_hash"]:
             reasons.append("TRM、企业档案或附件已变化，请重新生成后复查")
+        from .preparation import fact_state, team_blockers
+        for kind, state in fact_state(p, a['pkg_index'], current_profile).items():
+            if state['stale']:
+                reasons.append(('本次授权' if kind == 'authorization' else '项目团队') + '确认已失效，请重新核实')
+        reasons.extend(team_blockers(p, a['pkg_index'], current_profile))
     except WorkflowError as exc:
         reasons.append(str(exc))
     for name, digest in a["files"].items():

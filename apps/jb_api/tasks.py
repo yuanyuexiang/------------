@@ -233,9 +233,42 @@ def run_generate(task_id: str, *args) -> None:
         _update(task_id, status="failed", message=f"生成失败: {exc}"[:2000])
 
 
+def run_suggestion(task_id, project_id, profile_name, pkg_index, kind, item_id):
+    try:
+        import jb_llm
+        from jb_agents.preparation import suggest
+        from jb_docgen.workflow import inputs
+        from jb_store.llm_connections import resolve
+
+        from . import config as config_api
+        config_api.install_usage_hook()
+        config_api.load_llm_settings()
+        _as_actor(task_id)
+        _update(task_id, status='running', progress=0.1, message='检索现有资料并核对原文出处')
+        with session() as s:
+            p = s.get(Project, project_id)
+            _, cp, revision = inputs(s, p, profile_name)
+            with jb_llm.using_connection({**resolve(), 'project_id': project_id, 'task_id': task_id}):
+                result = suggest(s, cp, kind, item_id, jb_llm)
+        _update(task_id, status='done', progress=1, message='资料建议已准备，请核实后采用',
+                result={**result, 'revision': revision, 'kind': kind, 'item_id': item_id,
+                        'profile': profile_name, 'pkg_index': pkg_index})
+    except Exception:
+        _update(task_id, status='failed', message='资料检索失败，请重试或直接查看原件；现有数据未改变')
+
+
 if celery_app is not None:
     run_parse_celery = celery_app.task(name="jinbang.parse")(run_parse)
     run_generate_celery = celery_app.task(name="jinbang.generate")(run_generate)
+    run_suggestion_celery = celery_app.task(name='jinbang.suggest')(run_suggestion)
+
+
+def submit_suggestion(background, task_id, *args):
+    if celery_app is not None:
+        run_suggestion_celery.delay(task_id, *args)
+        return 'celery'
+    background.add_task(run_suggestion, task_id, *args)
+    return 'inprocess'
 
 
 def submit_generate(background, task_id: str, *args) -> str:

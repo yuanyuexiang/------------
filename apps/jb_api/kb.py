@@ -61,6 +61,14 @@ def upsert_profile(name: str, profile: dict):
 def update_main(name: str, fields: dict):
     """只更新主档标量字段（名称/法人/注册资本/联系方式…），子表不受影响；主档不存在则新建。"""
     with session() as s:
+        from jb_docgen.preparation import STATS, save_company_task
+        cp = repo.load_profile(s, name)
+        if cp and fields and (set(fields) <= set(STATS) or set(fields) <= {'registration', 'shareholders'}):
+            try:
+                kind = 'statistics' if set(fields) <= set(STATS) else 'registration'
+                return save_company_task(s, cp, kind, fields).model_dump()
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
         return repo.save_main(s, name, fields).model_dump()
 
 

@@ -111,8 +111,15 @@ def _fill_basic_info(doc, ctx: GenContext) -> None:
         "注册资金（万元）": cap,
         "企业资质等级": '；'.join(f'{c.name}：{c.level}' for c in k.certificates
                                 if '资质' in c.name and c.level),
+        "助理工程师": _s(k.assistant_engineers), "技术员": _s(k.technicians),
+        **{label: (f'不适用（{value.reason}）' if value.not_applicable and value.reason
+                   else value.value) for label, value in k.registration.items()},
         "法定代表人（单位负责人）": k.legal_person, "法定代表人": k.legal_person, "技术负责人": k.legal_or_admin,
     }, row_scoped={"法定代表人": {"姓名": k.legal_person}, "技术负责人": {"姓名": k.legal_or_admin}})
+    if any(getattr(k, field) is not None for field in ('staff_total', 'staff_technical', 'senior_engineers', 'engineers')):
+        M.insert_paragraph_after(doc, t._tbl,
+                                 '人员统计日期：' + (k.staff_as_of or todo('企业人员统计日期'))
+                                 + '；统计依据：' + (k.staff_source or todo('企业人员统计依据')))
     # 此类母版还包含未结构化的管理信息，不能把未填空表当成已完成。
     remaining = []
     for row in t.rows:
@@ -125,7 +132,13 @@ def _fill_basic_info(doc, ctx: GenContext) -> None:
         M.insert_paragraph_after(doc, t._tbl, todo('企业基本情况表未核实字段：' + '、'.join(remaining)))
     owners = M.find_table(doc, ['股东或上级管理单位名称', '出资金额', '出资比例'], min_hits=3, head_rows=1)
     if owners is not None and M.data_rows(owners):
-        M.insert_paragraph_after(doc, owners._tbl, todo('股东或上级管理单位名称、出资金额及出资比例'))
+        if k.shareholders:
+            M.fill_by_header(owners, [{'name': x.name, 'amount': _wan(x.amount_wan) or todo(f'{x.name}出资金额'),
+                                      'ratio': f'{x.ratio:g}%' if x.ratio is not None else todo(f'{x.name}出资比例')}
+                                     for x in k.shareholders],
+                             [('股东或上级管理单位名称', 'name'), ('出资金额', 'amount'), ('出资比例', 'ratio')])
+        else:
+            M.insert_paragraph_after(doc, owners._tbl, todo('股东或上级管理单位名称、出资金额及出资比例'))
 
 
 def _fill_financials(doc, ctx: GenContext) -> Optional[Table]:
@@ -295,7 +308,7 @@ def _fill_performances(doc, ctx: GenContext) -> None:
     model = ctx.product.model if ctx.product else ""
     recs = [{"model": model or x.material_category or None, "project": x.project, "buyer": x.buyer or todo("买方"),
              "amount": _wan(x.amount_wan) or todo("合同金额"), "done": x.commissioned_date or todo("投运时间"),
-             "signed": x.signed_date or todo("签约日期"), "voltage": x.voltage_level or None,
+             "signed": x.signed_date or todo(f"历史业绩《{x.project}》签约日期"), "voltage": x.voltage_level or None,
              "contact": todo(f"{x.project} 联系人及电话"), "evidence": "/".join(x.evidence), "remark": ""}
             for x in k.performances]
     colmap = [("产品型式|物料|产品名称|设备", "model"), ("工程名称|项目名称", "project"),

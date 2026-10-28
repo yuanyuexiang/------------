@@ -131,6 +131,21 @@ export interface ProfileSummary { name: string; credit_code: string; updated_at:
 export interface ExpiryItem { kind: string; id: string; name: string; number: string; valid_until: string; days_left: number | null; level: 'expired' | 'd30' | 'd60' | 'd90' | 'ok' | 'unknown' }
 export interface ExpiryReport { items: ExpiryItem[]; summary: Record<string, number> }
 
+export interface PreparationTask { id: string; title: string; occurrences: number; items: { message: string; file: string }[] }
+export interface BidMember { person_id: string; role: string; available: boolean }
+export interface BidFactState { stale: boolean; confirmation: { data: { person_id?: string; title?: string; members?: BidMember[]; arrival_commitment?: boolean }; confirmed_by: string; confirmed_at: string } | null }
+export interface PreparationState {
+  revision: string; profile: CompanyProfile; tasks: PreparationTask[]; facts: Record<string, BidFactState>
+  generation_stale: boolean; generation_id: string | null; attachments: Attachment[]; missing_dates: Performance[]
+  roles: { role: string; count: number; requirement: string; source: string }[]
+  team_requirements: { id: string; text: string }[]
+}
+export interface FactSuggestions {
+  revision: string; kind: string; item_id: string; profile: string; pkg_index: number; message: string
+  candidates: { field: string; value: unknown; quote: string; source: string; attachment_id: string; note: string }[]
+  unreadable: string[]; checked: { title: string; attachment_id: string }[]
+}
+
 export interface Finding { rule_id: string; level: string; title: string; message: string; location: string; source: string }
 export interface ReviewResult { generation_id: string; blocked: boolean; counts: Record<string, number>; findings: Finding[]; markdown: string }
 export interface WorkflowState {
@@ -240,6 +255,9 @@ export const api = {
       confirmation: { status: 'none' | 'exists'; people: string[][]; confirmed_by: string; confirmed_at: string } | null }>(`/api/projects/${id}/relationship?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
   saveRelationship: (id: string, profile: string, pkgIndex: number, data: { source: string; status: 'none' | 'exists'; people: string[][] }) =>
     req<{ ok: boolean }>(`/api/projects/${id}/relationship?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json(data)),
+  preparation: (id: string, profile: string, pkgIndex: number) => req<PreparationState>(`/api/projects/${id}/preparation?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
+  savePreparation: (id: string, profile: string, pkgIndex: number, kind: string, revision: string, data: unknown) => req<{ ok: boolean }>(`/api/projects/${id}/preparation/${kind}?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json({ revision, data })),
+  suggestPreparation: (id: string, profile: string, pkgIndex: number, kind: string, itemId = '') => req<{ task_id: string }>(`/api/projects/${id}/preparation/suggest/${kind}?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&item_id=${encodeURIComponent(itemId)}`, { method: 'POST' }),
   materials: (id: string, profile: string, pkgIndex: number) =>
     req<{ selection: MaterialSelection; profile: CompanyProfile }>(`/api/projects/${id}/materials?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
   saveMaterials: (id: string, profile: string, pkgIndex: number, selection: MaterialSelection) =>

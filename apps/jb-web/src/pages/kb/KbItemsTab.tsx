@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Form, Input, InputNumber, Modal, Popconfirm, Popover, Select, Space, Table, Tag, Tooltip, Typography, Upload, message } from 'antd'
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
@@ -47,7 +48,7 @@ function renderCell(f: FieldSpec, v: unknown) {
   }
 }
 
-function FieldInput({ f }: { f: FieldSpec }) {
+function fieldInput(f: FieldSpec) {
   switch (f.type) {
     case 'textarea': return <Input.TextArea rows={f.key === 'text' ? 8 : 4} />
     case 'number': return <InputNumber style={{ width: '100%' }} />
@@ -93,6 +94,17 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
     form.resetFields()
     form.setFieldsValue(init)
   }
+  const [params] = useSearchParams()
+  const handledItem = useRef('')
+  const requestedItem = params.get('item') ?? ''
+  useEffect(() => {
+    if (!requestedItem || handledItem.current === requestedItem || isLoading) return
+    const item = items.find(x => x.id === requestedItem)
+    if (requestedItem === 'new' || item) {
+      handledItem.current = requestedItem
+      open(item ?? 'new')
+    }
+  }, [requestedItem, items, isLoading])
   const submit = async () => {
     const v = await form.validateFields()
     for (const f of spec.fields) {
@@ -162,7 +174,7 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
               return (
                 <Form.Item key={f.key} name={f.key} label={f.label} extra={f.hint} style={wide ? { gridColumn: '1 / -1' } : undefined}
                   rules={[...(f.required ? [{ required: true, message: `请填写${f.label}` }] : []), ...(f.type === 'date' ? [DATE_RULE] : [])]}>
-                  <FieldInput f={f} />
+                  {fieldInput(f)}
                 </Form.Item>
               )
             })}

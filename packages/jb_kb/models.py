@@ -37,6 +37,9 @@ class Person(BaseModel):
     title: str = ""             # 职务/职称
     major: str = ""
     education: str = ""         # 学历
+    graduation_date: str = ""  # 证书载明的毕业日期，不由年龄推算
+    relevant_experience_years: Optional[float] = Field(default=None, ge=0)
+    experience_source: str = ""  # 相关经历证明及口径
     social_insurance_unit: str = ""   # 社保缴纳单位（须与投标人一致）
     social_insurance_months: list[str] = Field(default_factory=list)  # 有社保记录的月份 YYYY-MM（证明扫描件走 attachments）
     available: Optional[bool] = None  # 可投入状态；None=未录入
@@ -130,6 +133,20 @@ class Attachment(BaseModel):
     uploaded_at: str = ""
 
 
+class RegistrationFact(BaseModel):
+    value: str = ""
+    not_applicable: bool = False
+    reason: str = ""
+    source: str = ""
+
+
+class Shareholder(BaseModel):
+    name: str
+    amount_wan: Optional[float] = Field(default=None, ge=0)
+    ratio: Optional[float] = Field(default=None, ge=0, le=100)
+    source: str = ""
+
+
 class CompanyProfile(BaseModel):
     name: str = ""
     credit_code: str = ""
@@ -143,10 +160,18 @@ class CompanyProfile(BaseModel):
     phone: str = ""
     email: str = ""
     website: str = ""
-    staff_total: Optional[int] = None
-    staff_technical: Optional[int] = None
-    senior_engineers: Optional[int] = None
-    engineers: Optional[int] = None
+    staff_total: Optional[int] = Field(default=None, ge=0)
+    staff_technical: Optional[int] = Field(default=None, ge=0)
+    senior_engineers: Optional[int] = Field(default=None, ge=0)
+    engineers: Optional[int] = Field(default=None, ge=0)
+    assistant_engineers: Optional[int] = Field(default=None, ge=0)
+    technicians: Optional[int] = Field(default=None, ge=0)
+    staff_as_of: str = ""
+    staff_source: str = ""
+    registration: dict[str, RegistrationFact] = Field(default_factory=dict)
+    shareholders: list[Shareholder] = Field(default_factory=list)
+    # 由项目确认派生，仅用于生成；不写入长期企业档案。
+    bid_context: dict = Field(default_factory=dict, exclude=True)
     business_scope: str = ""
     certificates: list[Certificate] = Field(default_factory=list)
     personnel: list[Person] = Field(default_factory=list)

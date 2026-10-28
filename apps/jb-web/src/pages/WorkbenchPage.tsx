@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Empty, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
 import MaterialPicker from '../components/MaterialPicker'
-import RelationshipConfirmation from '../components/RelationshipConfirmation'
+import PreparationPanel from '../components/PreparationPanel'
 
 const LEVEL: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
 const VERDICT: Record<string, string> = { satisfied: 'green', deviation: 'red', unknown: 'orange', missing: 'default' }
@@ -44,6 +44,7 @@ export default function WorkbenchPage() {
       void refreshFlow()
       void qc.invalidateQueries({ queryKey: ['trm', id] })
       void qc.invalidateQueries({ queryKey: ['relationship', id] })
+      void qc.invalidateQueries({ queryKey: ['preparation', id] })
     }
   }, [task?.status, refreshFlow, qc, id])
 
@@ -119,8 +120,8 @@ export default function WorkbenchPage() {
         message="生成前检查" description={<ul>{flow.preflight.map((x, i) => <li key={i}>{x.message} — {x.action}</li>)}</ul>} />}
       {flow?.stale && <Alert showIcon type="warning" message="以下为已过期生成结果，不代表当前资料缺口"
         description="采购要求、企业资料或本次确认已变化，请重新生成；旧文件仅供追溯。" />}
-      {profile && <RelationshipConfirmation key={`relationship:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow() }} />}
-      {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow() }} />}
+      {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onGenerate={async () => { await run() }} onSaved={() => { setScore(null); void refreshFlow() }} />}
+      {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }) }} />}
 
       {!gen && !running && !flowError && <Card className="business-empty"><Empty description={<span>开始准备本包投标文件<br /><small>选择企业档案与分包，生成文件后查看待补充项并进行合规审查</small></span>} /></Card>}
 

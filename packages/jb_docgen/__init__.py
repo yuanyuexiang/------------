@@ -95,6 +95,9 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
         build_commercial(ctx, com)
     if mode["technical"] == "plain":
         tech, results = build_technical(ctx, tech)
+    from .preparation import append_authorization_document, append_team_document
+    append_team_document(tech, profile)
+    append_authorization_document(com, ctx)
     res = GenResult(commercial_path=com, technical_path=tech, todos=ctx.todos, tech_params=results,
                     mode=mode, notes=ctx.notes)
     if profile.is_demo:

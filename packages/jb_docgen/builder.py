@@ -337,7 +337,7 @@ def build_technical(ctx: GenContext, out_path: str) -> tuple[str, list[TechParam
     _h(d, "供货及运行业绩表", 2)
     if k.performances:
         _table(d, ["序号", "项目名称", "买方", "签约时间", "金额（万元）", "证明材料"],
-               [[str(i + 1), x.project, x.buyer or todo("买方"), x.signed_date or todo("签约日期"),
+               [[str(i + 1), x.project, x.buyer or todo("买方"), x.signed_date or todo(f"历史业绩《{x.project}》签约日期"),
                  x.amount_wan if x.amount_wan is not None else todo("合同金额"), "/".join(x.evidence)]
                 for i, x in enumerate(k.performances)])
         for x in k.performances:

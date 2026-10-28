@@ -121,6 +121,9 @@ def _facts_block(profile: CompanyProfile) -> tuple[str, set[str]]:
         "test_reports", "boilerplates", "sources", "legal_person_id_no",
     }, exclude_none=True)
     lines = [f"[来源:fact-company] {company}"]
+    if profile.bid_context:
+        lines.append(f"[来源:fact-bid-confirmed] 本次标包已确认的授权和团队安排：{profile.bid_context}。"
+                     "名单和到岗安排不代替学历、相关工作年限等证据；缺证据时必须指明具体人员及缺失字段。")
     lines.append(f"[来源:fact-selection] 当前选用已审核人员{len(profile.personnel)}名、"
                  f"历史业绩{len(profile.performances)}项；选用不代表已确认本包投入或满足资格。")
     for category, records in (
@@ -168,6 +171,7 @@ def _prompt(section: DraftSection, pkg: PackageTRM, facts: str, chunks: list[tup
 9. 仅在必须于投标时确认的企业事实缺失时使用待补充。采购人接口目录、账号、联系人、启动日期、培训排期、项目执行时形成的成果清单，应写清启动阶段的获取与确认步骤，不新增待补充，不要求提前提供尚未形成的文件。
 10. 每个含数字的分句必须紧跟来源。拟定步骤、里程碑和相对进度用中文序号及阶段名称，不写无依据的数字。不输出来源ID本身作为正文内容。
 11. 不输出占位符示例、写作规则或“对无证据内容保留待补充”等编辑说明，直接写本项目实质响应。
+12. fact-bid-confirmed 是本包经用户确认的安排，不得再次笼统要求提供已确认名单或到岗承诺。结合人员毕业日期、相关工作年限及经历出处核验资格；缺项写具体人名和字段，不能把选定人员直接说成资格全部满足。
 只输出章节正文。"""
 
 

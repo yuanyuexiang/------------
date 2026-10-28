@@ -27,6 +27,7 @@ from sqlalchemy import select
 from . import auth as auth_api
 from . import config as config_api
 from . import kb, tasks
+from . import preparation as preparation_api
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.getcwd(), "uploads"))
 
@@ -44,6 +45,7 @@ async def lifespan(_: FastAPI):
     jb_llm.set_resolver(None)
 
 
+
 app = FastAPI(title="Jinbang API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +56,7 @@ app.add_middleware(
 app.middleware("http")(auth_api.auth_middleware)   # 除 health/login 外全部要求登录
 app.include_router(auth_api.router)     # 登录 / 用户管理：/api/auth/*、/api/users/*
 app.include_router(kb.router)   # 企业知识库：/api/profiles/*、/api/attachments/*
+app.include_router(preparation_api.router)
 app.include_router(config_api.router)   # 配置中心：/api/config/*
 
 

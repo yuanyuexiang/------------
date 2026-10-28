@@ -5,6 +5,7 @@ import { Badge, Breadcrumb, Button, Card, Form, Input, InputNumber, Popconfirm, 
 import { InboxOutlined } from '@ant-design/icons'
 import { api, fmtUtc, Attachment, CompanyProfile, ExpiryItem } from '../../api'
 import { KIND_SPECS } from './fields'
+import CompanyFactsFields, { STAT_FIELDS } from '../../components/CompanyFactsFields'
 import KbItemsTab from './KbItemsTab'
 
 const LEVEL: Record<ExpiryItem['level'], { color: string; text: string }> = {
@@ -50,10 +51,7 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
         {text('phone', '电话')}
         {text('email', 'E-mail')}
         {text('website', '网址')}
-        {num('staff_total', '员工总数')}
-        {num('staff_technical', '技术人员')}
-        {num('senior_engineers', '高级职称')}
-        {num('engineers', '中级职称')}
+
         <Form.Item name="business_scope" label="经营范围" style={{ gridColumn: '1 / -1' }}><Input.TextArea rows={3} /></Form.Item>
       </div>
       <Space>
@@ -62,6 +60,25 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
       </Space>
     </Form>
   )
+}
+
+function CompanyFactsTab({ company, profile, kind }: { company: string; profile: CompanyProfile; kind: string }) {
+  const [form] = Form.useForm()
+  const qc = useQueryClient()
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { form.setFieldsValue(profile) }, [profile, form])
+  return <Form form={form} layout="vertical" onFinish={async values => {
+    setSaving(true)
+    try {
+      if (kind === 'statistics') for (const [key] of STAT_FIELDS) values[key] = values[key] ?? null
+      await api.saveMain(company, values)
+      message.success('已保存企业资料，关联投标项目需重新生成和复查')
+      await qc.invalidateQueries({ queryKey: ['profile', company] })
+    } catch (e) { message.error(String(e)) } finally { setSaving(false) }
+  }}>
+    <CompanyFactsFields kind={kind} form={form} />
+    <Button type="primary" htmlType="submit" loading={saving} style={{ marginTop: 16 }}>保存企业资料</Button>
+  </Form>
 }
 
 /** 有效期看板：证照 + 检测报告，按开标日推算。 */
@@ -144,11 +161,14 @@ export default function KbCompanyPage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
+      {params.get('returnTo')?.match(/^\/projects\/[a-z0-9]+\/workbench$/) && <Link to={params.get('returnTo')!}>返回本次投标工作台</Link>}
       <Breadcrumb items={[{ title: <Link to="/kb">企业知识库</Link> }, { title: profile.name }]} />
       <Card size="small" title={<Space>{profile.name}<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{profile.credit_code}</Typography.Text></Space>}>
-        <Tabs activeKey={tab} onChange={(k) => setParams({ tab: k })} destroyInactiveTabPane
+        <Tabs activeKey={tab} onChange={(k) => { const next = new URLSearchParams(params); next.set('tab', k); next.delete('item'); setParams(next) }} destroyInactiveTabPane
           items={[
             { key: 'main', label: '主档', children: <MainTab company={name} profile={profile} /> },
+            { key: 'statistics', label: '人员统计', children: <CompanyFactsTab company={name} profile={profile} kind="statistics" /> },
+            { key: 'registration', label: '登记与股权', children: <CompanyFactsTab company={name} profile={profile} kind="registration" /> },
             { key: 'expiry', label: <Badge count={alert} size="small" offset={[10, 0]}>有效期看板</Badge>, children: <ExpiryTab company={name} /> },
             ...KIND_SPECS.map((spec) => ({
               key: spec.kind, label: `${spec.title}（${profile[spec.kind]?.length ?? 0}）`,
