@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, Upload, message } from 'antd'
+import { Alert, Button, Form, Input, InputNumber, Modal, Popconfirm, Popover, Select, Space, Table, Tag, Tooltip, Typography, Upload, message } from 'antd'
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { api, Attachment, KbItem } from '../../api'
@@ -21,8 +21,16 @@ function renderCell(f: FieldSpec, v: unknown) {
   switch (f.type) {
     case 'bool3':
       return v === true ? <Tag color="green">是</Tag> : v === false ? <Tag>否</Tag> : <Tag color="orange">未录入</Tag>
-    case 'tags':
-      return (v as string[] | undefined)?.map((x) => <Tag key={x}>{x}</Tag>)
+    case 'tags': {
+      const values = (v as string[] | undefined) ?? []
+      if (!values.length) return <Typography.Text type="secondary">—</Typography.Text>
+      return <div className="kb-cell-tags">
+        {values.slice(0, 2).map((x) => <Tooltip key={x} title={x}><Tag>{x}</Tag></Tooltip>)}
+        {values.length > 2 && <Popover trigger="click" title={f.label} content={
+          <div className="kb-tags-detail">{values.map((x) => <Tag key={x}>{x}</Tag>)}</div>
+        }><Button type="link" size="small">查看全部（{values.length}）</Button></Popover>}
+      </div>
+    }
     case 'kv': {
       const o = (v ?? {}) as Record<string, string>
       const n = Object.keys(o).length
@@ -59,6 +67,7 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
   const { data: items = [], isLoading } = useQuery({ queryKey: key, queryFn: () => api.kbList<KbItem>(company, spec.kind) })
   const { data: attachments = [] } = useQuery({ queryKey: ['attachments', company], queryFn: () => api.attachments(company) })
   const [editing, setEditing] = useState<KbItem | null | 'new'>(null)
+  const [attachmentItem, setAttachmentItem] = useState<KbItem | null>(null)
   const [form] = Form.useForm()
   const invalidate = () => {
     for (const k of [key, ['profiles'], ['profile', company], ['expiry', company]]) qc.invalidateQueries({ queryKey: k })
@@ -104,15 +113,15 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
   const attName = (id: string) => attachments.find((a: Attachment) => a.id === id)
 
   const columns: ColumnsType<KbItem> = [
-    ...spec.fields.filter((f) => f.width).map((f) => ({
+    ...spec.fields.filter((f) => f.width).map((f, index) => ({
+      fixed: index === 0 ? 'left' as const : undefined,
       title: f.label, dataIndex: f.key, width: f.width, ellipsis: f.type !== 'tags' && f.type !== 'textarea',
       render: (v: unknown) => renderCell(f, v),
     })),
-    { title: '附件', dataIndex: 'attachments', width: 110, render: (ids: string[] = []) => ids.map((id) => {
-      const a = attName(id)
-      return a ? <a key={id} href={api.attachmentUrl(id)} target="_blank" rel="noreferrer" style={{ marginRight: 6 }}>{a.filename}</a> : null
-    }) },
-    { title: '操作', width: 90, render: (_, r) => (
+    { title: '附件', dataIndex: 'attachments', width: 120, render: (ids: string[] = [], record) =>
+      ids.length ? <Button type="link" size="small" onClick={() => setAttachmentItem(record)}>查看附件（{ids.length}）</Button>
+        : <Typography.Text type="secondary">—</Typography.Text> },
+    { title: '操作', fixed: 'right', width: 120, render: (_, r) => (
       <Space size="small">
         <Button size="small" type="link" onClick={() => open(r)}>编辑</Button>
         <Popconfirm title="确认删除？" onConfirm={() => remove.mutate(r.id)}><Button size="small" type="link" danger>删除</Button></Popconfirm>
@@ -121,7 +130,7 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
   ]
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+    <Space className="kb-items-tab" direction="vertical" style={{ width: '100%' }} size="middle">
       {spec.note && <Alert type="info" showIcon message={spec.note} />}
       <Space>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>新增{spec.title}</Button>
@@ -129,6 +138,20 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
       </Space>
       <Table<KbItem> size="small" rowKey="id" loading={isLoading} dataSource={items} columns={columns} tableLayout="fixed"
         scroll={{ x: columns.reduce((n, c) => n + Number(c.width ?? 0), 0) }} pagination={items.length > 20 ? { pageSize: 20 } : false} />
+
+      <Modal title={`${String(attachmentItem?.name ?? attachmentItem?.project ?? attachmentItem?.title ?? spec.title)} · 附件`}
+        className="jb-dialog" centered open={attachmentItem !== null} onCancel={() => setAttachmentItem(null)}
+        footer={<Button onClick={() => setAttachmentItem(null)}>关闭</Button>} width={720}>
+        <div className="kb-attachment-list">
+          {((attachmentItem?.attachments ?? []) as string[]).map((id) => {
+            const attachment = attName(id)
+            return <div key={id} className="kb-attachment-row">
+              {attachment ? <a href={api.attachmentUrl(id)} target="_blank" rel="noreferrer">{attachment.filename}</a>
+                : <Typography.Text type="secondary">附件不存在或已删除</Typography.Text>}
+            </div>
+          })}
+        </div>
+      </Modal>
 
       <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={editing !== null} title={editing === 'new' ? `新增${spec.title}` : `编辑${spec.title}`} width={720}
         onCancel={() => setEditing(null)} onOk={submit} confirmLoading={save.isPending} destroyOnClose>
