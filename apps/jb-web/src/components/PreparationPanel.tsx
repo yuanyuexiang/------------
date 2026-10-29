@@ -163,7 +163,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
             {editor.kind === 'system' && <Space direction="vertical"><Alert type="info" message="系统会先规范引用、检索本包原文并修复正文；不需要为引用格式错误补交资料。剩余无法验证的内容仍保留核查提示。" /><Button disabled={disabled} onClick={() => { setEditor(undefined); void onGenerate() }}>重新生成并自动复核</Button></Space>}
           </Form>}
         {['statistics', 'registration', 'performance', 'team'].includes(editor.kind) && <Card size="small" title={editor.kind === 'team' ? 'AI 检索人员证据并推荐岗位' : '先让 AI 检索已有资料'} extra={<Button loading={suggestionRunning} disabled={disabled || saving || (editor.kind === 'performance' && !itemId)} onClick={() => void suggest()}>检索并提取建议</Button>}>
-          <Typography.Paragraph type="secondary">仅检索本企业已有资料；建议带原文及出处，点击采用只带入表单，保存后才写入知识库。</Typography.Paragraph>
+          <Typography.Paragraph type="secondary">仅检索本企业已有资料；建议带原文及出处，点击采用只带入表单。{editor.kind === 'team' ? '核实并保存后，仅作为本包人员安排，不自动认定资格通过。' : '核实并保存后才写入知识库。'}</Typography.Paragraph>
           {task && <Alert type={task.status === 'failed' ? 'error' : 'info'} message={task.message} />}
           {suggestion && <>
             <Typography.Paragraph>{suggestion.message}</Typography.Paragraph>

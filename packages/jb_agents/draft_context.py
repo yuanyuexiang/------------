@@ -123,3 +123,19 @@ def attribute_contract_duration(text: str, sources: dict[str, str]) -> str:
     for phrase in set(re.findall(r'合同签订之日起\d+个月', requirement)):
         text = text.replace(phrase, phrase + '[来源:req-package]')
     return text
+
+
+def attribute_experience_verification(text: str, key: str, sources: dict[str, str]) -> str:
+    """当前岗位条目中拟核验的年限可引用该条款；不替人员证明已具备年限。"""
+    if not key.startswith('req-service-'):
+        return text
+    required = set(re.findall(r'(\d+)年相关工作经验', sources.get(key, '')))
+    def attribute(match):
+        sentence = match.group()
+        if (not re.search(r'拟[^。]*核验', sentence)
+                or re.search(r'已(?:有|具备|满足|达到)|保证|证明其(?:具有|具备)', sentence)):
+            return sentence
+        return re.sub(r'满(\d+)年相关经历证明(?!\[来源:)',
+                      lambda m: m.group() + f'[来源:{key}]' if m.group(1) in required else m.group(),
+                      sentence)
+    return re.sub(r'[^。\n]+[。]?', attribute, text)

@@ -26,7 +26,7 @@ def test_missing_identity_is_system_issue_and_duplicates_are_grouped():
     assert items[0].category == '招标原文待核对'
     assert items[0].occurrences == 3 and len(items[0].locations) == 2
     assert items[1].category == '本次投标事实待确认'
-    assert items[2].category == '引用依据待核对'
+    assert items[2].category == '系统生成待修复'
 
 
 SAMPLE = Path(__file__).resolve().parents[1] / '国网信通产业集团2026年产业单位第十七次服务类公开谈判采购（三）_采购文件包(1).zip'

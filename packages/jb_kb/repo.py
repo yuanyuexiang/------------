@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from jb_store import (
@@ -139,7 +140,9 @@ def save_profile(s: Session, name: str, profile: CompanyProfile) -> None:
     for key, kind in KINDS.items():
         existing = {r.id: r for r in s.execute(select(kind.orm).where(kind.orm.company == name)).scalars()}
         keep: set[str] = set()
-        for item in getattr(profile, key):
+        # 批量 INSERT 的默认时钟可能相同，不能让随机ID改变原始资料顺序。
+        created_base = max([datetime.utcnow(), *[r.created_at for r in existing.values()]])
+        for position, item in enumerate(getattr(profile, key), 1):
             rid = item.id or _uid()
             item.id = rid
             vals = kind.to_row_values(item)
@@ -147,7 +150,8 @@ def save_profile(s: Session, name: str, profile: CompanyProfile) -> None:
                 for c, v in vals.items():
                     setattr(existing[rid], c, v)
             else:
-                s.add(kind.orm(id=rid, company=name, **vals))
+                s.add(kind.orm(id=rid, company=name,
+                               created_at=created_base + timedelta(microseconds=position), **vals))
             keep.add(rid)
         for rid, r in existing.items():
             if rid not in keep:

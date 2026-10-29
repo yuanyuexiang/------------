@@ -211,7 +211,8 @@ def test_fullwidth_outline_and_project_items_are_formatting():
 
 def test_citation_guard_is_separate_from_missing_company_material():
     items = confirmation_items(None, {'技术.docx': ['数值需核实来源', '引用来源需核实', '合同金额']})
-    assert [item.category for item in items] == ['引用依据待核对', '引用依据待核对', '企业事实待补充']
+    assert [item.category for item in items] == ['系统生成待修复', '系统生成待修复', '企业事实待补充']
+    assert all('不要求企业补交资料' in item.action for item in items[:2])
 
 
 def test_markdown_table_ordinal_is_formatting_but_values_need_evidence():

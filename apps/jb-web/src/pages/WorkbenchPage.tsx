@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Empty, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Collapse, Empty, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
 import MaterialPicker from '../components/MaterialPicker'
 import PreparationPanel from '../components/PreparationPanel'
@@ -203,9 +203,12 @@ export default function WorkbenchPage() {
             }))} />
           ) },
           ...(Object.keys(gen.draft_sources ?? {}).length ? [{ key: 's', label: '起草引用依据', children: (
+            <Space direction="vertical" style={{ width: '100%' }}>
+            {!!gen.evidence_coverage?.length && <Collapse items={[{ key: 'coverage', label: '附件识别范围与未核验部分', children: <ul>{gen.evidence_coverage.map((value, i) => <li key={i}>{value}</li>)}</ul> }]} />}
             <Table size="small" rowKey="id" pagination={{ pageSize: 10 }}
               dataSource={Object.entries(gen.draft_sources ?? {}).map(([id, text]) => ({ id, text }))}
               columns={[{ title: '引用编号', dataIndex: 'id', width: 200 }, { title: '资料 / 招标要求原文', dataIndex: 'text' }]} />
+            </Space>
           ) }] : []),
           ...(gen.draft_markdown ? [{ key: 'd', label: '起草稿（带溯源）', children: <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{gen.draft_markdown}</pre> }] : []),
         ]} />

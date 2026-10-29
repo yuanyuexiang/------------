@@ -152,9 +152,13 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
             evidence, notes = collect_evidence(evidence_session, full_profile, 'team')
         budget, selected_evidence = 24000, []
         for item in evidence:
-            if item['id'].startswith('attachment-') and len(item['text']) <= budget:
+            if not item['id'].startswith('attachment-'):
+                continue
+            if len(item['text']) <= budget:
                 selected_evidence.append(item)
                 budget -= len(item['text'])
+            else:
+                notes.append(item['title'] + '：超出本次起草文本上限，未纳入模型依据')
         cp.bid_context['personnel_evidence'] = selected_evidence
         cp.bid_context['evidence_coverage'] = notes
     draft_md = ""
@@ -231,6 +235,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                     "draft_sections": [section.model_dump() for section in d.sections] if d else [],
                     "review_checks": d.review_checks if d else {},
                     "gap_details": res.gap_details,
+                    "evidence_coverage": cp.bid_context.get('evidence_coverage', []),
                     "confirmations": [item.model_dump() for item in confirmation_items(d, res.docx_todos)],
                     "tech_params": [{"spec_id": r.spec_id, "responses": [x.__dict__ for x in r.responses]} for r in res.tech_params]})
 

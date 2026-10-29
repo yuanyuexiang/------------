@@ -166,6 +166,7 @@ export interface GenResult {
   llm_connection?: { name: string; model: string }
   summary: { commercial: string; technical: string; todo_count: number; export_blocked: boolean; tech_params: { spec_id: string; rows: number; satisfied: number; deviation: number; unknown: number; missing: number }[]; mode?: Record<string, 'master' | 'plain'>; notes?: string[] }
   draft_sources?: Record<string, string>
+  evidence_coverage?: string[]
   confirmations?: { category: string; location: string; message: string; action: string; occurrences?: number; locations?: string[] }[]
   todos: Record<string, string[]>; files: string[]; draft_markdown: string
   tech_params: { spec_id: string; responses: { row: number; name: string; required: string; star: boolean; response: string; verdict: string; reason: string }[] }[]

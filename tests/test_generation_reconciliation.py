@@ -67,6 +67,27 @@ def test_failed_role_repair_remains_blocking():
     assert checks['a']['semantic']
 
 
+def test_negative_role_and_team_statements_are_not_false_confirmations():
+    context = {'authorization': {'name': '张某'}}
+    assert not semantic_issues('张某仅为授权代表，未取得本包任命前不得安排其担任项目负责人。'
+                               '候选人员不是已确认团队，不代表已确认到岗承诺。', context)
+    assert semantic_issues('张某不是普通成员，由张某统筹履约。', context)
+    assert semantic_issues('尚未确认其他人员，但本包已确认团队。', context)
+
+
+def test_planned_experience_check_uses_current_role_requirement_only():
+    from jb_agents.draft_context import attribute_experience_verification
+    sources = {'req-service-0-35': '岗位名称：项目负责人；需要有3年相关工作经验'}
+    text = '拟从本包团队确定人选，并核验劳动合同、社保及满3年相关经历证明。'
+    linked = attribute_experience_verification(text, 'req-service-0-35', sources)
+    assert '[来源:req-service-0-35]' in linked
+    assert not _check_numbers(linked, sources)[1]
+    assert '[来源:' not in attribute_experience_verification(text.replace('3年', '5年'), 'req-service-0-35', sources)
+    claim = '已具备3年经验，拟核验满3年相关经历证明。'
+    assert attribute_experience_verification(claim, 'req-service-0-35', sources) == claim
+    assert attribute_experience_verification(text, 'req-service-0-36', sources) == text
+
+
 def test_repair_cannot_remove_real_missing_facts_to_pass():
     class Removing:
         def chat_json(self, *a, **kw):
@@ -84,6 +105,26 @@ def test_recommendation_requires_same_person_quote_and_known_role():
     assert not validate_recommendations({'recommendations': [{**entry, 'person_id': 'foreign'}]}, evidence, cp, [{'role': '项目负责人'}])
     assert not validate_recommendations({'recommendations': [entry]}, evidence, cp, [{'role': '技术人员'}])
     assert not validate_recommendations({'recommendations': [{**entry, 'quote': '甲博士电力专业'}]}, evidence, cp, [{'role': '项目负责人'}])
+
+
+def test_team_suggestion_uses_only_team_schema_and_keeps_evidence_validation(monkeypatch):
+    from jb_agents.preparation import suggest
+    cp = CompanyProfile(name='公司', personnel=[Person(id='p', name='甲')])
+    evidence = [{'id': 'e', 'title': '毕业证', 'person_ids': ['p'],
+                 'text': '甲本科计算机专业', 'attachment_id': 'a'}]
+    monkeypatch.setattr('jb_agents.preparation.collect_evidence', lambda *a: (evidence, []))
+    class Model:
+        def chat_json(self, prompt, **kwargs):
+            assert 'JSON对象candidates数组' not in prompt
+            assert 'recommendations数组' in prompt
+            return {'recommendations': [
+                {'person_id': 'p', 'role': '技术人员', 'source_id': 'e', 'quote': '本科计算机专业'},
+                {'person_id': 'p', 'role': '项目负责人', 'source_id': 'e', 'quote': '博士计算机专业'},
+            ]}
+    result = suggest(None, cp, 'team', '', Model(), roles=[{'role': '技术人员'}, {'role': '项目负责人'}])
+    assert len(result['recommendations']) == 1
+    assert result['recommendations'][0]['role'] == '技术人员'
+    assert not cp.bid_context  # 推荐不会自动确认项目投入或更改企业事实。
 
 
 def test_ocr_runs_for_scanned_page_and_cache_avoids_duplicate_work(tmp_path, monkeypatch):

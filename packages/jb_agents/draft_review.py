@@ -12,9 +12,10 @@ def semantic_issues(text, context):
     appointed = {x.get('name') for x in members if '负责人' in x.get('role', '') or '经理' in x.get('role', '')}
     if authority and authority not in appointed:
         for sentence in re.split('[。\n]', text):
-            if authority in sentence and re.search('作为项目负责人|担任项目负责人|由.*统筹|项目负责人候选', sentence):
+            if authority in sentence and _positive_claim(sentence,
+                    '作为项目负责人|担任项目负责人|由[^，；。]*统筹|项目负责人候选'):
                 issues.append('授权代表未经确认被安排为项目负责人或履约统筹')
-    if not members and re.search('已确认(?:团队|名单|到岗承诺)|到岗承诺已确认', text):
+    if not members and _positive_claim(text, '已确认(?:团队|名单|到岗承诺)|到岗承诺已确认'):
         issues.append('没有有效团队名单，不得声称已确认团队或到岗')
     for value in re.findall(r'【待补充[：:]([^】]+)】', text):
         if any(w in value for w in ('安规考试报名', '面试评价', '保密协议签署清单')):
@@ -26,15 +27,30 @@ def semantic_issues(text, context):
     return list(dict.fromkeys(issues))
 
 
+def _positive_claim(text, pattern):
+    """否定语只作用于同一分句，不能掩盖后续转折中的真实任命。"""
+    for clause in re.split('[，,；;。\n]', text):
+        for match in re.finditer(pattern, clause):
+            prefix = clause[:match.start()]
+            if not re.search(r'(?:不是|不代表|不得|不能|尚无|尚未|未曾|不应|不安排|不将)[^，；。]{0,24}$', prefix):
+                return True
+    return False
+
+
 def review_batch(texts, sources, facts, context, llm):
     """每批最多一次模型修复；修复仍须过数字与角色检查，失败不假装通过。"""
-    from .draft_context import attribute_contract_duration, attribute_schedule_dates
+    from .draft_context import (
+        attribute_contract_duration,
+        attribute_experience_verification,
+        attribute_schedule_dates,
+    )
     from .writer import _check_numbers, normalize_citations
 
-    def normalize(value):
-        return attribute_contract_duration(attribute_schedule_dates(normalize_citations(value), sources), sources)
+    def normalize(key, value):
+        value = attribute_contract_duration(attribute_schedule_dates(normalize_citations(value), sources), sources)
+        return attribute_experience_verification(value, key, sources)
 
-    originals = {key: normalize(text) for key, text in texts.items()}
+    originals = {key: normalize(key, text) for key, text in texts.items()}
     problems = {}
     for key, text in originals.items():
         _, violations = _check_numbers(text, sources)
@@ -61,7 +77,7 @@ def review_batch(texts, sources, facts, context, llm):
     for key, original in originals.items():
         value = repaired.get(key) if isinstance(repaired, dict) else None
         if isinstance(value, str) and len(value) >= len(original) * .65:
-            value = normalize(value)
+            value = normalize(key, value)
             _, old = _check_numbers(original, sources)
             _, new = _check_numbers(value, sources)
             pending = re.findall(r'【待补充[：:]([^】]+)】', original)

@@ -270,6 +270,9 @@ def state(s, p, index, cp):
             if group['id'] == 'registration' and any(w in message for w in ('助理工程师', '技术员')):
                 groups['statistics']['items'].append({'message': '企业助理工程师和技术员人数', 'file': filename})
     sources, roles = requirements(p, index)
+    for detail in result.get('gap_details', {}).get('team', []):
+        groups['team']['items'].append({'message': detail['message'],
+            'file': f"{result.get('summary', {}).get('technical', '技术文件')} · 原段落{detail['paragraph']}"})
     facts = fact_state(p, index, cp)
     approved = approved_profile(cp)
     selection = material_selection(p, index, cp.name)
