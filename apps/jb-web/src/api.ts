@@ -131,7 +131,7 @@ export interface ProfileSummary { name: string; credit_code: string; updated_at:
 export interface ExpiryItem { kind: string; id: string; name: string; number: string; valid_until: string; days_left: number | null; level: 'expired' | 'd30' | 'd60' | 'd90' | 'ok' | 'unknown' }
 export interface ExpiryReport { items: ExpiryItem[]; summary: Record<string, number> }
 
-export interface PreparationTask { id: string; title: string; occurrences: number; items: { message: string; file: string }[]; status?: string; current_notes?: string[] }
+export interface PreparationTask { complete?: boolean; id: string; title: string; occurrences: number; items: { message: string; file: string }[]; status?: string; current_notes?: string[] }
 export interface BidMember { person_id: string; role: string; available: boolean }
 export interface BidFactState { stale: boolean; confirmation: { data: { person_id?: string; title?: string; members?: BidMember[]; arrival_commitment?: boolean }; confirmed_by: string; confirmed_at: string } | null }
 export interface PreparationReadiness {

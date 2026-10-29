@@ -19,3 +19,6 @@
   .preparation-member { grid-template-columns: minmax(0, 1fr); }
   .preparation-member-remove { margin-top: 0; justify-self: end; }
 }
+
+.preparation-task-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+.preparation-completed { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; }

@@ -282,14 +282,20 @@ def state(s, p, index, cp):
     for key in ('authorization', 'team'):
         current = facts[key]
         valid = current['confirmation'] and not current['stale']
-        groups[key]['status'] = '已保存，待资格核验' if valid else '待确认本包安排'
+        groups[key]['complete'] = bool(valid)
+        groups[key]['status'] = '已确认' if valid else '确认已失效' if current['stale'] else '待确认本包安排'
         groups[key]['current_notes'] = []
     team = facts['team']
     if team['confirmation'] and not team['confirmation']['data'].get('members'):
         groups['team']['current_notes'].append('原记录为空团队，已停止作为有效确认；请从已有人员中选择或让AI推荐')
-    groups['team']['current_notes'] += team_blockers(p, index, cp)
+    team_issues = team_blockers(p, index, cp)
+    groups['team']['current_notes'] += team_issues
+    if team_issues:
+        groups['team']['complete'] = False
+        groups['team']['status'] = '待完善团队安排'
     groups['team']['current_notes'].append(f'知识库有{len(approved.personnel)}名已审核候选；不代表已确认本包投入')
     groups['relationship']['status'] = ('已确认' if relationship['confirmation'] and not relationship['stale'] else '待本次确认')
+    groups['relationship']['complete'] = bool(relationship['confirmation'] and not relationship['stale'])
     missing_stats = [key for key in STATS if getattr(cp, key) in (None, '')]
     groups['statistics']['status'] = '已录入，待核对口径' if not missing_stats else '统计字段待核对'
     missing_registration = [label for label in REGISTRATION if not cp.registration.get(label) or not (
@@ -298,6 +304,12 @@ def state(s, p, index, cp):
     groups['registration']['current_notes'] = missing_registration + ([] if cp.shareholders else ['股东出资明细尚未录入'])
     groups['performance']['status'] = f'{len(perfs)}项历史合同日期待核对' if perfs else '所选业绩日期已录入'
     groups['performance']['current_notes'] = [x.project for x in perfs]
+    groups['statistics']['complete'] = not missing_stats
+    groups['registration']['complete'] = not missing_registration and bool(cp.shareholders)
+    groups['performance']['complete'] = not perfs
+    for key in ('statistics', 'registration', 'performance'):
+        if groups[key]['complete']:
+            groups[key]['status'] = '资料已齐备，可复用'
     groups['other']['status'] = '系统生成核查，不等同于缺少企业资料'
     groups['system']['status'] = '系统需重试或核查，不要求补交企业资料'
     from .readiness import readiness

@@ -8,8 +8,8 @@ import RelationshipConfirmation from './RelationshipConfirmation'
 import './PreparationPanel.css'
 
 const LABELS: Record<string, string> = { ...Object.fromEntries(STAT_FIELDS), staff_as_of: '统计日期', staff_source: '统计依据', signed_date: '合同签约日期', shareholders: '股东出资明细' }
-export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSaved, onGoToGeneration }: {
-  id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void; onGoToGeneration: () => void
+export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSaved, onRepair }: {
+  id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void; onRepair: () => void
 }) {
   const qc = useQueryClient()
   const { data, error, refetch } = useQuery({ queryKey: ['preparation', id, profile, pkgIndex], queryFn: () => api.preparation(id, profile, pkgIndex), refetchInterval: 15000 })
@@ -111,18 +111,23 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     {error && <Alert type="error" message={String(error)} />}
     <Typography.Paragraph type="secondary">按业务事项处理，一次保存供关联章节复用。企业资料跨项目复用；授权、岗位和到岗承诺只对本标包生效。保存不会自动代表合规通过。</Typography.Paragraph>
     {data?.generation_stale && <Alert type="info" showIcon message="当前任务根据现有资料核对；旧文件标记仅保留在各任务的历史提示中，不计作新增资料。" style={{ marginBottom: 12 }} />}
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-      {data?.tasks.map(t => <Card key={t.id} size="small" title={t.title}>
+    <Typography.Title level={5}>需要您确认的事项</Typography.Title>
+    <div className="preparation-task-grid">
+      {data?.tasks.filter(t => !t.complete && !['system', 'other'].includes(t.id)).map(t => <Card key={t.id} size="small" title={t.title}>
         <Space direction="vertical" style={{ width: '100%' }}>
-          <Typography.Text type="secondary">{['authorization', 'team', 'relationship'].includes(t.id) ? '本次投标确认' : ['other', 'system'].includes(t.id) ? '原文 / 生成核查' : '企业长期资料'}</Typography.Text>
-          <Typography.Text strong>{t.status ?? '待核对'}</Typography.Text>
+          <Tag color="orange">{t.status}</Tag>
           {t.current_notes?.map((note, i) => <Typography.Text key={i} type="secondary">{note}</Typography.Text>)}
-          {!data.generation_stale && t.occurrences > 0 && <Typography.Text type="secondary">关联文件标记 {t.occurrences} 处，共同办理</Typography.Text>}
-          {data.facts[t.id]?.confirmation && <Tag color={data.facts[t.id].stale ? 'orange' : 'blue'}>{data.facts[t.id].stale ? '确认已失效，需重新核实' : '已保存本包安排，资格仍需核实'}</Tag>}
-          <Button disabled={disabled} onClick={() => open(t.id)}>{t.id === 'other' ? '查看问题与处理位置' : '去处理'}</Button>
+          <Button disabled={disabled} onClick={() => open(t.id)}>完善{t.id === 'team' ? '团队安排' : '资料'}</Button>
         </Space>
       </Card>)}
     </div>
+    {data && !data.tasks.some(t => !t.complete && !['system', 'other'].includes(t.id)) && <Alert type="success" showIcon message="当前准备事项已处理，可进入生成标书。生成内容仍需审阅。" />}
+    <Card size="small" style={{ marginTop: 16 }} title="AI 处理与检查" extra={<Button type="primary" loading={disabled} disabled={disabled} onClick={onRepair}>{disabled ? '正在处理' : 'AI 更新标书并检查'}</Button>}>
+      <Typography.Paragraph>{data?.generation_stale ? '资料已更新。以下为旧文件问题，更新标书后再核对，不计入当前待补资料。' : '引用与起草问题交给系统处理。更新将生成本包商务、技术文件的新版本，保留旧版；结果会显示在审阅步骤。'}</Typography.Paragraph>
+      {data?.tasks.filter(t => ['system', 'other'].includes(t.id)).map(t => <div key={t.id} style={{ marginBottom: 12 }}><Space wrap><Typography.Text strong>{t.title}</Typography.Text><Tag>{data.generation_stale ? '待更新后复核' : `${t.items.length} 项待检查`}</Tag><Button type="link" onClick={() => open(t.id)}>查看问题与处理动作</Button></Space></div>)}
+      {!data?.tasks.some(t => ['system', 'other'].includes(t.id)) && <Typography.Text type="secondary">尚无已生成文件的系统问题记录；不代表标书已通过审查。</Typography.Text>}
+    </Card>
+    {!!data?.tasks.some(t => t.complete) && <Collapse style={{ marginTop: 16 }} items={[{ key: 'completed', label: `已完成事项（${data.tasks.filter(t => t.complete).length}）`, children: <Space direction="vertical" style={{ width: '100%' }}>{data.tasks.filter(t => t.complete).map(t => <div className="preparation-completed" key={t.id}><Space><Typography.Text>{t.title}</Typography.Text><Tag color="green">{t.status}</Tag></Space><Button type="link" disabled={disabled} onClick={() => open(t.id)}>查看 / 修改</Button></div>)}</Space> }]} />}
     <Drawer width="min(880px, 96vw)" open={!!editor} title={data?.tasks.find(x => x.id === editor?.kind)?.title ?? '处理任务'}
       onClose={() => { if (!saving) setEditor(undefined) }} destroyOnClose
       footer={editor && !['relationship', 'other', 'system'].includes(editor.kind) && <Space wrap>
@@ -210,8 +215,17 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
               <Form.Item name="source" label="本次核对依据及页码" rules={[{ required: true }]}><Input.TextArea rows={3} placeholder="合同名称、第几页、签署日期记载；不得用发票开具日代替" /></Form.Item>
               {selectedPerformance && <Link to={`/kb/${encodeURIComponent(profile)}?tab=performances&item=${selectedPerformance.id}&returnTo=${encodeURIComponent(`/projects/${id}/workbench`)}`}>补充该业绩附件</Link>}
             </>}
-            {editor.kind === 'other' && <Alert type="info" message="请按原始提示核对采购原文、模型调用或具体企业证据；此类问题不会通过填写企业基本信息自动消除。" />}
-            {editor.kind === 'system' && <Space direction="vertical"><Alert type="info" message="系统会先规范引用、检索本包原文并修复正文；不需要为引用格式错误补交资料。剩余无法验证的内容仍保留核查提示。" /><Button disabled={disabled} onClick={() => { setEditor(undefined); onGoToGeneration() }}>返回工作台更新标书</Button></Space>}
+
+            {['system', 'other'].includes(editor.kind) && <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <Alert type="info" showIcon message={snapshot.generation_stale ? '这些是旧文件问题，先更新标书再复核' : '先由 AI 重新检索原文、修复引用并起草内容'} description="系统不会替您确认人员投入或编造企业事实。更新后仍未解决的项目保留具体位置和说明。" />
+              <Table size="small" rowKey={r => r.file + r.message} pagination={{ pageSize: 5 }} dataSource={snapshot.tasks.find(t => t.id === editor.kind)?.items ?? []} columns={[
+                { title: '问题及位置', render: (_, r) => <><Typography.Paragraph>{r.message}</Typography.Paragraph><Typography.Text type="secondary">{r.file}</Typography.Text></> },
+                { title: '处理方式', width: '40%', render: (_, r) => /原文|规范正文|招标编号|分标名称/.test(r.message) ? <><Typography.Paragraph>核对采购原件中的这一项；若原件已提供，重新解析后更新标书。</Typography.Paragraph><Link to={`/projects/${id}/trm`}>打开招标要求核对</Link></> : <Typography.Paragraph>{/引用|来源|数值/.test(r.message) ? '系统重新匹配原文和证据，修复可验证的引用；无法证实的值继续保留提示。' : /起草|响应|方案|模型/.test(r.message) ? 'AI 根据本包原文重新起草并检查；失败时在生成结果中显示原因。' : '系统重新检索已选企业资料并填充；仍无法确定的内容会保留原问题，请按此项名称核对具体资料。'}</Typography.Paragraph> },
+              ]} />
+              <Button type="primary" disabled={disabled} onClick={() => { setEditor(undefined); onRepair() }}>AI 更新标书并检查</Button>
+              <Typography.Text type="secondary">本次更新整个标包的商务、技术文件，不只重试单个章节。旧版本保留，完成后审阅新版本。</Typography.Text>
+            </Space>}
+
           </Form>}
 
       </Space>}

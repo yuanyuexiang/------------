@@ -285,3 +285,17 @@ def test_suggestion_reconnects_active_job_without_duplicate(preparation_project,
     assert other.json()['task_id'] == first['task_id']
     assert state(preparation_project)['active_suggestion'] == first['task_id']
     assert len(calls) == 1
+
+
+def test_completed_authorization_and_incomplete_team_are_distinct(preparation_project):
+    case = preparation_project
+    assert save(case, 'authorization', {'person_id': 'person-a', 'title': '授权代表'}).status_code == 200
+    current = {t['id']: t for t in state(case)['tasks']}
+    assert current['authorization']['complete']
+    assert current['authorization']['status'] == '已确认'
+    assert not current['team']['complete']
+    assert save(case, 'team', {'members': [{'person_id': 'person-a', 'role': '技术服务', 'available': False}],
+                               'arrival_commitment': False}).status_code == 200
+    team = next(t for t in state(case)['tasks'] if t['id'] == 'team')
+    assert not team['complete'] and team['status'] == '待完善团队安排'
+    assert any('不可投入' in note for note in team['current_notes'])

@@ -62,12 +62,12 @@ export default function WorkbenchPage() {
     }
   }, [task?.status, task?.kind, refreshFlow, qc, id])
 
-  const run = async (allowIncomplete = false) => {
+  const run = async (allowIncomplete = false, draftEnabled = withDraft) => {
     if (!profile) return message.warning('请选择企业档案')
     setBusy(true)
     setScore(null)
     try {
-      const { task_id } = await api.generate(id, profile, pkgIndex, withDraft, allowIncomplete)
+      const { task_id } = await api.generate(id, profile, pkgIndex, draftEnabled, allowIncomplete)
       setTaskId(task_id)
       setStep(1)
       await refreshFlow()
@@ -80,6 +80,14 @@ export default function WorkbenchPage() {
       {readiness?.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul></>,
     okText: '仍生成草稿', cancelText: '继续准备', onOk: () => run(true),
   })
+  const repair = () => {
+    if (running || !readiness || preparationLoading || preparationError) return message.info('请等待准备状态刷新后重试')
+    if (readiness.blockers.length) { setStep(0); return message.warning(`请先核对招标要求：${readiness.blockers.join('；')}`) }
+    Modal.confirm({ title: 'AI 更新标书并检查', okText: readiness.ready ? '开始更新' : '生成待完善草稿', cancelText: '继续准备',
+      content: <><p>系统将重新检索已选资料、起草并检查本包商务和技术文件，旧版本保留。</p>{!readiness.ready && <><p>以下安排未完成，新版仍为待完善草稿：</p><ul>{readiness.confirmations.map(x => <li key={x.task}>{x.message}</li>)}</ul></>}<p>完成后进入审阅步骤；正式导出仍需通过检查。</p></>,
+      onOk: () => { setWithDraft(true); return run(!readiness.ready, true) },
+    })
+  }
   const doReview = async () => {
     if (!profile) return
     setBusy(true)
@@ -135,7 +143,7 @@ export default function WorkbenchPage() {
       {flow?.stale && <Alert showIcon type="warning" message={running ? "正在处理，请等待标书更新完成" : "资料已更新，标书尚未更新"}
         description={running ? "处理完成后将刷新文件状态；下方旧文件仅供追溯。" : "可继续处理其他资料，完成后进入“生成标书”步骤。下方旧文件及其问题仅供追溯，不代表当前资料缺口。"} />}
       <div ref={preparationAnchor}>
-      {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onGoToGeneration={goToGeneration} onSaved={() => { setScore(null); void refreshFlow() }} />}
+      {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onRepair={repair} onSaved={() => { setScore(null); void refreshFlow() }} />}
       </div>
       {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }) }} />}
 
