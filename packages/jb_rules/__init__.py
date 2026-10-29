@@ -218,10 +218,13 @@ def r_consortium(ctx: Context) -> list[Finding]:
 
 
 def r_general_credit(ctx: Context) -> list[Finding]:
-    """信用中国/失信名单/经营异常等核查须在截止前 20 天内完成 → 提醒人工（否决表）。"""
+    """复用已有查询材料，按本包要求核实时效，不把固定天数当作通用规则。"""
+    from jb_kb.credit import credit_check
+    message, evidence = credit_check(ctx.profile, ctx.trm, ctx.pkg)
     return [_f("SG-21", "需人工", "信用/不良行为核查",
-               "投标前查询：信用中国、国家企业信用信息公示系统、中国裁判文书网、国网不良行为名单，并截图编入商务文件",
+               message + ("\n" + "\n".join(evidence) if evidence else ""),
                "商务文件-查询报告及截图", "否决表-资格评审")]
+
 
 
 # ---------- 价格 ----------

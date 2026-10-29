@@ -42,8 +42,16 @@ def test_full_flow(client):
     assert {p["pkg_no"] for p in q["report"]["packages"]} == {"包147", "包148"}
     assert "可投性矩阵" in q["markdown"]
     # 文件生成 + 下载
-    g = client.post(f"/api/projects/{pid}/generate", params={"profile": "测试企业", "pkg_index": 0, "with_draft": False})
-    assert g.status_code == 202
+    g = client.post(f"/api/projects/{pid}/generate", params={"profile": "测试企业", "pkg_index": 0, "with_draft": False, "allow_incomplete": True})
+    # 主文件样本不含技术正文：即使显式草稿也应被前置检查阻断。
+    assert g.status_code == 409 and "技术规范正文" in g.json()["detail"]
+    # 以下继续验证生成生命周期；补充明确标注的合成规范，不改变真实解析断言。
+    from jb_store import Project, session
+    trm["packages"][0]["spec_docs"] = [{"source": "合成生命周期测试规范", "n_paragraphs": 20}]
+    with session() as s:
+        s.get(Project, pid).trm_confirmed = trm
+    g = client.post(f"/api/projects/{pid}/generate", params={"profile": "测试企业", "pkg_index": 0, "with_draft": False, "allow_incomplete": True})
+    assert g.status_code == 202, g.text
     gt = client.get(f"/api/tasks/{g.json()['task_id']}").json()
     assert gt["status"] == "done" and gt["result"]["summary"]["export_blocked"] is True
     assert client.get(f"/api/projects/{pid}/files/{gt['result']['files'][0]}").status_code == 200

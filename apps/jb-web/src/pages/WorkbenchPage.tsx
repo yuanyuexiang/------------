@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Collapse, Empty, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Collapse, Empty, Modal, Progress, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
 import MaterialPicker from '../components/MaterialPicker'
 import PreparationPanel from '../components/PreparationPanel'
@@ -31,33 +31,55 @@ export default function WorkbenchPage() {
     queryKey: ['task', effectiveTaskId], queryFn: () => api.task(effectiveTaskId!), enabled: !!effectiveTaskId,
     refetchInterval: (q) => ['done', 'failed'].includes(q.state.data?.status ?? '') ? false : 2000,
   })
+  const [step, setStep] = useState(0)
+  const preparationAnchor = useRef<HTMLDivElement>(null)
+  const { data: preparation, error: preparationError, isFetching: preparationLoading } = useQuery({
+    queryKey: ['preparation', id, profile, pkgIndex],
+    queryFn: () => api.preparation(id, profile!, pkgIndex), enabled: !!profile,
+  })
+  const readiness = preparation?.readiness
   const gen = flow?.generation
+  const generationLabel = gen ? '更新标书' : '生成标书'
+  const goToGeneration = () => {
+    setStep(readiness?.ready ? 1 : 0)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
   const [issueCategory, setIssueCategory] = useState<string>()
   const review = flow?.review
   const running = busy || (!!effectiveTaskId && !['done', 'failed'].includes(task?.status ?? ''))
   const [score, setScore] = useState<{ items: ItemScore[]; tech_total: number | null; tech_max: number; biz_total: number | null; biz_max: number; weighted: number | null } | null>(null)
   const [matrix, setMatrix] = useState<{ section: string; seq: string; item: string; channels: string[]; port: string; status: string }[]>([])
   useEffect(() => { if (!profile && flow?.profile) setProfile(flow.profile) }, [profile, flow?.profile])
-  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]) }, [id, profile, pkgIndex])
+  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]); setStep(0) }, [id, profile, pkgIndex])
   useEffect(() => {
+    if (task?.kind === 'generate' && ['queued', 'running'].includes(task.status)) setStep(1)
     if (task?.status === 'done' || task?.status === 'failed') {
       void refreshFlow()
+      if (task?.status === 'done' && task.kind === 'generate') setStep(2)
       void qc.invalidateQueries({ queryKey: ['trm', id] })
       void qc.invalidateQueries({ queryKey: ['relationship', id] })
       void qc.invalidateQueries({ queryKey: ['preparation', id] })
     }
-  }, [task?.status, refreshFlow, qc, id])
+  }, [task?.status, task?.kind, refreshFlow, qc, id])
 
-  const run = async () => {
+  const run = async (allowIncomplete = false) => {
     if (!profile) return message.warning('请选择企业档案')
     setBusy(true)
     setScore(null)
     try {
-      const { task_id } = await api.generate(id, profile, pkgIndex, withDraft)
+      const { task_id } = await api.generate(id, profile, pkgIndex, withDraft, allowIncomplete)
       setTaskId(task_id)
+      setStep(1)
       await refreshFlow()
     } catch (e) { message.error(String(e)) } finally { setBusy(false) }
   }
+  const draft = () => Modal.confirm({
+    title: '生成待完善草稿',
+    content: <><p>以下事项尚未完成，生成稿会保留缺项提示，不能直接正式导出。</p>
+      <ul>{readiness?.confirmations.map(x => <li key={x.task}>{x.title}：{x.message}</li>)}
+      {readiness?.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul></>,
+    okText: '仍生成草稿', cancelText: '继续准备', onOk: () => run(true),
+  })
   const doReview = async () => {
     if (!profile) return
     setBusy(true)
@@ -85,47 +107,75 @@ export default function WorkbenchPage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Card size="small" title="文件生成与检查" className="workbench-controls">
+      <Card size="small" title="本次投标" className="workbench-controls">
         <div className="workbench-inputs">
           <div><label htmlFor="workbench-profile">企业档案</label><Select id="workbench-profile" placeholder="请选择企业档案" disabled={running} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} /></div>
           <div><label htmlFor="workbench-package">本次分包</label><Select id="workbench-package" placeholder="请选择分包" disabled={running} value={pkgIndex} onChange={setPkgIndex}
             options={(trm?.packages ?? []).map((p, i) => ({ value: i, label: `${p.pkg_no} ${p.project_name || p.sub_name || "分包信息待解析"}`.trim() }))} /></div>
           <div className="workbench-draft"><span>技术方案起草<small>AI 先写方案，人工核对事实与承诺</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
         </div>
-        <div className="workbench-action-bar">
-          <Space wrap>
-            <Button type="primary" onClick={run} disabled={running || !profile}>生成商务 / 技术文件</Button>
-            <Button disabled={running} onClick={async () => {
-              setBusy(true)
-              try { const result = await api.reparse(id); setTaskId(result.task_id); await refreshFlow() }
-              catch (e) { message.error(String(e)) } finally { setBusy(false) }
-            }}>重新解析原文件</Button>
-            <Button onClick={doReview} disabled={!gen || !profile || running}>合规审查 / 复查</Button>
-          </Space>
-          <Space wrap>
-            <Button type="text" onClick={doScore} disabled={!gen || !profile || running}>模拟评分</Button>
-            <Button type="text" onClick={doMatrix}>递交矩阵</Button>
-            <Button onClick={() => nav(`/projects/${id}`)}>返回项目</Button>
-          </Space>
-        </div>
-        {task && task.status !== 'done' && (
-          <div style={{ marginTop: 12 }}>
-            <Progress percent={Math.round(task.progress * 100)} status={task.status === 'failed' ? 'exception' : 'active'} />
-            <Typography.Text type="secondary">{task.message}</Typography.Text>
-          </div>
-        )}
+        <Space style={{ marginTop: 16 }}>
+          <Button onClick={() => nav(`/projects/${id}/trm`)}>核对招标要求</Button>
+          <Button disabled={running} onClick={async () => {
+            setBusy(true)
+            try { const result = await api.reparse(id); setTaskId(result.task_id); await refreshFlow() }
+            catch (e) { message.error(String(e)) } finally { setBusy(false) }
+          }}>重新解析原文件</Button>
+          <Button onClick={() => nav(`/projects/${id}`)}>返回项目</Button>
+        </Space>
       </Card>
-
+      <Steps current={step} onChange={value => { if (value === 1) goToGeneration(); else setStep(value) }}
+        items={[{ title: '准备资料' }, { title: '生成标书', disabled: running && step !== 1 },
+          { title: '审阅与导出', disabled: !gen }]} />
+      {flowError && <Alert type="error" message="无法读取当前审查状态" description={String(flowError)} />}
+      {preparationError && <Alert type="error" message="无法读取准备状态，请刷新重试" description={String(preparationError)} />}
+      {step === 0 && <>
       {!!flow?.preflight?.length && <Alert showIcon type={flow.preflight.some(x => x.blocking) ? 'error' : 'warning'}
         message="生成前检查" description={<ul>{flow.preflight.map((x, i) => <li key={i}>{x.message} — {x.action}</li>)}</ul>} />}
-      {flow?.stale && <Alert showIcon type="warning" message="以下为已过期生成结果，不代表当前资料缺口"
-        description="采购要求、企业资料或本次确认已变化，请重新生成；旧文件仅供追溯。" />}
-      {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onGenerate={async () => { await run() }} onSaved={() => { setScore(null); void refreshFlow() }} />}
+      {flow?.stale && <Alert showIcon type="warning" message={running ? "正在处理，请等待标书更新完成" : "资料已更新，标书尚未更新"}
+        description={running ? "处理完成后将刷新文件状态；下方旧文件仅供追溯。" : "可继续处理其他资料，完成后进入“生成标书”步骤。下方旧文件及其问题仅供追溯，不代表当前资料缺口。"} />}
+      <div ref={preparationAnchor}>
+      {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onGoToGeneration={goToGeneration} onSaved={() => { setScore(null); void refreshFlow() }} />}
+      </div>
       {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }) }} />}
 
-      {!gen && !running && !flowError && <Card className="business-empty"><Empty description={<span>开始准备本包投标文件<br /><small>选择企业档案与分包，生成文件后查看待补充项并进行合规审查</small></span>} /></Card>}
-
-      {flowError && <Alert type="error" message="无法读取当前审查状态" description={String(flowError)} />}
+      <Card size="small" title="准备检查">
+        {!profile ? <Empty description="请先选择企业档案与标包" /> : !readiness ? <Typography.Text>正在检查准备状态…</Typography.Text> : <Space direction="vertical" style={{ width: '100%' }}>
+          <Alert showIcon type={readiness.blockers.length ? 'error' : readiness.confirmations.length ? 'warning' : 'success'}
+            message={readiness.blockers.length ? '请先解决招标文件问题' : readiness.confirmations.length ? `还有 ${readiness.confirmations.length} 项本次安排需要确认` : '本次安排已确认，可以生成标书'}
+            description={<><ul>{readiness.blockers.map((x, i) => <li key={i}>{x}</li>)}
+              {readiness.confirmations.map(x => <li key={x.task}>{x.title}：{x.message}</li>)}</ul>
+              <span>准备检查不等于资格通过；证明材料和生成内容仍需审阅。</span></>} />
+          {!!readiness.warnings.length && <Collapse items={[{ key: 'warnings', label: '资料与原文提醒（不强制阻止生成草稿）', children: <ul>{readiness.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul> }]} />}
+        </Space>}
+        <Space style={{ marginTop: 16 }}>
+          <Button type="primary" disabled={running || !readiness || !!preparationError || preparationLoading} onClick={() => readiness?.ready ? setStep(1) : readiness?.blockers.length ? nav(`/projects/${id}/trm`) : preparationAnchor.current?.scrollIntoView({ behavior: 'smooth' })}>
+            {readiness?.ready ? '下一步：生成标书' : readiness?.blockers.length ? '核对招标要求' : '继续完善资料'}
+          </Button>
+          <Button disabled={running || !readiness || !!readiness.blockers.length || !!preparationError || preparationLoading} onClick={draft}>生成待完善草稿</Button>
+        </Space>
+      </Card>
+      </>}
+      {step === 1 && <Card title="生成标书">
+        <Typography.Paragraph>使用本包已保存的资料生成商务、技术文件。已有版本会保留，生成后进入审阅。</Typography.Paragraph>
+        {task && task.status !== 'done' && <><Progress percent={Math.round(task.progress * 100)} status={task.status === 'failed' ? 'exception' : 'active'} /><Typography.Paragraph>{task.message}</Typography.Paragraph></>}
+        {!running && !readiness?.ready && <Alert type="warning" message="准备状态已变化，请返回准备资料核对，或明确生成待完善草稿。" />}
+        <Space>
+          <Button disabled={running} onClick={() => setStep(0)}>返回准备资料</Button>
+          <Button type="primary" onClick={() => void run()} disabled={running || !profile || !readiness?.ready || !!preparationError || preparationLoading}>{generationLabel}</Button>
+          {gen && <Button disabled={running} onClick={() => setStep(2)}>审阅已有版本</Button>}
+        </Space>
+      </Card>}
+      <div hidden={step !== 2}>
+      {!gen && <Empty description="尚未生成标书，请先完成准备资料" />}
+      {gen && <Space style={{ marginBottom: 16 }}>
+        <Button onClick={() => setStep(0)}>返回准备资料</Button>
+        <Button type="primary" onClick={doReview} disabled={!profile || running || flow?.stale}>合规审查 / 复查</Button>
+        <Button onClick={doScore} disabled={!profile || running || flow?.stale}>模拟评分</Button>
+        <Button onClick={doMatrix}>递交矩阵</Button>
+      </Space>}
+      {flow?.stale && <Alert type="warning" showIcon message="资料已变化，以下旧版本仅供追溯" description="请返回准备资料处理受影响事项，再更新标书。" />}
+      {gen?.generation_mode === 'incomplete_draft' && <Alert type="info" showIcon message="本版本为提前生成的待完善草稿" description="请核对准备事项和文件缺口，补齐后更新标书并重新审查。" />}
       {flow && <Card size="small" title="整改与正式导出">
         <Alert showIcon type={flow.blockers.length ? 'warning' : 'success'}
           message={flow.blockers.length ? '正式导出尚未就绪' : '本版本审查有效，可以正式导出'}
@@ -133,7 +183,7 @@ export default function WorkbenchPage() {
         <Space wrap style={{ marginTop: 12 }}>
           <Button onClick={() => nav(`/projects/${id}/trm`)}>1. 核对招标要求</Button>
           <Button disabled={!profile} onClick={() => nav(`/kb/${encodeURIComponent(profile ?? '')}`)}>2. 补齐企业资料</Button>
-          <Button disabled={running || !profile} onClick={run}>3. 重新生成</Button>
+          <Button disabled={running || !profile} onClick={goToGeneration}>3. 前往{generationLabel}</Button>
           <Button disabled={running || !gen || !profile} onClick={doReview}>4. 复查本版本</Button>
         </Space>
         {flow.exports.map((item) => <div key={item.docx} style={{ marginTop: 8 }}>
@@ -147,11 +197,10 @@ export default function WorkbenchPage() {
         <Tabs items={[
           ...(gen.confirmations?.length ? [{ key: 'c', label: `${flow?.stale ? '历史版本核对' : '集中核对'}（${gen.confirmations.length}）`, children: (
             <Space direction="vertical" style={{ width: '100%' }}>
-              <Alert type="info" showIcon message={flow?.stale ? '历史文件问题，仅供追溯；当前待办请查看上方投标准备任务' : '企业事实与系统修复分开处理'}
+              <Alert type="info" showIcon message={flow?.stale ? '历史文件问题，仅供追溯；当前待办请返回“准备资料”步骤' : '企业事实与系统修复分开处理'}
                 description="引用及生成错误由系统先修复；团队资料集中核对一次。此清单不替代合规审查。" />
               <Select allowClear placeholder="全部问题类型" style={{ minWidth: 220 }} value={issueCategory} onChange={setIssueCategory}
                 options={[...new Set(gen.confirmations.map(x => x.category))].map(category => ({ value: category, label: `${category}（${gen.confirmations!.filter(x => x.category === category).length}）` }))} />
-              <Button disabled={running || !profile || flow?.stale} onClick={run}>重试起草失败章节</Button>
               <Table size="small" rowKey={(_, i) => String(i)} dataSource={gen.confirmations.filter(x => !issueCategory || x.category === issueCategory)} pagination={{ pageSize: 15 }}
                 columns={[
                   { title: '类型', dataIndex: 'category', width: 160 },
@@ -249,6 +298,7 @@ export default function WorkbenchPage() {
             ]} />
         </Card>
       )}
+      </div>
     </Space>
   )
 }

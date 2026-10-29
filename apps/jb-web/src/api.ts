@@ -134,7 +134,11 @@ export interface ExpiryReport { items: ExpiryItem[]; summary: Record<string, num
 export interface PreparationTask { id: string; title: string; occurrences: number; items: { message: string; file: string }[]; status?: string; current_notes?: string[] }
 export interface BidMember { person_id: string; role: string; available: boolean }
 export interface BidFactState { stale: boolean; confirmation: { data: { person_id?: string; title?: string; members?: BidMember[]; arrival_commitment?: boolean }; confirmed_by: string; confirmed_at: string } | null }
+export interface PreparationReadiness {
+  blockers: string[]; confirmations: { task: string; title: string; message: string }[]; warnings: string[]; ready: boolean
+}
 export interface PreparationState {
+  readiness: PreparationReadiness
   revision: string; profile: CompanyProfile; tasks: PreparationTask[]; facts: Record<string, BidFactState>
   generation_stale: boolean; generation_id: string | null; attachments: Attachment[]; missing_dates: Performance[]
   roles: { role: string; count: number; requirement: string; source: string }[]
@@ -163,6 +167,8 @@ export interface WorkflowState {
 export interface ItemScore { element: string; kind: string; score_min: number; score_max: number; predicted: number | null; method: string; basis: string; missing: string[] }
 export interface ScoreReport { pkg_no: string; items: ItemScore[]; tech_total: number | null; biz_total: number | null; tech_max: number; biz_max: number; weighted: number | null; notes: string[] }
 export interface GenResult {
+  generation_mode?: 'prepared' | 'incomplete_draft'
+  preparation_snapshot?: PreparationReadiness
   llm_connection?: { name: string; model: string }
   summary: { commercial: string; technical: string; todo_count: number; export_blocked: boolean; tech_params: { spec_id: string; rows: number; satisfied: number; deviation: number; unknown: number; missing: number }[]; mode?: Record<string, 'master' | 'plain'>; notes?: string[] }
   draft_sources?: Record<string, string>
@@ -265,8 +271,8 @@ export const api = {
   saveMaterials: (id: string, profile: string, pkgIndex: number, selection: MaterialSelection) =>
     req<{ ok: boolean }>(`/api/projects/${id}/materials?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json(selection)),
   reparse: (id: string) => req<{ task_id: string; mode: string }>(`/api/projects/${id}/reparse`, { method: 'POST' }),
-  generate: (id: string, profile: string, pkgIndex: number, withDraft: boolean) =>
-    req<{ task_id: string; mode: string }>(`/api/projects/${id}/generate?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&with_draft=${withDraft}`, { method: 'POST' }),
+  generate: (id: string, profile: string, pkgIndex: number, withDraft: boolean, allowIncomplete = false) =>
+    req<{ task_id: string; mode: string }>(`/api/projects/${id}/generate?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&with_draft=${withDraft}&allow_incomplete=${allowIncomplete}`, { method: 'POST' }),
   review: (id: string, profile: string, pkgIndex: number) =>
     req<ReviewResult>(`/api/projects/${id}/review?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, { method: 'POST' }),
   workflow: (id: string, profile: string, pkgIndex: number) =>

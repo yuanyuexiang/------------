@@ -196,17 +196,18 @@ def check_social_insurance(profile: CompanyProfile, deadline: Optional[str], mon
                  evidence=[x.name for x in people], requirement=f"截止 {deadline}")
 
 
-def check_general(pkg: PackageTRM, profile: CompanyProfile) -> list[Check]:
+def check_general(pkg: PackageTRM, profile: CompanyProfile, trm: Optional[TRM] = None) -> list[Check]:
+    from jb_kb.credit import credit_check
+    reason, evidence = credit_check(profile, trm, pkg)
     out = [Check(item="通用资格（信用/不良行为/失信）", status=MANUAL,
-                 reason="需查询信用中国/国家企业信用信息公示系统/国网不良行为名单并截图",
-                 evidence=[f"统一社会信用代码 {profile.credit_code}"] if profile.credit_code else [])]
+                 reason=reason, evidence=evidence)]
     if pkg.allow_consortium is False:
         out.append(Check(item="联合体", status=SATISFIED, reason="本包不接受联合体；按独立投标准备"))
     return out
 
 
 def qualify_package(pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = True,
-                    deadline: Optional[str] = None) -> PackageFeasibility:
+                    deadline: Optional[str] = None, trm: Optional[TRM] = None) -> PackageFeasibility:
     profile = approved_profile(profile)
     pf = PackageFeasibility(sub_no=pkg.sub_no, sub_name=pkg.sub_name, pkg_no=pkg.pkg_no,
                             project_name=pkg.project_name)
@@ -217,7 +218,7 @@ def qualify_package(pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = Tr
             if c:
                 pf.checks.append(c)
         pf.checks.extend(check_other(q, profile))
-    pf.checks.extend(check_general(pkg, profile))
+    pf.checks.extend(check_general(pkg, profile, trm))
     si = check_social_insurance(profile, deadline)
     if si:
         pf.checks.append(si)
@@ -229,5 +230,5 @@ def qualify_package(pkg: PackageTRM, profile: CompanyProfile, use_llm: bool = Tr
 def qualify(trm: TRM, profile: CompanyProfile, use_llm: bool = True) -> FeasibilityReport:
     rep = FeasibilityReport(batch_name=trm.batch_name, company=profile.name)
     for pkg in trm.packages:
-        rep.packages.append(qualify_package(pkg, profile, use_llm, deadline=trm.key_terms.bid_deadline))
+        rep.packages.append(qualify_package(pkg, profile, use_llm, deadline=trm.key_terms.bid_deadline, trm=trm))
     return rep

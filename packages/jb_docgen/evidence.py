@@ -53,11 +53,19 @@ def certificates_for(profile, kind: str):
 
 
 def insert_credit(ctx, doc, anchor):
+    from jb_kb.credit import credit_materials, grid_credit_requirement
+    groups = credit_materials(ctx.profile)
+    grid_required = grid_credit_requirement(getattr(ctx, 'trm', None), getattr(ctx, 'pkg', None))['mode'] == 'evidence'
     last = anchor
-    for label, keywords in (("信用中国", ("信用中国", "公共信用")),
-                            ("国家企业信用信息公示系统", ("企业信用信息公示",)),
-                            ("中国裁判文书网", ("裁判文书",))):
-        found = [c for c in certificates_for(ctx.profile, "credit") if any(w in c.name for w in keywords)]
+    seen = set()
+    for label, found in groups.items():
+        # 原有三类保持缺项检查；其他网站按实际已选资料装配，不凭空制造要求。
+        if (not found and label not in ('信用中国', '国家企业信用信息公示系统', '中国裁判文书网')
+                and not (label == '国网供应商不良行为' and grid_required)):
+            continue
         last = M.insert_paragraph_after(doc, last, label + "查询材料")._p
-        last = insert_scans(ctx, doc, last, [a for c in found for a in c.attachments], label)
+        ids = list(dict.fromkeys(a for c in found for a in c.attachments if a not in seen))
+        if ids or not found:
+            last = insert_scans(ctx, doc, last, ids, label)
+        seen.update(ids)
     return last

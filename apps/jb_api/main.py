@@ -299,28 +299,32 @@ def _load_trm_profile(project_id: str, profile: str):
 
 @app.post("/api/projects/{project_id}/generate", status_code=202)
 def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pkg_index: int = 0,
-                  product_model: Optional[str] = None, with_draft: bool = True):
+                  product_model: Optional[str] = None, with_draft: bool = True, allow_incomplete: bool = False):
     """生成商务/技术文件（异步任务；with_draft 时先由写作 Agent 起草）。轮询 /api/tasks/{id}。"""
     trm, _ = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):
         raise HTTPException(400, "pkg_index 越界")
-    from jb_agents.preflight import generation_issues
-    issues = generation_issues(trm, trm.packages[pkg_index])
-    if with_draft and any(item['blocking'] for item in issues):
-        raise HTTPException(409, "生成前检查未通过：" + "；".join(
-            item['message'] for item in issues if item['blocking']) + "。请先重新解析并核对原件；可关闭AI起草生成部分骨架。")
     with session() as s:
         p = s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
         try:
             workflow.selected_profile(p, pkg_index, kb_repo.load_profile(s, profile))
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+        from jb_docgen.readiness import readiness
+        prepared = readiness(p, pkg_index, kb_repo.load_profile(s, profile))
+        if prepared['blockers']:
+            raise HTTPException(409, '请先完成招标核对：' + '；'.join(prepared['blockers']))
+        if prepared['confirmations'] and not allow_incomplete:
+            raise HTTPException(409, '请先完成投标准备：' + '；'.join(x['message'] for x in prepared['confirmations'])
+                                + '。如需提前查看，请明确选择“生成待完善草稿”。')
         active = s.scalar(select(Task.id).where(Task.project_id == project_id,
                                                Task.kind.in_(["parse", "generate"]),
                                                Task.status.in_(["queued", "running"])).limit(1))
         if active:
             raise HTTPException(409, "项目已有解析或生成任务，请等待任务完成")
-        t = Task(project_id=project_id, kind="generate", actor=au.current_actor())
+        t = Task(project_id=project_id, kind="generate", actor=au.current_actor(), result={
+            'generation_mode': 'incomplete_draft' if allow_incomplete else 'prepared',
+            'preparation_snapshot': prepared})
         s.add(t)
         s.flush()
         tid = t.id

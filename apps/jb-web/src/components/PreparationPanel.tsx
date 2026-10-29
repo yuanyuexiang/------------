@@ -7,8 +7,8 @@ import CompanyFactsFields, { STAT_FIELDS } from './CompanyFactsFields'
 import RelationshipConfirmation from './RelationshipConfirmation'
 
 const LABELS: Record<string, string> = { ...Object.fromEntries(STAT_FIELDS), staff_as_of: '统计日期', staff_source: '统计依据', signed_date: '合同签约日期', shareholders: '股东出资明细' }
-export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSaved, onGenerate }: {
-  id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void; onGenerate: () => Promise<void>
+export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSaved, onGoToGeneration }: {
+  id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void; onGoToGeneration: () => void
 }) {
   const qc = useQueryClient()
   const { data, error, refetch } = useQuery({ queryKey: ['preparation', id, profile, pkgIndex], queryFn: () => api.preparation(id, profile, pkgIndex), refetchInterval: 15000 })
@@ -44,7 +44,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     const item = snapshot?.profile.performances.find(x => x.id === value)
     form.setFieldsValue({ id: value, signed_date: item?.signed_date || '', source: '' })
   }
-  const save = async (generate = false) => {
+  const save = async () => {
     if (!editor) return
     try {
       const values = await form.validateFields()
@@ -55,8 +55,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
       if (editor.kind === 'team' && !values.members?.length) throw new Error('请先选择团队成员，空名单不能确认为本包团队')
       await api.savePreparation(id, profile, pkgIndex, editor.kind, editor.snapshot.revision, values)
       setEditor(undefined); await refresh()
-      message.success('已保存；关联文件需重新生成和复查')
-      if (generate) await onGenerate()
+      message.success('已保存，待办已刷新。可继续处理其他资料。')
     } catch (e) { message.error(e instanceof Error ? e.message : '请检查必填字段') }
     finally { setSaving(false) }
   }
@@ -105,13 +104,13 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     <Drawer width="min(880px, 96vw)" open={!!editor} title={data?.tasks.find(x => x.id === editor?.kind)?.title ?? '处理任务'}
       onClose={() => { if (!saving) setEditor(undefined) }} destroyOnClose
       footer={editor && !['relationship', 'other', 'system'].includes(editor.kind) && <Space wrap>
-        <Button type="primary" disabled={disabled || saving} loading={saving} onClick={() => void save()}>保存并重新核对</Button>
-        <Button disabled={disabled || saving} onClick={() => void save(true)}>保存并重新生成关联文件</Button>
-        <Typography.Text type="secondary">将生成本包完整的新版本，旧版保留追溯；之后需复查。</Typography.Text>
+        <Button disabled={saving} onClick={() => setEditor(undefined)}>取消</Button>
+        <Button type="primary" disabled={disabled || saving} loading={saving} onClick={() => void save()}>保存</Button>
+        <Typography.Text type="secondary">保存后自动刷新待办。资料处理完后，回到工作台统一生成或更新标书。</Typography.Text>
       </Space>}>
       {snapshot && editor && <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         {snapshot.tasks.find(t => t.id === editor.kind)?.items.length ? <Collapse items={[{ key: 'issues', label: snapshot.generation_stale ? '历史版本问题（不代表当前缺项）' : '查看关联文件中的原始提示', children: <ul>{snapshot.tasks.find(t => t.id === editor.kind)?.items.map((x, i) => <li key={i}>{x.message}<Typography.Text type="secondary">（{x.file}）</Typography.Text></li>)}</ul> }]} /> : null}
-        {editor.kind === 'relationship' ? <RelationshipConfirmation id={id} profile={profile} pkgIndex={pkgIndex} disabled={disabled} onSaved={() => { setEditor(undefined); void refresh() }} /> :
+        {editor.kind === 'relationship' ? <RelationshipConfirmation id={id} profile={profile} pkgIndex={pkgIndex} disabled={disabled} onCancel={() => setEditor(undefined)} onSaved={() => { setEditor(undefined); void refresh() }} /> :
           <Form form={form} layout="vertical" disabled={disabled || saving}>
             {['statistics', 'registration'].includes(editor.kind) && <CompanyFactsFields kind={editor.kind} form={form} />}
             {editor.kind === 'authorization' && <>
@@ -160,7 +159,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
               {selectedPerformance && <Link to={`/kb/${encodeURIComponent(profile)}?tab=performances&item=${selectedPerformance.id}&returnTo=${encodeURIComponent(`/projects/${id}/workbench`)}`}>补充该业绩附件</Link>}
             </>}
             {editor.kind === 'other' && <Alert type="info" message="请按原始提示核对采购原文、模型调用或具体企业证据；此类问题不会通过填写企业基本信息自动消除。" />}
-            {editor.kind === 'system' && <Space direction="vertical"><Alert type="info" message="系统会先规范引用、检索本包原文并修复正文；不需要为引用格式错误补交资料。剩余无法验证的内容仍保留核查提示。" /><Button disabled={disabled} onClick={() => { setEditor(undefined); void onGenerate() }}>重新生成并自动复核</Button></Space>}
+            {editor.kind === 'system' && <Space direction="vertical"><Alert type="info" message="系统会先规范引用、检索本包原文并修复正文；不需要为引用格式错误补交资料。剩余无法验证的内容仍保留核查提示。" /><Button disabled={disabled} onClick={() => { setEditor(undefined); onGoToGeneration() }}>返回工作台更新标书</Button></Space>}
           </Form>}
         {['statistics', 'registration', 'performance', 'team'].includes(editor.kind) && <Card size="small" title={editor.kind === 'team' ? 'AI 检索人员证据并推荐岗位' : '先让 AI 检索已有资料'} extra={<Button loading={suggestionRunning} disabled={disabled || saving || (editor.kind === 'performance' && !itemId)} onClick={() => void suggest()}>检索并提取建议</Button>}>
           <Typography.Paragraph type="secondary">仅检索本企业已有资料；建议带原文及出处，点击采用只带入表单。{editor.kind === 'team' ? '核实并保存后，仅作为本包人员安排，不自动认定资格通过。' : '核实并保存后才写入知识库。'}</Typography.Paragraph>

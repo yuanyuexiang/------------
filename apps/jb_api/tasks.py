@@ -244,11 +244,14 @@ def run_generate(task_id: str, *args) -> None:
     try:
         import jb_llm
         from jb_store.llm_connections import resolve
+        with session() as s:
+            initial = s.get(Task, task_id).result or {}
+            preparation = {k: initial[k] for k in ('generation_mode', 'preparation_snapshot') if k in initial}
         with jb_llm.using_connection({**resolve(), "project_id": args[0], "task_id": task_id}) as model_config:
             _run_generate(task_id, *args)
             with session() as s:
                 task = s.get(Task, task_id)
-                task.result = {**(task.result or {}), "llm_connection": model_config}
+                task.result = {**(task.result or {}), **preparation, "llm_connection": model_config}
     except Exception as exc:
         _update(task_id, status="failed", message=f"生成失败: {exc}"[:2000])
 

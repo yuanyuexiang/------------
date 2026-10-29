@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Collapse, Input, Radio, Space, Typography, message } from 'antd'
 import { api } from '../api'
 
-export default function RelationshipConfirmation({ id, profile, pkgIndex, disabled, onSaved }: {
-  id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void
+export default function RelationshipConfirmation({ id, profile, pkgIndex, disabled, onSaved, onCancel }: {
+  id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void; onCancel?: () => void
 }) {
   const { data, error, refetch } = useQuery({
     queryKey: ['relationship', id, profile, pkgIndex],
@@ -25,7 +25,7 @@ export default function RelationshipConfirmation({ id, profile, pkgIndex, disabl
     try {
       await api.saveRelationship(id, profile, pkgIndex, { source: data.source, status, people: status === 'none' ? [] : people })
       await refetch(); onSaved()
-      message.success('本包关系情况已确认，请重新生成文件并审查')
+      message.success('已保存，待办已刷新。可继续处理其他资料。')
     } catch (e) { message.error(String(e)) } finally { setSaving(false) }
   }
   const locked = disabled || saving || !data
@@ -53,7 +53,7 @@ export default function RelationshipConfirmation({ id, profile, pkgIndex, disabl
         </Card>)}
         <Button disabled={locked || people.length >= 100} onClick={() => setPeople(old => [...old, Array(13).fill('')])}>添加关系人员</Button>
       </>}
-      <Button type="primary" disabled={locked || !status} loading={saving} onClick={save}>确认本包情况并保存</Button>
+      <Space>{onCancel && <Button disabled={saving} onClick={onCancel}>取消</Button>}<Button type="primary" disabled={locked || !status} loading={saving} onClick={save}>保存</Button></Space>
       {data?.confirmation && <Typography.Text type="secondary">上次确认：{data.confirmation.confirmed_by} · {new Date(data.confirmation.confirmed_at).toLocaleString()}。本确认仅适用于当前企业及标包；更改后需重新生成，签章仍按招标要求办理。</Typography.Text>}
     </Space>
   </Card>

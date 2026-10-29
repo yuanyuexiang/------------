@@ -300,7 +300,8 @@ def state(s, p, index, cp):
     groups['performance']['current_notes'] = [x.project for x in perfs]
     groups['other']['status'] = '系统生成核查，不等同于缺少企业资料'
     groups['system']['status'] = '系统需重试或核查，不要求补交企业资料'
-    return {'revision': revision, 'profile': cp.model_dump(), 'facts': facts,
+    from .readiness import readiness
+    return {'readiness': readiness(p, index, cp), 'revision': revision, 'profile': cp.model_dump(), 'facts': facts,
             'tasks': [v for k, v in groups.items() if k not in ('other', 'system') or v['items']],
             'generation_stale': bool(artifact and artifact['input_hash'] != revision),
             'generation_id': artifact['id'] if task else None,

@@ -371,13 +371,13 @@ def test_reparse_preserves_old_confirmation_in_history(client, tmp_path):
         assert event.data['previous_confirmed'] == old
 
 
-def test_preflight_blocks_ai_with_missing_identity_but_allows_partial_skeleton(bid):
+def test_preflight_blocks_missing_identity_even_for_incomplete_draft(bid):
     with session() as s:
         p = s.get(Project, bid['id'])
         p.trm = p.trm_confirmed = TRM(packages=[PackageTRM()]).model_dump()
     c, url = bid['client'], bid['url']
     assert c.post(url + '/generate', params={'profile': '测试企业'}).status_code == 409
-    assert c.post(url + '/generate', params={'profile': '测试企业', 'with_draft': False}).status_code == 202
+    assert c.post(url + '/generate', params={'profile': '测试企业', 'with_draft': False, 'allow_incomplete': True}).status_code == 409
 
 
 def test_generation_waits_for_running_reparse(bid):
@@ -386,3 +386,28 @@ def test_generation_waits_for_running_reparse(bid):
     response = bid['client'].post(bid['url'] + '/generate', params={'profile': '测试企业'})
     assert response.status_code == 409
     assert '解析' in response.json()['detail']
+
+
+def test_preparation_gate_and_explicit_draft_do_not_bypass_export(bid):
+    from jb_parser.trm import FormatBlock
+    with session() as s:
+        p = s.get(Project, bid['id'])
+        trm = TRM.model_validate(p.trm_confirmed)
+        trm.format_blocks = [FormatBlock(title='授权委托书', paragraphs=['本次委托代理人签署文件'])]
+        p.trm_confirmed = trm.model_dump()
+    c, url = bid['client'], bid['url']
+    state = c.get(url + '/preparation', params={'profile': '测试企业'}).json()
+    assert not state['readiness']['ready']
+    assert state['readiness']['confirmations'][0]['task'] == 'authorization'
+    blocked = c.post(url + '/generate', params={'profile': '测试企业'})
+    assert blocked.status_code == 409 and '投标准备' in blocked.json()['detail']
+    allowed = c.post(url + '/generate', params={'profile': '测试企业', 'allow_incomplete': True})
+    assert allowed.status_code == 202
+    result = c.get('/api/tasks/' + allowed.json()['task_id']).json()['result']
+    assert result['generation_mode'] == 'incomplete_draft'
+    assert result['preparation_snapshot']['confirmations'][0]['task'] == 'authorization'
+    flow = c.get(url + '/workflow', params={'profile': '测试企业'}).json()
+    assert any('被授权人' in value for value in flow['blockers'])
+    exported = export(bid, result['files'][0])
+    assert exported['ok'] is False
+    assert any('被授权人' in value for value in exported['blocked_by'])

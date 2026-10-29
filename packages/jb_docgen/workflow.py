@@ -81,7 +81,7 @@ def qualify_selected(p: Project, trm: TRM, profile: CompanyProfile, use_llm: boo
     from jb_agents.qualify import FeasibilityReport, qualify_package
     return FeasibilityReport(batch_name=trm.batch_name, company=profile.name, packages=[
         qualify_package(pkg, selected_profile(p, i, profile), use_llm,
-                        deadline=p.deadline or trm.key_terms.bid_deadline)
+                        deadline=p.deadline or trm.key_terms.bid_deadline, trm=trm)
         for i, pkg in enumerate(trm.packages)])
 
 
@@ -150,11 +150,18 @@ def source_blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> 
         path = Path(out_dir) / name
         if not path.is_file() or file_hash(path) != digest:
             reasons.append(f"文件缺失或已被修改，请重新生成：{name}")
-    return reasons
+    return list(dict.fromkeys(reasons))
 
 
 def blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> list[str]:
     reasons = source_blockers(s, p, a, out_dir, profile)
+    from .readiness import readiness
+    try:
+        _, current_profile, _ = inputs(s, p, a["profile"])
+        prepared = readiness(p, a['pkg_index'], current_profile)
+        reasons.extend(x['message'] for x in prepared['confirmations'])
+    except WorkflowError as exc:
+        reasons.append(str(exc))
     rep = a.get("review")
     if not rep:
         reasons.append("本生成版本尚未审查，请执行合规审查")
