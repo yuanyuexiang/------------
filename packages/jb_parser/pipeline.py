@@ -20,6 +20,25 @@ SUB_DIR_PAT = re.compile(r"分标(\d+)([^/]*)")
 ECP_IDENTITY_PAT = re.compile(r"(\d{6}-\d{7}-\d{4})、([^/]+?)、(包\d+)(?:/|$)")
 
 
+def apply_goods_identity(pkg: PackageTRM, source: str, batch_no: str) -> None:
+    """ECP货物清单文件名记载分标名称，行内编号唯一且与批次一致时补缺。"""
+    rows = [m for m in pkg.materials if m.pkg == pkg.pkg_no]
+    codes = {m.sub_no for m in rows if m.sub_no}
+    match = re.fullmatch(r"货物清单_(\d{6})_(.+?)\d{8}_\d{6}_\d+\.xlsx",
+                         os.path.basename(source), re.IGNORECASE)
+    if not match or not rows or len(codes) != 1 or match[1] != batch_no:
+        return
+    code = next(iter(codes))
+    if not code.startswith(batch_no + '-') or (pkg.sub_no and pkg.sub_no != code):
+        return
+    if pkg.sub_name and pkg.sub_name != match[2]:
+        return
+    if not pkg.sub_no or not pkg.sub_name:
+        pkg.sub_no = code
+        pkg.sub_name = match[2]
+        pkg.identity_source = source + '；分标名称取自清单文件名，编号取自本包清单行'
+
+
 def parse_package_dir(root: str, files: list[str], trm: TRM,
                       sub_no: str = "", sub_name: str = "", pkg_no: str = "") -> None:
     """解析一个"包"目录（已解压），结果写入 trm。"""
@@ -63,6 +82,7 @@ def parse_package_dir(root: str, files: list[str], trm: TRM,
     goods_rel = manifest.first(classify.GOODS_LIST_XLSX)
     if goods_rel:
         pkg.materials = extract.extract_goods_list(os.path.join(root, goods_rel))
+        apply_goods_identity(pkg, goods_rel, trm.batch_no)
 
     qual_rel = manifest.first(classify.QUAL_PERF_XLSX)
     if qual_rel:
