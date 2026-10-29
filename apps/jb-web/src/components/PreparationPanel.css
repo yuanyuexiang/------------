@@ -1,0 +1,21 @@
+.preparation-team > .ant-alert,
+.preparation-team > .ant-collapse,
+.preparation-team > .ant-table-wrapper { margin-bottom: 16px; }
+.preparation-member {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(130px, .75fr) 60px;
+  gap: 12px;
+  align-items: start;
+  padding: 16px;
+  margin-bottom: 12px;
+  background: #fafbfd;
+  border: 1px solid #e8edf3;
+  border-radius: 10px;
+}
+.preparation-member .ant-form-item { min-width: 0; margin-bottom: 0; }
+.preparation-member-remove { margin-top: 30px; }
+.preparation-team-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin: 16px 0 24px; }
+@media (max-width: 650px) {
+  .preparation-member { grid-template-columns: minmax(0, 1fr); }
+  .preparation-member-remove { margin-top: 0; justify-self: end; }
+}

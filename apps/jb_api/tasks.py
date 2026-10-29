@@ -277,7 +277,9 @@ def run_suggestion(task_id, project_id, profile_name, pkg_index, kind, item_id):
                     result = suggest(s, cp, kind, item_id, jb_llm, roles=requirements(p, pkg_index)[1])
                 else:
                     result = suggest(s, cp, kind, item_id, jb_llm)
-        _update(task_id, status='done', progress=1, message='资料建议已准备，请核实后采用',
+        _update(task_id, status='done', progress=1,
+                message='资料建议已准备，请核实后采用' if result.get('candidates') or result.get('recommendations')
+                else result['message'],
                 result={**result, 'revision': revision, 'kind': kind, 'item_id': item_id,
                         'profile': profile_name, 'pkg_index': pkg_index})
     except Exception:

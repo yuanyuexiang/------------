@@ -227,3 +227,61 @@ def test_empty_team_is_rejected_and_legacy_record_does_not_become_confirmation(p
         effective = preparation.apply_facts(p, 0, cp)
         assert 'team' not in effective.bid_context
         assert effective.bid_context['personnel_candidates'][0]['name'] == '甲'
+
+
+def test_registration_context_and_unknown_are_preserved(preparation_project):
+    from jb_parser.trm import FormatBlock
+    _, pid = preparation_project
+    with session() as s:
+        p = s.get(Project, pid)
+        trm = TRM.model_validate(p.trm_confirmed)
+        trm.format_blocks = [FormatBlock(title='企业基本情况表', paragraphs=['主管部门、批准文号']),
+                             FormatBlock(title='其他章节', paragraphs=['无关内容'])]
+        p.trm_confirmed = trm.model_dump()
+    before = state(preparation_project)
+    assert before['registration_requirements'] == [
+        {'title': '企业基本情况表', 'text': '主管部门、批准文号'}]
+    assert save(preparation_project, 'registration', {
+        'registration': {'主管部门': {'value': '', 'not_applicable': False, 'reason': '', 'source': ''}},
+        'shareholders': []}).status_code == 200
+    after = state(preparation_project)
+    assert not after['profile']['registration']['主管部门']['not_applicable']
+    assert '主管部门' in next(t for t in after['tasks'] if t['id'] == 'registration')['current_notes']
+
+
+def test_registration_retrieval_prioritizes_direct_source(monkeypatch):
+    from jb_agents import preparation as agent
+    evidence = [
+        {'id': 'general', 'title': '通用信息', 'attachment_id': '', 'text': '一般资料' * 12000},
+        {'id': 'owner', 'title': '公示报告 第2页', 'attachment_id': 'report',
+         'text': '股东：测试股东，出资比例尚未记载'},
+    ]
+    monkeypatch.setattr(agent, 'collect_evidence', lambda *args: (evidence, []))
+
+    class Model:
+        def chat_json(self, prompt, **kwargs):
+            assert '公示报告 第2页' in prompt
+            return {'candidates': []}
+
+    result = agent.suggest(None, CompanyProfile(name='测试'), 'registration', '', Model())
+    assert result['checked'] == [{'title': '公示报告 第2页', 'attachment_id': 'report'}]
+    assert any('通用信息' in value for value in result['unreadable'])
+
+
+def test_suggestion_reconnects_active_job_without_duplicate(preparation_project, monkeypatch):
+    from jb_api import tasks
+    calls = []
+    monkeypatch.setattr(tasks, 'submit_suggestion', lambda *args: calls.append(args) or 'test')
+    c, pid = preparation_project
+    url = f'/api/projects/{pid}/preparation/suggest/'
+    params = {'profile': '准备测试企业'}
+    first = c.post(url + 'registration', params=params).json()
+    repeated = c.post(url + 'registration', params=params)
+    assert repeated.status_code == 202
+    assert repeated.json()['task_id'] == first['task_id']
+    assert not repeated.json()['busy_other']
+    other = c.post(url + 'team', params=params)
+    assert other.status_code == 202 and other.json()['busy_other']
+    assert other.json()['task_id'] == first['task_id']
+    assert state(preparation_project)['active_suggestion'] == first['task_id']
+    assert len(calls) == 1

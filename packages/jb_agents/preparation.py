@@ -22,9 +22,11 @@ def collect_evidence(s, cp, kind, item_id=''):
             continue
         text = (json.dumps(record.model_dump(), ensure_ascii=False) if kind == 'team' else
                 getattr(record, 'source', '') + '\n' + getattr(record, 'text', ''))
+        if kind == 'registration' and not any(w in text for w in ('主管部门', '批准部门', '批准文号', '股东', '出资', '登记', '营业')):
+            continue
         if text.strip():
             evidence.append({'id': 'record-' + record.id, 'title': getattr(record, 'project', '') or
-                             getattr(record, 'name', '') or getattr(record, 'title', ''),
+                             getattr(record, 'name', '') or getattr(record, 'title', '') or getattr(record, 'topic', '') or '企业资料记录',
                              'text': text[:12000], 'attachment_id': '',
                              'person_ids': [record.id] if kind == 'team' else []})
     words = ('员工', '人员', '统计', '补充', '说明') if kind == 'statistics' else (
@@ -102,6 +104,11 @@ def validate_candidates(result, evidence, kind):
 
 def suggest(s, cp, kind, item_id, llm, roles=None):
     evidence, unreadable = collect_evidence(s, cp, kind, item_id)
+    if kind == 'registration':
+        # 原始文件优先，直接涉及目标字段的页面优先于通用信用信息。
+        words = ('主管部门', '批准部门', '批准文号', '股东', '出资')
+        evidence.sort(key=lambda x: (any(w in x['text'] for w in words),
+                                      bool(x['attachment_id'])), reverse=True)
     # 控制输入长度，明确告知截断范围；不声称已经检查全部附件。
     selected, used = [], 0
     for item in evidence:

@@ -138,6 +138,8 @@ export interface PreparationReadiness {
   blockers: string[]; confirmations: { task: string; title: string; message: string }[]; warnings: string[]; ready: boolean
 }
 export interface PreparationState {
+  active_suggestion?: string | null
+  registration_requirements: { title: string; text: string }[]
   readiness: PreparationReadiness
   revision: string; profile: CompanyProfile; tasks: PreparationTask[]; facts: Record<string, BidFactState>
   generation_stale: boolean; generation_id: string | null; attachments: Attachment[]; missing_dates: Performance[]
@@ -265,7 +267,7 @@ export const api = {
     req<{ ok: boolean }>(`/api/projects/${id}/relationship?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json(data)),
   preparation: (id: string, profile: string, pkgIndex: number) => req<PreparationState>(`/api/projects/${id}/preparation?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
   savePreparation: (id: string, profile: string, pkgIndex: number, kind: string, revision: string, data: unknown) => req<{ ok: boolean }>(`/api/projects/${id}/preparation/${kind}?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json({ revision, data })),
-  suggestPreparation: (id: string, profile: string, pkgIndex: number, kind: string, itemId = '') => req<{ task_id: string }>(`/api/projects/${id}/preparation/suggest/${kind}?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&item_id=${encodeURIComponent(itemId)}`, { method: 'POST' }),
+  suggestPreparation: (id: string, profile: string, pkgIndex: number, kind: string, itemId = '') => req<{ task_id: string; busy_other?: boolean }>(`/api/projects/${id}/preparation/suggest/${kind}?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&item_id=${encodeURIComponent(itemId)}`, { method: 'POST' }),
   materials: (id: string, profile: string, pkgIndex: number) =>
     req<{ selection: MaterialSelection; profile: CompanyProfile }>(`/api/projects/${id}/materials?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
   saveMaterials: (id: string, profile: string, pkgIndex: number, selection: MaterialSelection) =>

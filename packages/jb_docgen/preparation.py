@@ -23,7 +23,7 @@ STATS = ('staff_total', 'staff_technical', 'senior_engineers', 'engineers',
 REGISTRATION = ('主管部门', '批准部门', '批准文号')
 TITLES = {'authorization': '本次授权', 'relationship': '国网人员关系确认',
           'team': '本次项目团队', 'statistics': '企业人员统计',
-          'registration': '登记与股权信息', 'performance': '历史业绩合同日期',
+          'registration': '企业基本情况核对', 'performance': '历史业绩合同日期',
           'system': '系统引用与生成修复',
           'other': '其他原文或生成问题'}
 
@@ -301,7 +301,17 @@ def state(s, p, index, cp):
     groups['other']['status'] = '系统生成核查，不等同于缺少企业资料'
     groups['system']['status'] = '系统需重试或核查，不要求补交企业资料'
     from .readiness import readiness
-    return {'readiness': readiness(p, index, cp), 'revision': revision, 'profile': cp.model_dump(), 'facts': facts,
+    trm = TRM.model_validate(p.trm_confirmed or p.trm)
+    registration_requirements = [
+        {'title': block.title, 'text': '\n'.join(block.paragraphs)}
+        for block in trm.format_blocks
+        if any(word in block.title + '\n'.join(block.paragraphs)
+               for word in (*REGISTRATION, '股东', '出资比例'))]
+    active_suggestion = s.scalar(select(Task.id).where(Task.project_id == p.id,
+                                Task.kind == 'suggest', Task.status.in_(['queued', 'running'])))
+    return {'active_suggestion': active_suggestion,
+            'registration_requirements': registration_requirements,
+            'readiness': readiness(p, index, cp), 'revision': revision, 'profile': cp.model_dump(), 'facts': facts,
             'tasks': [v for k, v in groups.items() if k not in ('other', 'system') or v['items']],
             'generation_stale': bool(artifact and artifact['input_hash'] != revision),
             'generation_id': artifact['id'] if task else None,

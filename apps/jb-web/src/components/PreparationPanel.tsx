@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Checkbox, Collapse, Drawer, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { api, FactSuggestions, PreparationState, BidMember, Person } from '../api'
 import CompanyFactsFields, { STAT_FIELDS } from './CompanyFactsFields'
 import RelationshipConfirmation from './RelationshipConfirmation'
+import './PreparationPanel.css'
 
 const LABELS: Record<string, string> = { ...Object.fromEntries(STAT_FIELDS), staff_as_of: '统计日期', staff_source: '统计依据', signed_date: '合同签约日期', shareholders: '股东出资明细' }
 export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSaved, onGoToGeneration }: {
@@ -22,8 +23,29 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
   const personId = Form.useWatch('person_id', form)
   const { data: task } = useQuery({ queryKey: ['task', suggestionTask], queryFn: () => api.task(suggestionTask!), enabled: !!suggestionTask,
     refetchInterval: q => ['done', 'failed'].includes(q.state.data?.status ?? '') ? false : 2000 })
-  const suggestion = task?.status === 'done' ? task.result as unknown as FactSuggestions : undefined
+  const result = task?.status === 'done' ? task.result as unknown as FactSuggestions : undefined
+  const suggestion = result?.kind === editor?.kind && result?.profile === profile && result?.pkg_index === pkgIndex && (result?.item_id || '') === (itemId || '') ? result : undefined
+  useEffect(() => {
+    if (editor && !suggestionTask && data?.active_suggestion) setSuggestionTask(data.active_suggestion)
+  }, [editor, suggestionTask, data?.active_suggestion])
+  const editorRef = useRef(editor)
+  editorRef.current = editor
   const suggestionRunning = suggesting || (!!suggestionTask && !['done', 'failed'].includes(task?.status ?? ''))
+  const suggestionCache = useRef(new Map<string, string>())
+  useEffect(() => {
+    if (editor?.kind !== 'registration' || disabled) return
+    const key = `${id}:${profile}:${pkgIndex}:${editor.snapshot.revision}`
+    const cached = suggestionCache.current.get(key)
+    if (cached) { setSuggestionTask(cached); return }
+    let active = true
+    setSuggesting(true)
+    void api.suggestPreparation(id, profile, pkgIndex, 'registration').then(r => {
+      if (!r.busy_other) suggestionCache.current.set(key, r.task_id)
+      if (active) setSuggestionTask(r.task_id)
+    }).catch(e => { if (active) message.error(`资料整理未完成，可点击重新检索：${String(e)}`) })
+      .finally(() => { if (active) setSuggesting(false) })
+    return () => { active = false; setSuggesting(false) }
+  }, [editor, id, profile, pkgIndex, disabled])
   const snapshot = editor?.snapshot
   const personLink = (person?: Person) => `/kb/${encodeURIComponent(profile)}?tab=personnel&item=${person?.id ?? 'new'}&returnTo=${encodeURIComponent(`/projects/${id}/workbench`)}`
   const refresh = async () => {
@@ -62,7 +84,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
   const suggest = async () => {
     if (!editor) return
     setSuggesting(true)
-    try { const r = await api.suggestPreparation(id, profile, pkgIndex, editor.kind, itemId); setSuggestionTask(r.task_id) }
+    try { const r = await api.suggestPreparation(id, profile, pkgIndex, editor.kind, itemId); if (editorRef.current === editor) setSuggestionTask(r.task_id) }
     catch (e) { message.error(String(e)) } finally { setSuggesting(false) }
   }
   const apply = (candidate: FactSuggestions['candidates'][number]) => {
@@ -109,9 +131,39 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
         <Typography.Text type="secondary">保存后自动刷新待办。资料处理完后，回到工作台统一生成或更新标书。</Typography.Text>
       </Space>}>
       {snapshot && editor && <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        {['statistics', 'registration', 'performance', 'team'].includes(editor.kind) && <Card size="small" title={editor.kind === 'team' ? 'AI 检索人员证据并推荐岗位' : '1. 已有资料整理结果'} extra={<Button loading={suggestionRunning} disabled={disabled || saving || suggestionRunning || (editor.kind === 'performance' && !itemId)} onClick={() => void suggest()}>{suggestionRunning ? '正在整理资料' : suggestion ? '重新检索' : '检索已有资料'}</Button>}>
+          <Typography.Paragraph type="secondary">系统先从本企业已有资料提取，来源和页码随建议带入，无需重复查找。多条同名建议请比较日期与原文后选择；不会覆盖已保存记录。{editor.kind === 'team' ? '核实并保存后，仅作为本包人员安排，不自动认定资格通过。' : '核实并保存后才写入知识库。'}</Typography.Paragraph>
+          {editor.kind === 'registration' && <Collapse items={[{ key: 'files', label: '已提供的相关资料（可直接查看原件）', children: <Space direction="vertical">{snapshot.attachments.filter(a => /营业|信用|公示|股东|章程|补充|说明/.test(a.filename)).map(a => <a key={a.id} href={api.attachmentUrl(a.id)} target="_blank" rel="noreferrer">{a.filename}</a>)}<Link to={`/kb/${encodeURIComponent(profile)}?tab=attachments`}>查看附件库或补充资料</Link></Space> }]} />}
+          {suggestionRunning && <Alert type="info" showIcon message="本项目正在整理资料，已接续任务进度。您可以继续核对下方内容，无需重复点击。" />}
+          {task && <Alert type={task.status === 'failed' ? 'error' : 'info'} message={task.message} />}
+          {result && !suggestion && <Alert type="info" message="其他资料的检索已完成，现在可以开始本项检索。" />}
+          {suggestion && <>
+            <Typography.Paragraph>{suggestion.message}</Typography.Paragraph>
+            {suggestion.recommendations?.map((r, i) => <Card key={`person-${i}`} size="small" title={`${r.name} · ${r.role}（待确认建议）`} extra={<Button disabled={saving || disabled || suggestion.revision !== snapshot.revision || members.some(x => x.person_id === r.person_id)} onClick={() => { form.setFieldValue('members', [...members, { person_id: r.person_id, role: r.role }]); form.setFieldValue('arrival_commitment', false) }}>带入待确认团队</Button>}>
+              <Typography.Paragraph>{r.reason}</Typography.Paragraph>
+              <Typography.Paragraph>原文：{r.quote}</Typography.Paragraph>
+              <Typography.Text type="secondary">来源：{r.source}</Typography.Text>
+              {r.attachment_id && <a href={api.attachmentUrl(r.attachment_id)} target="_blank" rel="noreferrer"> 查看原件</a>}
+              <Typography.Paragraph>仍需核实：{r.missing.join('、') || '本包可投入情况及岗位资格原件'}。建议不代表资格通过。</Typography.Paragraph>
+            </Card>)}
+            {suggestion.revision !== snapshot.revision && <Alert type="warning" message="建议与当前表单版本不一致，请刷新任务并重新检索。" />}
+            {suggestion.candidates.map((c, i) => <Card size="small" key={i} title={LABELS[c.field] ?? c.field} extra={<Button disabled={suggestion.revision !== snapshot.revision || saving || disabled} onClick={() => apply(c)}>采用此记录（待保存）</Button>}>
+              <pre style={{ whiteSpace: 'pre-wrap' }}>{Array.isArray(c.value) ? c.value.map(x => `${x.name}：出资 ${x.amount_wan ?? '未记载'} 万元；比例 ${x.ratio ?? '未记载'}%`).join('\n') : String(c.value)}</pre>
+              <Typography.Paragraph>原文：{c.quote}</Typography.Paragraph>
+              {c.attachment_id ? <a href={api.attachmentUrl(c.attachment_id)} target="_blank" rel="noreferrer">{c.source}</a> : <Typography.Text>{c.source}</Typography.Text>}
+              <Typography.Paragraph type="secondary">{c.note}</Typography.Paragraph>
+            </Card>)}
+            {!suggestion.candidates.length && !suggestion.recommendations?.length && <Typography.Paragraph>没有提取到可核实候选值，不能据此认定“不适用”。</Typography.Paragraph>}
+            <Collapse items={[{ key: 'coverage', label: '查看检索范围与未读取原件', children: <><ul>{suggestion.checked.map((x, i) => <li key={i}>{x.title}</li>)}</ul><ul>{suggestion.unreadable.map((x, i) => <li key={i}>{x}</li>)}</ul></> }]} />
+          </>}
+        </Card>}
         {snapshot.tasks.find(t => t.id === editor.kind)?.items.length ? <Collapse items={[{ key: 'issues', label: snapshot.generation_stale ? '历史版本问题（不代表当前缺项）' : '查看关联文件中的原始提示', children: <ul>{snapshot.tasks.find(t => t.id === editor.kind)?.items.map((x, i) => <li key={i}>{x.message}<Typography.Text type="secondary">（{x.file}）</Typography.Text></li>)}</ul> }]} /> : null}
         {editor.kind === 'relationship' ? <RelationshipConfirmation id={id} profile={profile} pkgIndex={pkgIndex} disabled={disabled} onCancel={() => setEditor(undefined)} onSaved={() => { setEditor(undefined); void refresh() }} /> :
           <Form form={form} layout="vertical" disabled={disabled || saving}>
+            {editor.kind === 'registration' && <>
+              <Typography.Title level={5}>2. 核对将写入标书的内容</Typography.Title>
+              <Collapse items={[{ key: 'original', label: '为什么需要这些信息？查看招标原文', children: snapshot.registration_requirements?.length ? snapshot.registration_requirements.map((x, i) => <Typography.Paragraph key={i}><strong>{x.title}</strong><br />{x.text}</Typography.Paragraph>) : '当前未提取到包含这些字段的招标原表。以下为企业长期资料，不表示本包全部必填；请先核对采购原件。' }]} />
+            </>}
             {['statistics', 'registration'].includes(editor.kind) && <CompanyFactsFields kind={editor.kind} form={form} />}
             {editor.kind === 'authorization' && <>
               <Alert type="info" showIcon message="项目名称与授权范围由采购文件自动填写。这里只确认本次授权人及职务，选择不会修改常用授权人。" />
@@ -122,7 +174,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
               {personId && <Card size="small" title="被授权人已有证明材料">{attachmentsFor(candidates.find(x => x.id === personId)?.attachments)}<br /><Link to={personLink(candidates.find(x => x.id === personId))}>补充或核对该人员的身份证及职务材料</Link></Card>}
               <Link to={personLink()}>知识库新增人员</Link>
             </>}
-            {editor.kind === 'team' && <>
+            {editor.kind === 'team' && <div className="preparation-team">
               <Alert type="info" showIcon message="选择人员和岗位只确认本次安排，不自动证明符合资格。工作经历、专业、社保等仍应对照原件核验。" />
               {snapshot.roles.length ? <Table size="small" rowKey="role" pagination={false} dataSource={snapshot.roles} columns={[
                 { title: '原文岗位', dataIndex: 'role' }, { title: '人数', dataIndex: 'count', width: 65 },
@@ -131,13 +183,13 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
               <Collapse items={[{ key: 'req', label: '查看人员要求原文', children: snapshot.team_requirements.map(x => <Typography.Paragraph key={x.id}>{x.text}</Typography.Paragraph>) }]} />
               <Typography.Paragraph>当前选择 {members.length} 人{requiredCount ? `；原岗位表要求 ${requiredCount} 人` : ''}。请逐岗核对，下方证据摘要不等于资格审查通过。</Typography.Paragraph>
               <Form.List name="members">{(fields, { add, remove }) => <>
-                {fields.map(({ key, name }) => <Space key={key} align="start" wrap>
-                  <Form.Item name={[name, 'person_id']} label="人员" rules={[{ required: true }]}><Select style={{ width: 190 }} options={candidates.map(x => ({ value: x.id, label: x.name }))} /></Form.Item>
-                  <Form.Item name={[name, 'role']} label="本次岗位" rules={[{ required: true, whitespace: true }]}>{snapshot.roles.length ? <Select style={{ width: 190 }} options={snapshot.roles.map(x => ({ value: x.role }))} /> : <Input style={{ width: 190 }} placeholder="按招标原文填写岗位" />}</Form.Item>
-                  <Form.Item name={[name, 'available']} label="本包可投入" rules={[{ required: true }]}><Select style={{ width: 130 }} options={[{ value: true, label: '确认可投入' }, { value: false, label: '暂不可投入' }]} /></Form.Item>
-                  <Button onClick={() => remove(name)}>移除</Button>
-                </Space>)}
-                <Button onClick={() => add({})}>选择团队成员</Button> <Link to={personLink()}>新增知识库人员</Link>
+                {fields.map(({ key, name }) => <div key={key} className="preparation-member">
+                  <Form.Item name={[name, 'person_id']} label="人员" rules={[{ required: true }]}><Select style={{ width: '100%' }} options={candidates.map(x => ({ value: x.id, label: x.name }))} /></Form.Item>
+                  <Form.Item name={[name, 'role']} label="本次岗位" rules={[{ required: true, whitespace: true }]}>{snapshot.roles.length ? <Select style={{ width: '100%' }} options={snapshot.roles.map(x => ({ value: x.role }))} /> : <Input style={{ width: '100%' }} placeholder="按招标原文填写岗位" />}</Form.Item>
+                  <Form.Item name={[name, 'available']} label="本包可投入" rules={[{ required: true }]}><Select style={{ width: '100%' }} options={[{ value: true, label: '确认可投入' }, { value: false, label: '暂不可投入' }]} /></Form.Item>
+                  <Button type="text" danger className="preparation-member-remove" onClick={() => { remove(name); form.setFieldValue('arrival_commitment', false) }}>移除</Button>
+                </div>)}
+                <div className="preparation-team-actions"><Button type="dashed" onClick={() => { add({}); form.setFieldValue('arrival_commitment', false) }}>＋ 添加团队成员</Button><Link to={personLink()}>人员不在列表？去知识库新增</Link></div>
               </>}</Form.List>
               <Form.Item name="arrival_commitment" valuePropName="checked" style={{ marginTop: 16 }}><Checkbox disabled={!members.length || members.some(x => x.available !== true)}>确认所选可投入人员的本包到岗安排，允许系统据此起草到岗承诺（仍需按采购要求签章）</Checkbox></Form.Item>
               {members.map((m, i) => {
@@ -149,7 +201,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
                   {attachmentsFor(person.attachments)}
                 </Card> : null
               })}
-            </>}
+            </div>}
             {editor.kind === 'performance' && <>
               <Alert type="info" showIcon message="这里填写历史业绩合同的签约日期，不是本次招标项目的日期。请以签署页或其他有效证明为依据，约略日期不要填成精确日期。" />
               <Form.Item name="id" label="具体历史业绩" rules={[{ required: true }]}><Select options={snapshot.profile.performances.map(x => ({ value: x.id, label: `${x.project}${x.signed_date ? `（${x.signed_date}）` : '（签约日期缺失）'}` }))} onChange={selectPerformance} /></Form.Item>
@@ -161,29 +213,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
             {editor.kind === 'other' && <Alert type="info" message="请按原始提示核对采购原文、模型调用或具体企业证据；此类问题不会通过填写企业基本信息自动消除。" />}
             {editor.kind === 'system' && <Space direction="vertical"><Alert type="info" message="系统会先规范引用、检索本包原文并修复正文；不需要为引用格式错误补交资料。剩余无法验证的内容仍保留核查提示。" /><Button disabled={disabled} onClick={() => { setEditor(undefined); onGoToGeneration() }}>返回工作台更新标书</Button></Space>}
           </Form>}
-        {['statistics', 'registration', 'performance', 'team'].includes(editor.kind) && <Card size="small" title={editor.kind === 'team' ? 'AI 检索人员证据并推荐岗位' : '先让 AI 检索已有资料'} extra={<Button loading={suggestionRunning} disabled={disabled || saving || (editor.kind === 'performance' && !itemId)} onClick={() => void suggest()}>检索并提取建议</Button>}>
-          <Typography.Paragraph type="secondary">仅检索本企业已有资料；建议带原文及出处，点击采用只带入表单。{editor.kind === 'team' ? '核实并保存后，仅作为本包人员安排，不自动认定资格通过。' : '核实并保存后才写入知识库。'}</Typography.Paragraph>
-          {task && <Alert type={task.status === 'failed' ? 'error' : 'info'} message={task.message} />}
-          {suggestion && <>
-            <Typography.Paragraph>{suggestion.message}</Typography.Paragraph>
-            {suggestion.recommendations?.map((r, i) => <Card key={`person-${i}`} size="small" title={`${r.name} · ${r.role}（待确认建议）`} extra={<Button disabled={saving || disabled || suggestion.revision !== snapshot.revision || members.some(x => x.person_id === r.person_id)} onClick={() => { form.setFieldValue('members', [...members, { person_id: r.person_id, role: r.role }]); form.setFieldValue('arrival_commitment', false) }}>带入待确认团队</Button>}>
-              <Typography.Paragraph>{r.reason}</Typography.Paragraph>
-              <Typography.Paragraph>原文：{r.quote}</Typography.Paragraph>
-              <Typography.Text type="secondary">来源：{r.source}</Typography.Text>
-              {r.attachment_id && <a href={api.attachmentUrl(r.attachment_id)} target="_blank" rel="noreferrer"> 查看原件</a>}
-              <Typography.Paragraph>仍需核实：{r.missing.join('、') || '本包可投入情况及岗位资格原件'}。建议不代表资格通过。</Typography.Paragraph>
-            </Card>)}
-            {suggestion.revision !== snapshot.revision && <Alert type="warning" message="建议与当前表单版本不一致，请刷新任务并重新检索。" />}
-            {suggestion.candidates.map((c, i) => <Card size="small" key={i} title={LABELS[c.field] ?? c.field} extra={<Button disabled={suggestion.revision !== snapshot.revision || saving || disabled} onClick={() => apply(c)}>采用到表单</Button>}>
-              <pre style={{ whiteSpace: 'pre-wrap' }}>{typeof c.value === 'object' ? JSON.stringify(c.value, null, 2) : String(c.value)}</pre>
-              <Typography.Paragraph>原文：{c.quote}</Typography.Paragraph>
-              {c.attachment_id ? <a href={api.attachmentUrl(c.attachment_id)} target="_blank" rel="noreferrer">{c.source}</a> : <Typography.Text>{c.source}</Typography.Text>}
-              <Typography.Paragraph type="secondary">{c.note}</Typography.Paragraph>
-            </Card>)}
-            {!suggestion.candidates.length && !suggestion.recommendations?.length && <Typography.Paragraph>没有提取到可核实候选值，不能据此认定“不适用”。</Typography.Paragraph>}
-            <Collapse items={[{ key: 'coverage', label: '查看检索范围与未读取原件', children: <><ul>{suggestion.checked.map((x, i) => <li key={i}>{x.title}</li>)}</ul><ul>{suggestion.unreadable.map((x, i) => <li key={i}>{x}</li>)}</ul></> }]} />
-          </>}
-        </Card>}
+
       </Space>}
     </Drawer>
   </Card>

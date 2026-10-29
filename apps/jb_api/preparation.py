@@ -52,11 +52,13 @@ def suggest(project_id: str, kind: str, profile: str, background: BackgroundTask
         p, cp = load(s, project_id, profile, pkg_index, lock=True)
         if kind == 'performance' and not any(x.id == item_id for x in cp.performances):
             raise HTTPException(404, '请选择具体历史业绩')
-        active = s.scalar(select(Task.id).where(Task.project_id == project_id,
+        active = s.scalar(select(Task).where(Task.project_id == project_id,
                           Task.kind == 'suggest', Task.status.in_(['queued', 'running'])))
+        request = {'profile': profile, 'pkg_index': pkg_index, 'kind': kind, 'item_id': item_id}
         if active:
-            raise HTTPException(409, '本项目已有资料检索任务，请等待完成')
-        t = Task(project_id=p.id, kind='suggest', actor=au.current_actor())
+            return {'task_id': active.id, 'reused': True,
+                    'busy_other': (active.result or {}).get('request') != request}
+        t = Task(project_id=p.id, kind='suggest', actor=au.current_actor(), result={'request': request})
         s.add(t)
         s.flush()
         tid = t.id
