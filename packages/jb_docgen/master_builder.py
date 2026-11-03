@@ -293,8 +293,12 @@ def _fill_deviation(doc, results: list[TechParamResult]) -> None:
     rows = [x for r in results for x in deviation_rows(r)]
     recs = [{"clause": x["对应条款"], "req": x["招标文件要求"], "resp": x["投标响应"], "note": x["偏差说明"]} for x in rows] \
         or [{"clause": "/", "req": "/", "resp": "/", "note": "无偏差"}]
-    colmap = [("偏差事项|对应条款|条款", "clause"), ("要求", "req"), ("响应", "resp"), ("偏差说明|说明", "note")]
-    t = M.find_table(doc, ["偏差事项", "对应条款", "招标文件要求", "采购文件要求", "投标文件响应", "应答文件响应"])
+    colmap = [("偏差事项|对应条款|条目号", "clause"),
+              ("招标文件条款|采购文件条款|要求", "req"),
+              ("投标文件条款|应答文件条款|响应文件条款|响应", "resp"),
+              ("偏差说明|说明", "note"), ("条款", "clause")]
+    t = M.find_table(doc, ["偏差事项", "对应条款", "招标文件要求", "采购文件要求",
+                           "投标文件响应", "应答文件响应", "采购文件条目号", "偏差说明"])
     if t is not None and M.fill_by_header(t, recs, colmap):
         return
     p = M.find_paragraph(doc, r"技术偏差表")
@@ -309,13 +313,21 @@ def _fill_performances(doc, ctx: GenContext) -> None:
     recs = [{"model": model or x.material_category or None, "project": x.project, "buyer": x.buyer or todo("买方"),
              "amount": _wan(x.amount_wan) or todo("合同金额"), "done": x.commissioned_date or todo("投运时间"),
              "signed": x.signed_date or todo(f"历史业绩《{x.project}》签约日期"), "voltage": x.voltage_level or None,
-             "contact": todo(f"{x.project} 联系人及电话"), "evidence": "/".join(x.evidence), "remark": ""}
+             "contact": todo(f"{x.project} 联系人及电话"), "evidence": "/".join(x.evidence), "remark": "",
+             "scope": todo(f"{x.project} 服务范围"),
+             "period": todo(f"{x.project} 服务起止时间"),
+             "progress": todo(f"{x.project} 当前进度"),
+             "staff": todo(f"{x.project} 服务人员高峰及平均人数")}
             for x in k.performances]
     colmap = [("产品型式|物料|产品名称|设备", "model"), ("工程名称|项目名称", "project"),
-              ("项目单位|买方|采购人|用户|业主", "buyer"), ("金额|规模", "amount"), ("投运|验收|完成|交货", "done"),
+              ("项目单位|项目法人|买方|采购人|用户|业主", "buyer"), ("金额|规模", "amount"), ("投运|验收|完成|交货", "done"),
+              ("服务范围", "scope"), ("服务期间", "period"), ("目前进度", "progress"),
+              ("服务人员人数", "staff"),
               ("签约|签订|合同日期|合同时间", "signed"), ("电压", "voltage"), ("联系", "contact"),
               ("证明|支撑|附件", "evidence"), ("备注", "remark")]
-    t = M.find_table(doc, ["工程名称", "投运时间", "产品型式"]) or M.find_table(doc, ["项目名称", "合同金额", "项目单位", "业绩"], min_hits=3)
+    t = (M.find_table(doc, ["项目法人", "服务范围", "服务期间"], min_hits=3)
+         or M.find_table(doc, ["工程名称", "投运时间", "产品型式"])
+         or M.find_table(doc, ["项目名称", "合同金额", "项目单位", "业绩"], min_hits=3))
     if t is not None and (not recs or M.fill_by_header(t, recs, colmap)):
         last = t._tbl
     else:
@@ -361,8 +373,35 @@ def _fill_personnel(doc, ctx: GenContext) -> None:
     if not recs:
         M.insert_paragraph_after(doc, last, todo("拟投入人员清单及七件套材料"))
         return
+    resume = M.find_table(doc, ["姓名", "学历", "参加工作时间"], min_hits=3,
+                          head_rows=3)
+    resume_template = None
+    if resume is not None:
+        resume_template = copy.deepcopy(resume._tbl)
+        last = resume._tbl.getprevious()
+        resume._tbl.getparent().remove(resume._tbl)
     for x in k.personnel:
         last = M.insert_heading_after(doc, last, x.name, level=3)._p
+        if resume_template is not None:
+            element = copy.deepcopy(resume_template)
+            last.addnext(element)
+            personal = Table(element, doc._body)
+            # 项目岗位只取本包已确认安排，不把企业职称当成项目职务。
+            member = next((m for m in k.bid_context.get("team", {}).get("members", [])
+                           if m.get("person_id") == x.id), {})
+            M.set_kv_cells(personal, {
+                "姓名": x.name,
+                "层级": member.get("role") or todo(f"{x.name} 本项目岗位及层级"),
+                "学历": x.education or todo(f"{x.name} 学历"),
+                "性别": todo(f"{x.name} 性别"),
+                "年龄": todo(f"{x.name} 年龄及计算基准日"),
+                "参加工作时间": todo(f"{x.name} 参加工作时间"),
+                "工作年限": todo(f"{x.name} 工作年限及依据"),
+            })
+            last = element
+            last = M.insert_paragraph_after(
+                doc, last, todo(f"{x.name} 主要资历及承担项目明细与证明材料")
+            )._p
         if x.attachments:
             last = _insert_scans(ctx, doc, last, x.attachments, f"{x.name} 证件材料")
         else:

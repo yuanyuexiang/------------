@@ -116,7 +116,10 @@ def strip_orphan_rels(doc) -> int:
 def remove_guidance(doc) -> int:
     n = 0
     for p in list(doc.paragraphs):
-        if GUIDE_PAT.match(norm(p.text)):
+        text = norm(p.text)
+        if GUIDE_PAT.match(text) or re.fullmatch(
+            r"[（(](?:上传投标工具路径|上传应答工具路径|上传路径)[：:].*[）)]", text
+        ):
             p._p.getparent().remove(p._p)
             n += 1
     return n

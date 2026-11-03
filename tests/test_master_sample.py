@@ -101,3 +101,33 @@ def test_shaanxi_confirmed_none_preserves_source(tmp_path):
     assert any("不适用" in c.text for t in d.tables for r in t.rows for c in r.cells)
     assert "投标人基本情况表" in text and "本表的人员只统计" in text
     assert not ctx.todos
+
+
+INDUSTRY_MASTER = os.path.join(
+    WS, 'FF17-229_完整采购文件_45448451399109576/CY8526JFF17C采购文件.docx')
+
+
+@pytest.mark.skipif(not os.path.exists(INDUSTRY_MASTER), reason='产业单位服务采购样本缺失')
+def test_industry_service_tables_preserve_procurement_layout():
+    from jb_docgen import master as M
+    from jb_docgen.builder import GenContext
+    from jb_docgen.master_builder import _fill_deviation, _fill_performances, _fill_personnel
+    from jb_kb.models import Person
+    from jb_parser.trm import TRM, PackageTRM
+
+    doc = M.carve(INDUSTRY_MASTER, 'technical')
+    assert doc is not None
+    assert len(doc.tables) == 4
+    profile = _profile()
+    profile.personnel = [Person(id='one', name='测试甲', education='本科'),
+                         Person(id='two', name='测试乙', education='专科')]
+    ctx = GenContext(trm=TRM(), pkg=PackageTRM(), profile=profile, product=None)
+    _fill_deviation(doc, [])
+    _fill_performances(doc, ctx)
+    _fill_personnel(doc, ctx)
+    assert len(doc.tables) == 5  # 原四表，简历表由一张扩展为每人一张
+    assert doc.tables[0].rows[1].cells[4].text == '无偏差'
+    assert doc.tables[1].rows[1].cells[1].text == profile.performances[0].project
+    assert doc.tables[3].rows[1].cells[1].text == '测试甲'
+    assert doc.tables[4].rows[1].cells[1].text == '测试乙'
+    assert '供货及运行业绩表' not in '\n'.join(p.text for p in doc.paragraphs)

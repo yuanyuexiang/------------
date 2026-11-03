@@ -215,3 +215,79 @@ def test_attachment_pictures(tmp_path):
 @pytest.mark.parametrize("line", ["价格文件", "1.价格文件", "一、价格文件", "三、技术文件", "3.技术文件", "2.商务文件"])
 def test_part_separator_variants(line):
     assert M.PART_PAT.match(M.norm(line))
+
+
+def test_procurement_deviation_fills_original_table():
+    from jb_docgen.master_builder import _fill_deviation
+
+    doc = docx.Document()
+    table = _table(doc, [
+        ['序号', '采购文件条目号', '采购文件条款', '响应文件条款', '偏差说明'],
+        ['', '', '', '', ''],
+        ['投标人声明：除本表列明偏差外接受其余技术条件', '', '', '', ''],
+    ])
+    _fill_deviation(doc, [])
+    assert len(doc.tables) == 1
+    assert [c.text for c in table.rows[1].cells] == ['1', '/', '/', '/', '无偏差']
+    assert '投标人声明' in table.rows[2].cells[0].text
+
+
+def test_service_performance_preserves_original_columns():
+    from jb_docgen.builder import GenContext
+    from jb_docgen.master_builder import _fill_performances
+
+    doc = docx.Document()
+    doc.add_paragraph('业绩文件')
+    headers = ['项目法人（服务对象单位名称）', '项目名称', '项目规模', '服务范围',
+               '服务期间年月至年月', '项目目前进度', '服务人员人数（高峰/平均）',
+               '建设单位联系人及电话（服务对象联系信息）']
+    table = _table(doc, [headers, [''] * len(headers)])
+    trm, pkg = _trm_pkg()
+    ctx = GenContext(trm=trm, pkg=pkg, profile=_profile(), product=None)
+    _fill_performances(doc, ctx)
+    assert len(doc.tables) == 1
+    assert [c.text for c in table.rows[0].cells] == headers
+    values = [c.text for c in table.rows[1].cells]
+    assert values[:3] == ['国网某公司', '项目A', '120万元']
+    assert all('待补充' in v for v in values[3:])
+    assert '2025-01-01' not in values[4]  # 签约日不能当成服务开始日期
+
+
+def test_standalone_upload_guidance_removed_but_requirements_preserved():
+    doc = docx.Document()
+    doc.add_paragraph('（上传投标工具路径：商务文件-按钮“文件上传”）')
+    doc.add_paragraph('项目团队情况')
+    doc.add_paragraph('注：需提供合同和发票证明材料。')
+    assert M.remove_guidance(doc) == 1
+    assert [p.text for p in doc.paragraphs] == ['项目团队情况', '注：需提供合同和发票证明材料。']
+
+
+def test_service_personal_resumes_cloned_and_filled_without_inventing_history():
+    from jb_docgen.builder import GenContext
+    from jb_docgen.master_builder import _fill_personnel
+
+    doc = docx.Document()
+    doc.add_paragraph('拟委任的主要人员汇总表')
+    _table(doc, [['层级', '职务', '姓名', '职称', '专业'], ['', '', '', '', '']])
+    doc.add_paragraph('主要人员简历表')
+    _table(doc, [['层级', '', '', '', '', ''],
+                 ['姓名', '', '性别', '', '年龄', ''],
+                 ['学历', '', '参加工作时间', '', '工作年限', ''],
+                 ['主要资历、经验及承担过的项目', '', '', '', '', '']])
+    doc.add_paragraph('简历表后的原始说明')
+    profile = CompanyProfile(name='测试企业', personnel=[
+        Person(id='a', name='甲', title='工程师', education='本科'),
+        Person(id='b', name='乙', title='工程师', education='专科'),
+    ], bid_context={'team': {'members': [{'person_id': 'a', 'role': '项目负责人'}]}})
+    trm, pkg = _trm_pkg()
+    _fill_personnel(doc, GenContext(trm=trm, pkg=pkg, profile=profile, product=None))
+    assert len(doc.tables) == 3
+    a, b = doc.tables[1:]
+    assert a.rows[1].cells[1].text == '甲'
+    assert b.rows[1].cells[1].text == '乙'
+    assert a.rows[0].cells[1].text == '项目负责人'
+    assert '待补充' in b.rows[0].cells[1].text
+    assert a.rows[2].cells[1].text == '本科'
+    assert '待补充' in a.rows[2].cells[3].text
+    assert '待补充' in a.rows[2].cells[5].text
+    assert doc.paragraphs[-1].text == '简历表后的原始说明'
