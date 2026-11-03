@@ -58,12 +58,14 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
              master_docx: Optional[str] = None, attachment_paths: Optional[dict] = None,
              spec_paths: Optional[dict] = None,
              response_plans: Optional[dict] = None,
-             relationship_confirmation: Optional[dict] = None) -> GenResult:
+             relationship_confirmation: Optional[dict] = None,
+             attachment_layouts: Optional[dict] = None) -> GenResult:
     """生成商务/技术文件。
 
     master_docx 给定（招标文件六章主文件）时以其"文件格式"章为母版原位填空，保留国网原版式；
     母版缺段或装配异常则该文件退回自建版式（builder），原因写入 notes，绝不让生成失败。
     attachment_paths：知识库附件 id → 本地路径，用于把扫描件插入对应小节（PDF 自动转页图）。
+    attachment_layouts：视图 id → 原 Word 行内图片 XML；同一原图的不同裁切视图须使用不同 id。
     spec_paths：规范书 spec_id → 原 docx 路径，技术文件追加"技术规范书逐条响应"章节。
     """
     profile = approved_profile(profile)
@@ -73,6 +75,7 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
                   for b in profile.boilerplates if b.topic == "演示项目方案"] or None
     ctx = GenContext(trm=trm, pkg=pkg, profile=profile, product=pick_product(profile, pkg, product_model),
                      drafts=drafts, attachment_paths=attachment_paths or {}, spec_paths=spec_paths or {},
+                     attachment_layouts=attachment_layouts or {},
                      response_plans=response_plans or {}, relationship_confirmation=relationship_confirmation)
     tag = f"{pkg.sub_no}{pkg.pkg_no}".replace("/", "_") or "pkg"
     com = os.path.join(out_dir, f"商务文件_{tag}.docx")
@@ -96,13 +99,18 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
         build_commercial(ctx, com)
     if mode["technical"] == "plain":
         tech, results = build_technical(ctx, tech)
-    from .preparation import append_authorization_document, append_team_document
+    from .preparation_document import append_authorization_document, append_team_document
     append_team_document(tech, profile)
     append_authorization_document(com, ctx)
     res = GenResult(commercial_path=com, technical_path=tech, todos=ctx.todos, tech_params=results,
                     mode=mode, notes=ctx.notes)
     from .gaps import consolidate_team_gaps
     res.gap_details = {'team': consolidate_team_gaps(tech)}
+    from .layout import fit_tables
+    from .navigation import add_navigation
+    for path in (com, tech):
+        fit_tables(path)
+        add_navigation(path)
     if profile.is_demo:
         import docx
         for path in (com, tech):

@@ -115,6 +115,7 @@ def build_outline(trm: TRM, pkg: PackageTRM) -> list[DraftSection]:
         ("总体服务方案", "服务方案", ("总体", "技术方案", "服务方案")),
         ("工作进度及保证措施", "工作进度及保证措施", ("进度", "工期")),
         ("质量保证体系", "服务方案", ("质量",)),
+        ("服务承诺与后续服务", "服务承诺", ("服务承诺", "售后", "培训")),
     ):
         if not any(any(word in s.title for word in keywords) for s in sections):
             sections.append(DraftSection(title=title, scoring_element=element))

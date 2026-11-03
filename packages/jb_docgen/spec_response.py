@@ -208,13 +208,14 @@ def _clean_copy(el):
 
 
 def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], title: str,
-                plans: Optional[dict[str, str]] = None, service_mode: bool = False) -> tuple[object, int, bool]:
+                plans: Optional[dict[str, str]] = None, service_mode: bool = False,
+                heading_level: int = 2) -> tuple[object, int, bool]:
     """把一本规范书复制到 anchor 之后并逐节响应。返回 (新锚点, 响应小节数, 是否跳过)。"""
     src = docx.Document(spec_path)
     sections = analyse(src)
     if is_cover_only(src, sections):
         return anchor_el, 0, True
-    last = M.insert_heading_after(doc, anchor_el, title, level=2)._p
+    last = M.insert_heading_after(doc, anchor_el, title, level=heading_level)._p
     by_el = {id(s.heading_el): s for s in sections}
     responded = 0
     for el in src.element.body.iterchildren():
@@ -237,6 +238,9 @@ def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], titl
         sec = by_el.get(id(el))
         if sec is None:
             continue
+        style = M._style_or_none(doc, f"Heading {min(heading_level + sec.level, 4)}")
+        if style is not None:
+            Paragraph(new, doc._body).style = style
         items = sec.items + (sec.prose_texts if service_mode and not sec.has_children else [])
         if not items:
             continue
@@ -277,6 +281,10 @@ def respond_service_table(table, plans):
         text = re.sub(r'\s*\[来源:[^\]]+\]', '', text)
         if column is None:
             following.append(f'表中第{index}项响应：{text}')
+        elif len(text) > 160:
+            # 母版的应答列通常不足三厘米；长方案放到表后，避免挤成十余页竖条。
+            M.set_cell_text(table.rows[index].cells[column], f'具体响应见表后第{index}项说明。')
+            following.append(f'表中第{index}项响应：{text}')
         else:
-            table.rows[index].cells[column].text = text
+            M.set_cell_text(table.rows[index].cells[column], text)
     return following

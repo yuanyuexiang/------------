@@ -17,20 +17,23 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Union
 
 import docx
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.image.image import Image
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
-from docx.oxml import OxmlElement
+from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 from docx.table import Table, _Cell, _Row
 from docx.text.paragraph import Paragraph
 from jb_parser import docx_utils
+from lxml import etree
 
 FORMAT_CHAPTER_KW = "文件格式"
 PART_PAT = re.compile(r"^(?:[一二三四五六]、|\d\s*[.、．])?\s*(价格|商务|技术)(?:文件|部分)$")
 PART_KEY = {"价格": "price", "商务": "commercial", "技术": "technical"}
 # ECP 投标工具操作指引行（"（一）商务偏差表（上传投标工具路径：…）"），成品投标文件里不保留
-GUIDE_PAT = re.compile(r"^（[一二三四五六七八九十]+）.*(投标工具|应答工具|上传路径|填写路径|在线填写)")
+GUIDE_PAT = re.compile(r"^（[一二三四五六七八九十]+）.*(投标工具|应答工具|上传路径|填写路径|在线填写|上传招投标交易平台)")
 _WS = re.compile(r"\s+")
 _TEMPLATE_LEAD = re.compile(r"^(\d{1,3}|[…\.]+)$")
 _DROPPABLE_RELS = {getattr(RT, n) for n in ("IMAGE", "HYPERLINK", "CHART", "OLE_OBJECT", "PACKAGE", "DIAGRAM_DATA",
@@ -113,11 +116,66 @@ def strip_orphan_rels(doc) -> int:
     return dropped
 
 
+def prepare_composition(doc) -> None:
+    """补齐真正的标题样式，移除不适用于新正文的母版嵌入字形子集。"""
+    for level, size in enumerate((16, 15, 14, 12), 1):
+        name = f"Heading {level}"
+        if _style_or_none(doc, name) is not None:
+            continue
+        style = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+        style.base_style = doc.styles['Normal']
+        style.font.name = '宋体'
+        style.font.size = Pt(size)
+        style.font.bold = True
+        style.element.get_or_add_rPr().rFonts.set(qn('w:eastAsia'), '宋体')
+        style.paragraph_format.keep_with_next = True
+        properties = style.element.get_or_add_pPr()
+        outline = OxmlElement('w:outlineLvl')
+        outline.set(qn('w:val'), str(level - 1))
+        properties.append(outline)
+    for rel in doc.part.rels.values():
+        if rel.reltype != RT.FONT_TABLE:
+            continue
+        part = rel.target_part
+        root = etree.fromstring(part.blob, etree.XMLParser(resolve_entities=False))
+        changed = False
+        for font in root:
+            if font.get(qn('w:name')) in ('Wingdings', 'Webdings', 'Symbol'):
+                continue
+            for node in list(font):
+                if etree.QName(node).localname.startswith('embed'):
+                    font.remove(node)
+                    changed = True
+        if not changed:
+            continue
+        used = set(root.xpath('//@r:id', namespaces={'r':
+                   'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}))
+        for rid, font_rel in list(part.rels.items()):
+            if font_rel.reltype == RT.FONT and rid not in used:
+                del part.rels[rid]
+        part._blob = etree.tostring(root, encoding='UTF-8', xml_declaration=True, standalone=True)
+
+
 def remove_guidance(doc) -> int:
     n = 0
     for p in list(doc.paragraphs):
         text = norm(p.text)
-        if GUIDE_PAT.match(text) or re.fullmatch(
+        if GUIDE_PAT.match(text):
+            # 上传说明可能附在真实章节标题后，删除说明时必须保留章节。
+            title = re.split(r"[（(](?:可在|上传)", p.text, maxsplit=1)[0].strip()
+            if title and title != p.text.strip():
+                run = merge_runs(p)
+                if run is not None:
+                    run.text = title
+                else:
+                    p.text = title
+                if _style_or_none(doc, "Heading 1") is not None:
+                    p.style = "Heading 1"
+                n += 1
+                continue
+            p._p.getparent().remove(p._p)
+            n += 1
+        elif re.fullmatch(
             r"[（(](?:上传投标工具路径|上传应答工具路径|上传路径)[：:].*[）)]", text
         ):
             p._p.getparent().remove(p._p)
@@ -236,6 +294,15 @@ def set_cell_text(cell: _Cell, text: str) -> None:
     """只改文本：保留首段的段落格式与首个 run 的字体。"""
     paras = cell.paragraphs
     p = paras[0]
+    # 某些采购母版的数据格套用了带大纲级别的自定义样式；填写后的值不是章节标题。
+    properties = p._p.get_or_add_pPr()
+    outline = properties.find(qn("w:outlineLvl"))
+    if outline is None:
+        outline = OxmlElement("w:outlineLvl")
+        properties.append(outline)
+    outline.set(qn("w:val"), "9")
+    # 数据格不能继承母版标题的“与下段同页”，否则多行表与后续证据连锁推到下一页。
+    p.paragraph_format.keep_with_next = False
     for extra in paras[1:]:
         extra._p.getparent().remove(extra._p)
     runs = p.runs
@@ -307,6 +374,9 @@ def fill_rows(table: Table, records: list[list[Optional[str]]]) -> int:
         tr = trs.pop()
         tr.getparent().remove(tr)
     for tr, rec in zip(trs, records):
+        for height in tr.xpath('./w:trPr/w:trHeight'):
+            if height.get(qn("w:hRule")) == "exact":
+                height.set(qn("w:hRule"), "atLeast")
         cells = distinct_cells(_Row(tr, table))
         for c, v in zip(cells, rec):
             if v is not None:
@@ -352,6 +422,10 @@ def fill_by_header(table: Table, records: list[dict], colmap: list[tuple[str, st
     idx, grid_field = _header_map(table, colmap)
     if sum(1 for f in grid_field.values() if f != "__seq__") < min_cols:
         return 0
+    for row in table.rows[:idx[0]]:
+        properties = row._tr.get_or_add_trPr()
+        if properties.find(qn("w:tblHeader")) is None:
+            properties.append(OxmlElement("w:tblHeader"))
     sample = cells_by_grid(table.rows[idx[0]])
     rows: list[list[Optional[str]]] = []
     for i, rec in enumerate(records):
@@ -442,14 +516,66 @@ def insert_table_after(doc, anchor_el, header: list[str], rows: list[list[str]],
     return t
 
 
-def insert_picture_after(doc, anchor_el, path: str, width_cm: float = 15.0) -> Optional[Paragraph]:
+def _restore_picture_layout(shape, layout: str, max_width: int, max_height: int) -> None:
+    """保留原始裁切和旋转；重新绑定图片及对象编号，等比缩放至页面内。"""
+    original = parse_xml(layout.encode('utf-8'))
+    if original.tag != qn('wp:inline'):
+        raise ValueError('仅支持行内图片版式')
+    extent = original.find(qn('wp:extent'))
+    cx, cy = int(extent.get('cx')), int(extent.get('cy'))
+    effect = original.find(qn('wp:effectExtent'))
+    extra_x = sum(max(0, int(effect.get(key, '0'))) for key in ('l', 'r')) if effect is not None else 0
+    extra_y = sum(max(0, int(effect.get(key, '0'))) for key in ('t', 'b')) if effect is not None else 0
+    factor = min(1, max_width / (cx + extra_x), max_height / (cy + extra_y))
+    length_tags = {qn('wp:extent'), qn('wp:effectExtent'), qn('a:ext'), qn('a:off')}
+    for node in original.iter():
+        if node.tag in length_tags:
+            for key in ('cx', 'cy', 'x', 'y', 'l', 't', 'r', 'b'):
+                if node.get(key) is not None:
+                    node.set(key, str(int(int(node.get(key)) * factor)))
+    original.docPr.set('id', shape._inline.docPr.get('id'))
+    rid = shape._inline.xpath('.//a:blip')[0].get(qn('r:embed'))
+    blips = original.xpath('.//a:blip')
+    if len(blips) != 1:
+        raise ValueError('图片版式须对应单个原图')
+    blips[0].set(qn('r:embed'), rid)
+    # 外部超链接、扩展图片关系不随版式继承，避免引用原文档中的关系编号。
+    for node in list(original.iter()):
+        if node is not blips[0] and any(node.get(qn(key)) for key in ('r:id', 'r:embed', 'r:link')):
+            node.getparent().remove(node)
+    shape._inline.getparent().replace(shape._inline, original)
+
+
+def insert_picture_after(doc, anchor_el, path: str, width_cm: float = 15.0,
+                         layout: Optional[str] = None) -> Optional[Paragraph]:
     para = insert_paragraph_after(doc, anchor_el, center=True)
     # LibreOffice 的行内图片可能贴住前一表格底线，留出明确间距。
     para.paragraph_format.space_before = Pt(8)
     para.paragraph_format.space_after = Pt(8)
     para.paragraph_format.line_spacing = 1.0
+    para.paragraph_format.left_indent = 0
+    para.paragraph_format.right_indent = 0
+    para.paragraph_format.first_line_indent = 0
     try:
-        para.add_run().add_picture(path, width=Cm(width_cm))
+        # 使用锚点所在节的可打印区域；横向扫描件和长图都不能溢出页边距。
+        section = doc.sections[-1]
+        following = anchor_el.getnext()
+        while following is not None:
+            properties = list(following.iter(qn("w:sectPr")))
+            if properties:
+                from docx.section import Section
+                section = Section(properties[0], doc.part)
+                break
+            following = following.getnext()
+        image = Image.from_file(path)
+        available_width = section.page_width - section.left_margin - section.right_margin
+        available_height = section.page_height - section.top_margin - section.bottom_margin
+        width = min(Cm(width_cm), available_width,
+                    int((available_height - Pt(36)) * image.width / image.height))
+        shape = para.add_run().add_picture(path, width=width)
+        if layout:
+            _restore_picture_layout(shape, layout, min(Cm(width_cm), available_width),
+                                    available_height - Pt(36))
     except Exception:
         para._p.getparent().remove(para._p)
         return None
@@ -459,6 +585,9 @@ def insert_picture_after(doc, anchor_el, path: str, width_cm: float = 15.0) -> O
 def prepend_cover(doc, lines: list[tuple[str, bool]]) -> None:
     """在正文最前插入封面（文本, 是否居中），末尾分页。"""
     first = doc.paragraphs[0] if doc.paragraphs else None
+    if first is not None and PART_PAT.fullmatch(norm(first.text)):
+        first._p.getparent().remove(first._p)
+        first = doc.paragraphs[0] if doc.paragraphs else None
     if first is None:
         for text, center in lines:
             p = doc.add_paragraph(text)

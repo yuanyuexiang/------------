@@ -31,12 +31,31 @@ class Certificate(BaseModel):
     source: str = ""
 
 
+class PersonProject(BaseModel):
+    project: str = ""
+    scale: str = ""
+    period: str = ""
+    role: str = ""
+    awards: str = ""
+    source: str = ""
+
+
 class Person(BaseModel):
     id: str = ""
     name: str = ""
     title: str = ""             # 职务/职称
     major: str = ""
     education: str = ""         # 学历
+    gender: str = ""
+    age: Optional[int] = Field(default=None, ge=0, le=120)
+    age_as_of: str = ""  # 原件明确的年龄及基准日，禁止跨投标日期直接复用
+    first_employment: str = ""
+    working_years: Optional[float] = Field(default=None, ge=0)
+    working_years_as_of: str = ""
+    qualification_name: str = ""
+    qualification_level: str = ""
+    qualification_number: str = ""
+    project_experiences: list[PersonProject] = Field(default_factory=list)
     graduation_date: str = ""  # 证书载明的毕业日期，不由年龄推算
     relevant_experience_years: Optional[float] = Field(default=None, ge=0)
     experience_source: str = ""  # 相关经历证明及口径
@@ -59,6 +78,11 @@ class Performance(BaseModel):
     amount_wan: Optional[float] = None
     signed_date: str = ""
     commissioned_date: str = ""                # 投运/验收日期
+    service_scope: str = ""
+    service_period: str = ""  # 原文起止期间；不能由合同签约日期推断
+    progress: str = ""
+    staffing: str = ""  # 高峰/平均，保留证明材料原文口径
+    contact: str = ""
     material_category: str = ""                # 物料类别
     voltage_level: str = ""
     evidence: list[str] = Field(default_factory=list)     # 合同/发票/中标通知书…
@@ -74,6 +98,12 @@ class FinancialYear(BaseModel):
     revenue_wan: Optional[float] = None
     net_profit_wan: Optional[float] = None
     asset_wan: Optional[float] = None
+    liability_wan: Optional[float] = None
+    current_asset_wan: Optional[float] = None
+    current_liability_wan: Optional[float] = None
+    inventory_wan: Optional[float] = None
+    operating_profit_wan: Optional[float] = None
+    average_equity_wan: Optional[float] = None
     liability_ratio: str = ""
     status: str = "approved"
     attachments: list[str] = Field(default_factory=list)   # 审计报告扫描件
@@ -170,6 +200,8 @@ class CompanyProfile(BaseModel):
     staff_source: str = ""
     registration: dict[str, RegistrationFact] = Field(default_factory=dict)
     shareholders: list[Shareholder] = Field(default_factory=list)
+    shareholder_attachments: list[str] = Field(default_factory=list)
+    name_change_attachments: list[str] = Field(default_factory=list)
     # 由项目确认派生，仅用于生成；不写入长期企业档案。
     bid_context: dict = Field(default_factory=dict, exclude=True)
     business_scope: str = ""

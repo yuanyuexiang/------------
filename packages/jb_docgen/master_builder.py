@@ -14,10 +14,13 @@ from __future__ import annotations
 import copy
 import os
 import re
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.table import Table
+from docx.text.paragraph import Paragraph
 from jb_kb.selection import certificate_validity
 
 from . import master as M
@@ -59,10 +62,14 @@ def _labels(ctx: GenContext) -> dict[str, str]:
         "电话": k.phone, "联系电话": k.phone, "联系人": k.contact, "网址": k.website,
         "授权代表姓名": k.authorized_rep, "授权代表职务": k.authorized_rep_title,
         "法定代表人（单位负责人）或授权代表": k.authorized_rep or k.legal_person,
-        "项目名称": proj, "项目编号": b.batch_no, "招标编号": b.batch_no, "采购编号": b.batch_no,
+        "项目名称": proj,
+        "项目编号": p.demand_details.get("采购项目编号") or b.batch_no,
+        "采购项目编号": p.demand_details.get("采购项目编号", ""),
+        "招标编号": b.batch_no, "采购编号": b.batch_no,
         "项目单位": p.project_unit,
         "分标编号": p.sub_no, "分标": p.sub_no, "分标名称": p.sub_name, "货物类别": p.sub_name,
-        "包号": p.pkg_no, "包名称": p.pkg_no, "分包编号": p.pkg_no, "分包": p.pkg_no,
+        "包号": p.pkg_no, "包名称": p.demand_details.get("包名称") or p.pkg_no,
+        "分包编号": p.pkg_no, "分包": p.pkg_no,
         "员工总人数": _s(k.staff_total), "统一社会信用代码": k.credit_code,
     }
     return {key: v for key, v in raw.items() if v}
@@ -79,12 +86,18 @@ def _cover(ctx: GenContext, kind: str) -> list[tuple[str, bool]]:
     p, b = ctx.pkg, ctx.trm
     return [
         ("投标文件" if b.terminology == "投标" else "应答文件", True),
+        (ctx.need(b.batch_name, "采购批次名称"), True),
         (f"（{kind}）", True),
         (f"项目名称：{ctx.need(p.project_name or b.batch_name, '项目名称')}", False),
-        (f"招标编号：{ctx.need(b.batch_no, '招标编号')}", False),
-        (f"分标/包：{p.sub_no} {p.sub_name} {p.pkg_no}".strip(), False),
-        (f"投标人：{ctx.need(ctx.profile.name, '投标人名称')}", False),
+        (f"{'招标编号' if b.terminology == '投标' else '采购编号'}：{ctx.need(b.batch_no, '招标编号')}", False),
+        *([(f"采购项目编号：{p.demand_details['采购项目编号']}", False)]
+          if p.demand_details.get('采购项目编号') else []),
+        (f"分标编号：{p.sub_no}".strip(), False),
+        (f"分标名称：{p.sub_name}".strip(), False),
+        (f"包号：{p.pkg_no}", False),
+        (f"投标人：{ctx.need(ctx.profile.name, '投标人名称')}（盖单位章）", False),
         ("法定代表人（单位负责人）或其授权代表人：　　　　（签字）", False),
+        ("日期：　　　　年　　月　　日", False),
     ]
 
 
@@ -139,6 +152,10 @@ def _fill_basic_info(doc, ctx: GenContext) -> None:
                              [('股东或上级管理单位名称', 'name'), ('出资金额', 'amount'), ('出资比例', 'ratio')])
         else:
             M.insert_paragraph_after(doc, owners._tbl, todo('股东或上级管理单位名称、出资金额及出资比例'))
+        reference = (k.bid_context.get('commercial_evidence', {}).get('shareholders')
+                     or k.shareholder_attachments)
+        if reference:
+            _insert_scans(ctx, doc, owners._tbl, reference, '股东信息查询截图')
 
 
 def _fill_financials(doc, ctx: GenContext) -> Optional[Table]:
@@ -152,9 +169,39 @@ def _fill_financials(doc, ctx: GenContext) -> Optional[Table]:
     for col, f in pairs:
         M.set_cell_text(cols[col], f"{f.year.rstrip('年')}年" + ("（比较数）" if f.report_kind == "comparative" else ""))
     cap = ctx.profile.registered_capital_wan
-    getters = [("资产负债率", lambda f: f.liability_ratio), ("资产总额", lambda f: _wan(f.asset_wan)),
-               ("营业收入", lambda f: _wan(f.revenue_wan)), ("净利润", lambda f: _wan(f.net_profit_wan)),
-               ("注册资本", lambda f: _wan(cap))]
+    def percentage(numerator, denominator):
+        if numerator is None or denominator in (None, 0):
+            return None
+        value = Decimal(str(numerator)) / Decimal(str(denominator)) * 100
+        return f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)}%"
+
+    def amount(value):
+        if value is None:
+            return ""
+        number = Decimal(str(value)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        return f"{int(number) if number == number.to_integral() else number}万元"
+
+    getters = [
+        ("资产负债率", lambda f: percentage(f.liability_wan, f.asset_wan)
+         if f.liability_wan is not None and f.asset_wan is not None else f.liability_ratio),
+        ("流动比率", lambda f: percentage(f.current_asset_wan, f.current_liability_wan)),
+        ("速动比率", lambda f: percentage(
+            Decimal(str(f.current_asset_wan)) - Decimal(str(f.inventory_wan))
+            if f.current_asset_wan is not None and f.inventory_wan is not None else None,
+            f.current_liability_wan)),
+        ("营业利润率", lambda f: percentage(f.operating_profit_wan, f.revenue_wan)),
+        ("净资产收益率", lambda f: percentage(f.net_profit_wan, f.average_equity_wan)),
+        ("资产总额", lambda f: amount(f.asset_wan)),
+        ("负债总额", lambda f: amount(f.liability_wan)),
+        ("流动资产", lambda f: amount(f.current_asset_wan)),
+        ("流动负债", lambda f: amount(f.current_liability_wan)),
+        ("平均所有者权益", lambda f: amount(f.average_equity_wan)),
+        ("营业利润", lambda f: amount(f.operating_profit_wan)),
+        ("营业收入", lambda f: amount(f.revenue_wan)),
+        ("净利润", lambda f: amount(f.net_profit_wan)),
+        ("注册资本", lambda f: amount(cap)),
+    ]
+    average_col = next((c for c, cell in cols.items() if M.norm(cell.text) == "平均"), None)
     for row in t.rows[1:]:
         cells = M.distinct_cells(row)
         name = M.norm(cells[1].text if len(cells) > 1 else cells[0].text)
@@ -165,8 +212,19 @@ def _fill_financials(doc, ctx: GenContext) -> Optional[Table]:
         for col, f in pairs:
             cell = grid.get(col)
             v = getter(f)
-            if cell is not None and v and not cell.text.strip():
-                M.set_cell_text(cell, str(v))
+            if cell is not None and not cell.text.strip():
+                M.set_cell_text(cell, str(v) if v not in (None, "")
+                                else ctx.need(None, f"{f.year}年度财务指标{name}"))
+        average = grid.get(average_col)
+        if average is not None and not average.text.strip():
+            values = [getter(f) for _, f in pairs]
+            if len(pairs) == len(year_cols) and values and all(v not in (None, "") for v in values):
+                numbers = [Decimal(str(v).removesuffix('万元').removesuffix('%')) for v in values]
+                value = (sum(numbers) / len(numbers)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                suffix = '%' if str(values[0]).endswith('%') else ''
+                M.set_cell_text(average, f'{value}{suffix}')
+            else:
+                M.set_cell_text(average, ctx.need(None, f"财务指标{name}完整年度数据及平均值"))
     return t
 
 
@@ -187,14 +245,25 @@ def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
         ctx.notes.append("母版未切出商务文件段，商务文件退回自建版式")
         return False
     k = ctx.profile
+    reference = k.bid_context.get('commercial_evidence', {})
+    M.prepare_composition(doc)
     M.remove_guidance(doc)
+    from .optional_sections import apply_optional_sections
+    apply_optional_sections(doc, ctx)
+    format_titles = {M.norm(block.title) for block in ctx.trm.format_blocks}
+    for paragraph in doc.paragraphs:
+        text = M.norm(paragraph.text)
+        title = re.sub(r"^\d+(?:\.\d+)*[.．、]?", "", text)
+        if title in format_titles and M._style_or_none(doc, "Heading 2") is not None:
+            paragraph.style = "Heading 2"
     M.fill_all(doc, _subs(ctx))
     _fill_basic_info(doc, ctx)
 
     t = M.find_table(doc, ["条目号", "条款", "偏差说明"])
     if t is not None:
         M.fill_by_header(t, [{"item": "/", "req": "/", "resp": "/", "note": "无偏差"}],
-                         [("条目", "item"), ("招标文件条款|采购文件条款", "req"), ("投标文件条款|应答文件条款", "resp"),
+                         [("条目", "item"), ("招标文件条款|采购文件条款", "req"),
+                          ("投标文件条款|应答文件条款|响应文件条款", "resp"),
                           ("偏差说明", "note")])
 
     from .relationships import apply_master
@@ -206,7 +275,8 @@ def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
         if k.financials:
             for f in sorted(k.financials, key=lambda x: x.year, reverse=True):
                 last = M.insert_heading_after(doc, last, f"{f.year.rstrip('年')}年度比较数据（非独立审计）" if f.report_kind == "comparative" else f"审计报告{f.year.rstrip('年')}年度", level=3)._p
-                last = _insert_scans(ctx, doc, last, f.attachments, f"{f.year}年度审计报告")
+                ids = reference.get('financial_' + f.year.rstrip('年'), f.attachments)
+                last = _insert_scans(ctx, doc, last, ids, f"{f.year}年度审计报告")
         else:
             M.insert_paragraph_after(doc, last, todo("近三年财务审计报告"))
 
@@ -216,22 +286,55 @@ def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
     other = certificates_for(k, "other")
     p = M.find_paragraph(doc, r"^(企业法人|企业)?营业执照", max_len=60)
     if p is not None:
-        _insert_scans(ctx, doc, p._p, [a for c in biz for a in c.attachments], "营业执照")
+        _insert_scans(ctx, doc, p._p, reference.get('business_license',
+                      [a for c in biz for a in c.attachments]), "营业执照")
     p = M.find_paragraph(doc, r"^有效的税务登记证明", max_len=40)
     if p is not None:
-        _insert_scans(ctx, doc, p._p, [a for c in tax for a in c.attachments], "税务登记证明")
+        _insert_scans(ctx, doc, p._p, reference.get('tax_license',
+                      [a for c in tax for a in c.attachments]), "税务登记证明")
     p = M.find_paragraph(doc, r"^(6\.1|\d\.\d)?符合.*资格要求的证明文件", max_len=60)
     if p is not None:
-        last = _cert_section(ctx, doc, p._p, "企业资质等级证书", other)
-        _cert_section(ctx, doc, last, "企业管理体系认证证书", system)
+        if 'qualification' in reference:
+            _insert_scans(ctx, doc, p._p, reference['qualification'], '企业资质与认证证明')
+        else:
+            last = _cert_section(ctx, doc, p._p, "企业资质等级证书", other)
+            _cert_section(ctx, doc, last, "企业管理体系认证证书", system)
     p = M.find_paragraph(doc, r"查询报告及截图", max_len=40)
     if p is not None:
         last = p._p
-        insert_credit(ctx, doc, last)
+        if 'credit' in reference:
+            _insert_scans(ctx, doc, last, reference['credit'], '信用查询报告及截图')
+        else:
+            insert_credit(ctx, doc, last)
     p = M.find_paragraph(doc, r"^基本账户证明", max_len=30)
     if p is not None:
         bank = certificates_for(k, "bank")
-        _insert_scans(ctx, doc, p._p, [a for c in bank for a in c.attachments], "银行基本账户证明")
+        bank_ids = reference.get('bank', [a for c in bank for a in c.attachments])
+        if bank_ids:
+            # 已有实件时移除母版的粘贴位置提示，避免大图后提示独占一页。
+            node = p._p.getnext()
+            while node is not None and node.tag == qn('w:p'):
+                paragraph = Paragraph(node, doc._body)
+                text = paragraph.text.strip()
+                if re.match(r'^\d+[.．、]', text):
+                    break
+                following = node.getnext()
+                if (text.lstrip('（(').startswith('此处粘')
+                        and '基本存款账户信息' in text):
+                    if node.xpath('.//w:sectPr'):
+                        paragraph.clear()
+                    else:
+                        node.getparent().remove(node)
+                node = following
+        _insert_scans(ctx, doc, p._p, bank_ids, "银行基本账户证明")
+    for key, pattern, title in (
+        ('scoring', r'商务评分标准.*支撑材料', '商务评分支撑材料'),
+        ('name_change', r'企业名称变更', '企业名称变更证明'),
+    ):
+        anchor = M.find_paragraph(doc, pattern, max_len=400)
+        ids = reference.get(key) or (k.name_change_attachments if key == 'name_change' else [])
+        if anchor is not None and ids:
+            _insert_scans(ctx, doc, anchor._p, ids, title)
 
     if not M.has_cover(doc):
         M.prepend_cover(doc, _cover(ctx, "商务文件"))
@@ -256,6 +359,9 @@ def _fill_params(doc, ctx: GenContext, results: list[TechParamResult]):
     specs = list(zip(ctx.pkg.spec_docs, results))
     tpl = M.find_table(doc, ["要求值", "保证值"]) or M.find_table(doc, ["需求值", "保证值"])
     if tpl is None:
+        source_section = M.find_paragraph(doc, r"^\d+[.．、].*采购文件.*技术规范书.*其他应提交")
+        if source_section is not None and not any(sd.param_rows for sd, _ in specs):
+            return source_section._p
         p = M.find_paragraph(doc, r"技术特性参数表|技术参数")
         last = p._p if p is not None else M.last_body_element(doc)
         for sd, r in specs:
@@ -313,11 +419,12 @@ def _fill_performances(doc, ctx: GenContext) -> None:
     recs = [{"model": model or x.material_category or None, "project": x.project, "buyer": x.buyer or todo("买方"),
              "amount": _wan(x.amount_wan) or todo("合同金额"), "done": x.commissioned_date or todo("投运时间"),
              "signed": x.signed_date or todo(f"历史业绩《{x.project}》签约日期"), "voltage": x.voltage_level or None,
-             "contact": todo(f"{x.project} 联系人及电话"), "evidence": "/".join(x.evidence), "remark": "",
-             "scope": todo(f"{x.project} 服务范围"),
-             "period": todo(f"{x.project} 服务起止时间"),
-             "progress": todo(f"{x.project} 当前进度"),
-             "staff": todo(f"{x.project} 服务人员高峰及平均人数")}
+             "contact": x.contact or todo(f"{x.project} 联系人及电话"),
+             "evidence": "/".join(x.evidence), "remark": "",
+             "scope": x.service_scope or todo(f"{x.project} 服务范围"),
+             "period": x.service_period or todo(f"{x.project} 服务起止时间"),
+             "progress": x.progress or todo(f"{x.project} 当前进度"),
+             "staff": x.staffing or todo(f"{x.project} 服务人员高峰及平均人数")}
             for x in k.performances]
     colmap = [("产品型式|物料|产品名称|设备", "model"), ("工程名称|项目名称", "project"),
               ("项目单位|项目法人|买方|采购人|用户|业主", "buyer"), ("金额|规模", "amount"), ("投运|验收|完成|交货", "done"),
@@ -350,17 +457,41 @@ def _fill_performances(doc, ctx: GenContext) -> None:
 
 def _fill_personnel(doc, ctx: GenContext) -> None:
     k = ctx.profile
-    colmap = [("姓名", "name"), ("现担任职务|职务|职称", "title"), ("专业", "major"), ("学历", "education"),
-              ("资格|证书|证明", "cred"), ("岗位|层级", "post"), ("工作经历|经历|年限", "exp"),
+    colmap = [("姓名", "name"), ("现担任职务|职务/职称", "title"), ("^职务$", "role"),
+              ("职称", "title"), ("专业", "major"), ("学历", "education"),
+              ("证号", "number"), ("级别", "grade"), ("资格|证书|证明", "cred"),
+              ("层级", "tier"), ("岗位", "post"), ("工作经历|经历|年限", "exp"),
               ("通讯|电话|联系", "contact"), ("备注", "remark")]
     t = M.find_table(doc, ["岗位", "姓名", "职称", "层级", "现担任职务", "拟委任"])
     fields = M.header_fields(t, colmap) if t is not None else set()
     recs = []
+    def assignment(person):
+        saved = k.bid_context.get("reference_assignments", {}).get(person.id, {})
+        member = next((m for m in k.bid_context.get("team", {}).get("members", [])
+                       if m.get("person_id") == person.id and person.id), {})
+        role = saved.get("role") or member.get("role")
+        tier = saved.get("tier") or (("项目负责人" if role == "项目负责人"
+                                      else "其他主要人员") if role else None)
+        return role, tier
+
+    def dated(value, as_of):
+        def day(text):
+            match = re.search(r"(\d{4})[-年/.](\d{1,2})[-月/.](\d{1,2})", text or "")
+            return tuple(map(int, match.groups())) if match else None
+        target = day(ctx.trm.key_terms.bid_deadline or ctx.trm.key_terms.bid_deadline_text)
+        return value if target is not None and day(as_of) == target else None
+
     for x in k.personnel:
         title = x.title or todo(f"{x.name}职称")
+        role, tier = assignment(x)
         recs.append({"name": x.name, "title": title if "name" in fields else f"{x.name}（{title}）",
-                     "major": x.major or None, "education": x.education or None, "post": None,
-                     "cred": "、".join(x.credentials) or None, "exp": todo(f"{x.name} 工作经历"),
+                     "role": role or todo(f"{x.name} 本项目职务"),
+                     "tier": tier or todo(f"{x.name} 本项目岗位及层级"), "post": role,
+                     "major": x.major or None, "education": x.education or None,
+                     "number": x.qualification_number or todo(f"{x.name} 资格证书编号"),
+                     "grade": x.qualification_level or todo(f"{x.name} 资格证书级别"),
+                     "cred": x.qualification_name or "、".join(x.credentials) or None,
+                     "exp": todo(f"{x.name} 工作经历"),
                      "contact": todo(f"{x.name} 联系方式"), "remark": ""})
     if t is not None and (not recs or M.fill_by_header(t, recs, colmap)):
         last = t._tbl
@@ -381,29 +512,51 @@ def _fill_personnel(doc, ctx: GenContext) -> None:
         last = resume._tbl.getprevious()
         resume._tbl.getparent().remove(resume._tbl)
     for x in k.personnel:
-        last = M.insert_heading_after(doc, last, x.name, level=3)._p
+        last = M.insert_heading_after(doc, last, x.name,
+                                      level=4 if resume_template is not None else 3)._p
         if resume_template is not None:
             element = copy.deepcopy(resume_template)
             last.addnext(element)
             personal = Table(element, doc._body)
             # 项目岗位只取本包已确认安排，不把企业职称当成项目职务。
-            member = next((m for m in k.bid_context.get("team", {}).get("members", [])
-                           if m.get("person_id") == x.id), {})
+            _, tier = assignment(x)
+            age = dated(x.age, x.age_as_of)
+            years = dated(x.working_years, x.working_years_as_of)
             M.set_kv_cells(personal, {
                 "姓名": x.name,
-                "层级": member.get("role") or todo(f"{x.name} 本项目岗位及层级"),
+                "层级": tier or todo(f"{x.name} 本项目岗位及层级"),
                 "学历": x.education or todo(f"{x.name} 学历"),
-                "性别": todo(f"{x.name} 性别"),
-                "年龄": todo(f"{x.name} 年龄及计算基准日"),
-                "参加工作时间": todo(f"{x.name} 参加工作时间"),
-                "工作年限": todo(f"{x.name} 工作年限及依据"),
+                "性别": x.gender or todo(f"{x.name} 性别"),
+                "年龄": str(age) if age is not None else todo(f"{x.name} 年龄及计算基准日"),
+                "参加工作时间": x.first_employment or todo(f"{x.name} 参加工作时间"),
+                "工作年限": f"{years:g}年" if years is not None else todo(f"{x.name} 工作年限及依据"),
             })
             last = element
-            last = M.insert_paragraph_after(
-                doc, last, todo(f"{x.name} 主要资历及承担项目明细与证明材料")
-            )._p
+            history = [{"project": record.project or todo(f"{x.name} 个人项目名称"),
+                        "scale": record.scale or todo(f"{x.name} 个人项目规模"),
+                        "period": record.period or todo(f"{x.name} 个人项目起止时间"),
+                        "role": record.role or todo(f"{x.name} 个人项目技术职务"),
+                        "awards": record.awards}
+                       for record in x.project_experiences]
+            if not history or not M.fill_by_header(personal, history, [
+                ("项目名称", "project"), ("规模", "scale"), ("起止", "period"),
+                ("技术职务", "role"), ("获奖", "awards"),
+            ]):
+                last = M.insert_paragraph_after(
+                    doc, last, todo(f"{x.name} 主要资历及承担项目明细与证明材料")
+                )._p
         if x.attachments:
-            last = _insert_scans(ctx, doc, last, x.attachments, f"{x.name} 证件材料")
+            labels = k.bid_context.get("attachment_labels", {})
+            groups = []
+            for aid in x.attachments:
+                label = labels.get(aid, "")
+                if not groups or groups[-1][0] != label:
+                    groups.append((label, []))
+                groups[-1][1].append(aid)
+            for label, ids in groups:
+                if label:
+                    last = M.insert_paragraph_after(doc, last, label, bold=True)._p
+                last = _insert_scans(ctx, doc, last, ids, f"{x.name} {label or '证件材料'}")
         else:
             for c in (x.credentials or ["身份证", "学历证", "职称证书", "社保证明", "劳动合同"]):
                 last = M.insert_paragraph_after(doc, last, f"{c}：{todo(f'{x.name} 的{c}扫描件')}")._p
@@ -414,6 +567,21 @@ def _fill_certs(doc, ctx: GenContext) -> None:
     certs = [c for c in k.certificates if c.cert_type == "体系认证"] or list(k.certificates)
     t = M.find_table(doc, ["信息事项", "认证机构", "证书编号", "认证事项"])
     if t is None:
+        anchor = M.find_paragraph(doc, r"^\d+[.．、]\s*履约能力及质量保证措施")
+        if anchor is not None:
+            last = M.insert_heading_after(doc, anchor._p, "企业基本情况与资质信息", level=3)._p
+            rows = [[label, str(value), "—", "营业执照及企业证明材料"] for label, value in (
+                ("企业全称", k.name), ("成立时间", k.founded),
+                ("注册资金", _wan(k.registered_capital_wan)), ("注册地址", k.address),
+                ("法定代表人", k.legal_person), ("企业性质", k.company_type),
+            ) if value]
+            selected = certificates_for(k, "system") + certificates_for(k, "other")
+            rows.extend([[c.name, "；".join(value for value in (c.level, c.number) if value),
+                          certificate_validity(c) or todo(f"{c.name}有效期"),
+                          c.issuer or todo(f"{c.name}核发机构")] for c in selected])
+            table = M.insert_table_after(doc, last,
+                                         ["信息事项", "基本内容", "有效期限", "核发机构或证明依据"], rows)
+            M.insert_paragraph_after(doc, table._tbl, "相关企业资质及认证证明见商务文件对应资质证明章节。")
         return
     recs = [{"name": c.name, "issuer": c.issuer or todo(f"{c.name}认证机构"), "number": c.number or todo(f"{c.name}证书编号"),
              "scope": None, "valid": certificate_validity(c).removeprefix("有效期至 ") or todo(f"{c.name}有效期"), "level": c.level or None} for c in certs]
@@ -443,11 +611,31 @@ def _insert_drafts(doc, ctx: GenContext) -> None:
         M.insert_paragraph_after(doc, last, todo("总体技术/服务方案（由写作 Agent 依据评分项起草）"))
         return
     has_bullet = M._style_or_none(doc, "List Bullet") is not None
+    default_anchor = last
+    # 服务母版要求的章节不能留空，而把全部正文堆在评分支撑章节。
+    routes = [
+        (r"项目理解|需求分析|总体评价", r"^\d+[.．、]\s*对项目的理解"),
+        (r"进度|工期|工作规划|总体.*方案|服务方案|技术方案", r"^\d+[.．、]\s*工作规划描述"),
+        (r"履约|服务能力|质量|安全|保密", r"^\d+[.．、]\s*履约能力及质量保证措施"),
+        (r"售后|培训|服务承诺", r"^\d+[.．、]\s*服务承诺"),
+        (r"团队|人员配置", r"^\d+[.．、]\s*项目团队情况"),
+    ]
+    tails = {}
     for sec in ctx.drafts:
-        last = M.insert_heading_after(doc, last, sec.title, level=2)._p
+        destination = next((M.find_paragraph(doc, target) for keywords, target in routes
+                            if re.search(keywords, sec.title)), None)
+        nested = destination is not None
+        if nested:
+            key = destination._p
+            last = tails.get(key, key)
+        else:
+            key = None
+            last = tails.get(None, default_anchor)
+        last = M.insert_heading_after(doc, last, sec.title, level=3 if nested else 2)._p
         for kind, level, text in iter_markdown(sec.text, section_title=sec.title):
             if kind == "h":
-                last = M.insert_heading_after(doc, last, text, level=min(level + 1, 4))._p
+                last = M.insert_heading_after(doc, last, text,
+                                              level=min(level + (2 if nested else 1), 4))._p
             elif kind == "table":
                 table = M.insert_table_after(doc, last, text[0], text[1:])
                 for row in table.rows:
@@ -459,11 +647,39 @@ def _insert_drafts(doc, ctx: GenContext) -> None:
                                                 style="List Bullet" if has_bullet else None)._p
             else:
                 last = M.insert_paragraph_after(doc, last, text)._p
+        tails[key] = last
+    commitment = M.find_paragraph(doc, r"^\d+[.．、]\s*服务承诺")
+    if commitment is not None and commitment._p not in tails:
+        approved = [b for b in ctx.profile.boilerplates if b.approved and b.topic == "售后服务"]
+        cursor = commitment._p
+        for item in approved:
+            cursor = M.insert_paragraph_after(doc, cursor, item.text)._p
+        if not approved:
+            M.insert_paragraph_after(doc, cursor, todo("本项目服务承诺及后续服务安排"))
+
+
+def _technical_headings(doc) -> None:
+    """将母版中明确的技术章节标为标题，供目录及分页使用。"""
+    topics = ("技术偏差表", "业绩文件", "项目团队情况", "对项目的理解", "工作规划描述",
+              "履约能力及质量保证措施", "服务承诺", "采购文件", "资质业绩凭证单", "其他")
+    for paragraph in doc.paragraphs:
+        match = re.match(r"^\d+[.．、]\s*(.*)", paragraph.text.strip())
+        if match and match.group(1).startswith(topics):
+            paragraph.text = re.sub(r"[（(]如有[，,]\s*格式自拟[）)]", "", paragraph.text)
+            if M._style_or_none(doc, "Heading 2") is not None:
+                paragraph.style = "Heading 2"
+        elif re.match(r"^表[12]\s*.*(?:人员汇总表|人员简历表)", paragraph.text.strip()):
+            if M._style_or_none(doc, "Heading 3") is not None:
+                paragraph.style = "Heading 3"
 
 
 def _insert_boilerplates(doc, ctx: GenContext) -> None:
     for topic, pat, heading in (("售后服务", r"售后服务", "售后服务保障及承诺"), ("质量保证", r"质量保证", "质量保证措施方案"),
                                 ("培训", r"技术服务|培训", "技术服务，包括培训、安装指导等")):
+        covered = {"售后服务": r"售后|服务承诺", "质量保证": r"质量", "培训": r"培训"}[topic]
+        if any(re.search(covered, section.title) and section.text.strip()
+               for section in ctx.drafts or []):
+            continue  # 话术库是正文的备选来源，不能在已有方案旁制造“话术缺失”。
         anchor = M.find_paragraph(doc, pat, max_len=40)
         if anchor is None:
             continue
@@ -481,12 +697,18 @@ def build_technical(ctx: GenContext, master_path: str, out_path: str) -> tuple[b
     if doc is None:
         ctx.notes.append("母版未切出技术文件段，技术文件退回自建版式")
         return False, []
+    M.prepare_composition(doc)
     M.remove_guidance(doc)
+    _technical_headings(doc)
     M.fill_all(doc, _subs(ctx))
     results = [fill_spec(sd, ctx.product) for sd in ctx.pkg.spec_docs]
     _fill_deviation(doc, results)
     last = _fill_params(doc, ctx, results)
-    append_spec_responses(doc, last, ctx)
+    dedicated = M.find_paragraph(doc, r"^\d+[.．、].*采购文件.*技术规范书.*其他应提交")
+    if dedicated is not None and last is dedicated._p:
+        append_spec_responses(doc, last, ctx, section_level=3, include_heading=False)
+    else:
+        append_spec_responses(doc, last, ctx)
     _fill_performances(doc, ctx)
     _fill_personnel(doc, ctx)
     _fill_certs(doc, ctx)

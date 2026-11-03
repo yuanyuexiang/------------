@@ -4,6 +4,7 @@
 """
 import os
 import zipfile
+from pathlib import Path
 
 import docx
 import pytest
@@ -131,3 +132,32 @@ def test_industry_service_tables_preserve_procurement_layout():
     assert doc.tables[3].rows[1].cells[1].text == '测试甲'
     assert doc.tables[4].rows[1].cells[1].text == '测试乙'
     assert '供货及运行业绩表' not in '\n'.join(p.text for p in doc.paragraphs)
+
+
+GOOD_TECHNICAL = next(iter(Path(WS, 'GOOD').glob('技术*.docx')), None)
+
+
+@pytest.mark.skipif(GOOD_TECHNICAL is None or not os.path.exists(INDUSTRY_MASTER),
+                    reason='标准成品或采购母版缺失')
+def test_industry_reference_team_has_one_resume_per_selected_person():
+    from jb_docgen import master as M
+    from jb_docgen.builder import GenContext
+    from jb_docgen.master_builder import _fill_personnel
+    from jb_kb.models import Person
+    from jb_parser.trm import TRM, PackageTRM
+
+    source = docx.Document(str(GOOD_TECHNICAL))
+    names = [row.cells[2].text.strip() for row in source.tables[2].rows[2:]
+             if row.cells[2].text.strip()]
+    assert len(names) == 10
+    people = [Person(id=str(i), name=name) for i, name in enumerate(names)]
+    doc = M.carve(INDUSTRY_MASTER, 'technical')
+    _fill_personnel(doc, GenContext(trm=TRM(), pkg=PackageTRM(),
+                                    profile=CompanyProfile(name='样本测试企业', personnel=people)))
+    summary = doc.tables[2]
+    assert len(summary.rows) == 12
+    assert [row.cells[2].text for row in summary.rows[2:]] == names
+    resumes = [table for table in doc.tables if '参加工作时间' in '\n'.join(
+        c.text for row in table.rows[:3] for c in M.distinct_cells(row))]
+    assert len(resumes) == 10
+    assert [table.rows[1].cells[1].text for table in resumes] == names

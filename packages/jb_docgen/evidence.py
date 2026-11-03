@@ -26,7 +26,8 @@ def insert_scans(ctx, doc, anchor_el, ids: list[str], what: str):
         images, reason = images_for(ctx.attachment_paths.get(aid, ""))
         ok = 0
         for img in images:
-            para = M.insert_picture_after(doc, last, img)
+            layout = getattr(ctx, 'attachment_layouts', {}).get(aid) if len(images) == 1 else None
+            para = M.insert_picture_after(doc, last, img, layout=layout)
             if para is not None:
                 last, ok = para._p, ok + 1
         if not ok:

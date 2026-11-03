@@ -31,7 +31,8 @@ def narrative_reference(ctx, sd) -> str:
     return todo(f"规范书 {sd.spec_id} 逐项响应（缺少规范书原件）")
 
 
-def append_spec_responses(doc, anchor_el, ctx) -> object:
+def append_spec_responses(doc, anchor_el, ctx, section_level: int = 1,
+                          include_heading: bool = True) -> object:
     """在锚点后追加"技术规范书逐条响应"章节（母版/自建版式共用）。返回新锚点。"""
     from . import master as M
     from .spec_response import append_spec
@@ -39,12 +40,14 @@ def append_spec_responses(doc, anchor_el, ctx) -> object:
     paths = [(sd, p) for sd, p in paths if p]
     if not paths:
         return anchor_el
-    last = M.insert_heading_after(doc, anchor_el, "技术规范书逐条响应", level=1)._p
+    last = (M.insert_heading_after(doc, anchor_el, "技术规范书逐条响应", level=section_level)._p
+            if include_heading else anchor_el)
     for sd, path in paths:
         try:
             last, n, skipped = append_spec(
                 doc, last, path, ctx.product, f"技术规范书 {sd.spec_id or ''} {sd.title}".strip(),
                 plans=ctx.response_plans.get(sd.spec_id or sd.source),
+                heading_level=min(section_level + (1 if include_heading else 0), 4),
                 service_mode=not ctx.pkg.materials and any(word in ctx.pkg.sub_name for word in
                     ('服务', '科技项目', '研究', '咨询', '设计', '运维', '监理', '培训')),
             )
@@ -72,6 +75,7 @@ class GenContext:
     relationship_confirmation: Optional[dict] = None
     todos: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)          # 生成过程说明（母版回退原因等）
+    attachment_layouts: dict = field(default_factory=dict)  # 经核对的原始图片 inline XML（裁切/旋转）
 
     def need(self, value: Optional[str], what: str) -> str:
         if value:
