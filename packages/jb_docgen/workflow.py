@@ -164,12 +164,12 @@ def blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> list[st
         reasons.append(str(exc))
     rep = a.get("review")
     if not rep:
-        reasons.append("本生成版本尚未审查，请执行合规审查")
+        reasons.append("当前标书尚未检查，请先检查投标文件")
     else:
         if rep["rules_hash"] != rules_hash(s):
-            reasons.append("否决规则配置已变化，请重新审查")
+            reasons.append("文件检查规则已修改，请重新检查标书")
         if rep["blocked"]:
-            reasons.append("合规审查存在否决项，请整改后复查")
+            reasons.append("标书存在可能导致投标无效的问题，请修改后重新检查")
     # 待补充门禁独立于可配置规则，不可通过停用 DOC-01 绕过。
     for name in a["files"]:
         path = Path(out_dir) / name
@@ -275,7 +275,7 @@ def formal_export(s, p: Project, filename: str, out_dir: str, want_pdf: bool, fo
             changed = blockers(s, p, current, out_dir) if current else ["生成版本记录已变化"]
             if changed:
                 result.update(blocked_by=changed, blocked_count=len(changed))
-                pm.log_event(s, p.id, "exported", "正式导出被阻断：转换期间资料或审查状态变化",
+                pm.log_event(s, p.id, "exported", "未能导出正式文件：转换期间资料或检查结果已变化",
                              {"generation_id": a["id"], "ok": False, "blocked_by": changed})
                 return result
             a = current
@@ -291,7 +291,7 @@ def formal_export(s, p: Project, filename: str, out_dir: str, want_pdf: bool, fo
                 result.update(ok=True, docx=name, pdf=exported["pdf"], notes=res.notes)
             else:
                 result.update(blocked_by=res.blocked_by, blocked_count=len(res.blocked_by), notes=res.notes)
-    pm.log_event(s, p.id, "exported", f"正式导出 {filename}：{'成功' if result['ok'] else '被阻断'}",
+    pm.log_event(s, p.id, "exported", f"正式导出 {filename}：{'成功' if result['ok'] else '未能完成'}",
                  {"filename": filename, "generation_id": a["id"] if a else None,
                   "ok": result["ok"], "blocked_by": result["blocked_by"]})
     return result

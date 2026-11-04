@@ -1,3 +1,4 @@
+import { errorMessage } from '../uiLabels'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Collapse, Input, Radio, Space, Typography, message } from 'antd'
@@ -26,18 +27,18 @@ export default function RelationshipConfirmation({ id, profile, pkgIndex, disabl
       await api.saveRelationship(id, profile, pkgIndex, { source: data.source, status, people: status === 'none' ? [] : people })
       await refetch(); onSaved()
       message.success('已保存，待办已刷新。可继续处理其他资料。')
-    } catch (e) { message.error(String(e)) } finally { setSaving(false) }
+    } catch (e) { message.error(errorMessage(e)) } finally { setSaving(false) }
   }
   const locked = disabled || saving || !data
-  return <Card size="small" title="本次投标事实确认 · 国网系统人员关系">
+  return <Card size="small" title="核对本企业与国家电网人员的关系">
     <Space direction="vertical" style={{ width: '100%' }}>
-      {error && <Alert type="error" message={String(error)} />}
+      {error && <Alert type="error" message={errorMessage(error)} />}
       <Typography.Text>无需另行上传承诺书模板。请核实本企业法定代表人、出资人、高管等是否存在招标文件规定的关系，系统将按确认结果选用本次招标原条款并排版。</Typography.Text>
       {data?.stale && <Alert type="warning" showIcon message="招标要求已变化，原确认已失效，请重新核实并确认。" />}
       {!data?.confirmation && <Typography.Text type="secondary">尚未确认：可生成带待补充提示的草稿，正式导出前须完成确认。</Typography.Text>}
       {data && <Collapse size="small" items={[{ key: 'source', label: '查看招标原条款', children: data.options.length
         ? data.options.map((text, i) => <Typography.Paragraph key={i}>{text}</Typography.Paragraph>)
-        : <Alert type="warning" message="当前解析结果未提取到两项原条款。生成时将再次识别招标母版；若格式无法识别，会保留待核对提示，无需另交模板。" /> }]} />}
+        : <Alert type="warning" message="当前解析结果未提取到两项原条款。生成时会再次查找采购文件规定的格式；若格式无法识别，会保留待核对提示，无需另交模板。" /> }]} />}
       <Radio.Group value={status} disabled={locked} onChange={e => setStatus(e.target.value)}>
         <Radio value="none">不存在相关情形</Radio><Radio value="exists">存在相关情形</Radio>
       </Radio.Group>
@@ -54,7 +55,7 @@ export default function RelationshipConfirmation({ id, profile, pkgIndex, disabl
         <Button disabled={locked || people.length >= 100} onClick={() => setPeople(old => [...old, Array(13).fill('')])}>添加关系人员</Button>
       </>}
       <Space>{onCancel && <Button disabled={saving} onClick={onCancel}>取消</Button>}<Button type="primary" disabled={locked || !status} loading={saving} onClick={save}>保存</Button></Space>
-      {data?.confirmation && <Typography.Text type="secondary">上次确认：{data.confirmation.confirmed_by} · {new Date(data.confirmation.confirmed_at).toLocaleString()}。本确认仅适用于当前企业及标包；更改后需重新生成，签章仍按招标要求办理。</Typography.Text>}
+      {data?.confirmation && <Typography.Text type="secondary">上次确认：{data.confirmation.confirmed_by} · {new Date(data.confirmation.confirmed_at).toLocaleString()}。本确认仅适用于当前企业及采购包；更改后需重新生成，签章仍按招标要求办理。</Typography.Text>}
     </Space>
   </Card>
 }

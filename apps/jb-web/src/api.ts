@@ -1,3 +1,5 @@
+import { requestErrorText } from './uiLabels'
+
 /** jb-api 客户端：所有请求走 /api（dev 由 Vite 代理到 8000，部署由 Nginx 反代）。 */
 
 const TOKEN_KEY = 'jb_token'
@@ -18,7 +20,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let detail = res.statusText
     try { detail = (await res.json()).detail ?? detail } catch { /* ignore */ }
-    throw new Error(detail)
+    throw new Error(requestErrorText(detail))
   }
   return res.json() as Promise<T>
 }
@@ -103,7 +105,7 @@ export interface FeasibilityReport {
   packages: { sub_no: string; sub_name: string; pkg_no: string; project_name: string; verdict: string; checks: Check[] }[]
 }
 
-// ---- 企业知识库（与 jb_kb.models 对齐；条目通用字段 id/status/attachments/source） ----
+// ---- 企业资料（与 jb_kb.models 对齐；条目通用字段 id/status/attachments/source） ----
 export interface KbItem { id: string; status?: string; attachments?: string[]; source?: string; [k: string]: unknown }
 export type MaterialSelection = Partial<Record<'certificates' | 'personnel' | 'performances' | 'financials' | 'products' | 'test_reports', string[] | null>>
 export interface Certificate extends KbItem { validity_kind?: 'dated' | 'permanent' | 'point_in_time'; includes_tax_registration?: boolean; name: string; cert_type: string; number: string; issuer: string; level: string; valid_from: string; valid_until: string }
@@ -180,7 +182,7 @@ export interface GenResult {
   tech_params: { spec_id: string; responses: { row: number; name: string; required: string; star: boolean; response: string; verdict: string; reason: string }[] }[]
 }
 
-// ---- 配置中心 ----
+// ---- 系统设置 ----
 export interface ScoringTemplateSummary { id: string; name: string; kind: string; source: string; origin: string; note: string; item_count: number; updated_at: string; updated_by: string }
 export interface ScoringTemplateFull extends ScoringTemplateSummary { items: { group: string; element: string; content: string; score_min: number | null; score_max: number | null }[] }
 export interface RuleEntry {

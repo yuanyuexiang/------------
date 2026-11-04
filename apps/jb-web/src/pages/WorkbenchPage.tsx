@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Collapse, Empty, Modal, Progress, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
+import { errorMessage, purchaseWarningLabel, reviewLevelLabel, scoreKindLabel, scoreMethodLabel, taskMessageLabel } from '../uiLabels'
 import MaterialPicker from '../components/MaterialPicker'
 import PreparationPanel from '../components/PreparationPanel'
 
@@ -10,7 +11,7 @@ const LEVEL: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议:
 const VERDICT: Record<string, string> = { satisfied: 'green', deviation: 'red', unknown: 'orange', missing: 'default' }
 const VERDICT_CN: Record<string, string> = { satisfied: '满足', deviation: '偏差', unknown: '待确认', missing: '待补充' }
 
-/** 生成与审查工作台：起草/生成 → 参数表/待补充 → 合规审查 → 模拟评分 → 递交矩阵 → 导出。 */
+/** 准备投标文件：起草/生成 → 参数表/待补充 → 检查投标文件 → 预估评分 → 查看提交要求 → 导出。 */
 export default function WorkbenchPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
@@ -71,12 +72,12 @@ export default function WorkbenchPage() {
       setTaskId(task_id)
       setStep(1)
       await refreshFlow()
-    } catch (e) { message.error(String(e)) } finally { setBusy(false) }
+    } catch (e) { message.error(errorMessage(e)) } finally { setBusy(false) }
   }
   const draft = () => Modal.confirm({
     title: '生成待完善草稿',
-    content: <><p>以下事项尚未完成，生成稿会保留缺项提示，不能直接正式导出。</p>
-      <ul>{readiness?.confirmations.map(x => <li key={x.task}>{x.title}：{x.message}</li>)}
+    content: <><p>以下事项尚未完成，生成稿会保留待补充内容提示，不能直接正式导出。</p>
+      <ul>{readiness?.confirmations.map(x => <li key={x.task}>{x.title}：{taskMessageLabel(x.message)}</li>)}
       {readiness?.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul></>,
     okText: '仍生成草稿', cancelText: '继续准备', onOk: () => run(true),
   })
@@ -84,7 +85,7 @@ export default function WorkbenchPage() {
     if (running || !readiness || preparationLoading || preparationError) return message.info('请等待准备状态刷新后重试')
     if (readiness.blockers.length) { setStep(0); return message.warning(`请先核对采购信息：${readiness.blockers.join('；')}`) }
     Modal.confirm({ title: 'AI 更新标书并检查', okText: readiness.ready ? '开始更新' : '生成待完善草稿', cancelText: '继续准备',
-      content: <><p>系统将重新检索已选资料、起草并检查本包商务和技术文件，旧版本保留。</p>{!readiness.ready && <><p>以下安排未完成，新版仍为待完善草稿：</p><ul>{readiness.confirmations.map(x => <li key={x.task}>{x.message}</li>)}</ul></>}<p>完成后进入审阅步骤；正式导出仍需通过检查。</p></>,
+      content: <><p>系统将重新检索已选资料、起草并检查本包商务和技术文件，旧版本保留。</p>{!readiness.ready && <><p>以下安排未完成，新版仍为待完善草稿：</p><ul>{readiness.confirmations.map(x => <li key={x.task}>{taskMessageLabel(x.message)}</li>)}</ul></>}<p>完成后进入审阅步骤；正式导出仍需通过检查。</p></>,
       onOk: () => { setWithDraft(true); return run(!readiness.ready, true) },
     })
   }
@@ -92,25 +93,25 @@ export default function WorkbenchPage() {
     if (!profile) return
     setBusy(true)
     try { await api.review(id, profile, pkgIndex); await refreshFlow() }
-    catch (e) { message.error(String(e)) } finally { setBusy(false) }
+    catch (e) { message.error(errorMessage(e)) } finally { setBusy(false) }
   }
   const doScore = async () => {
     if (!profile) return
     try { setScore((await api.score(id, profile, pkgIndex, withDraft, flow?.generation_id ?? undefined)).report) }
-    catch (e) { message.error(String(e)) }
+    catch (e) { message.error(errorMessage(e)) }
   }
   const doMatrix = async () => {
     try { setMatrix((await api.submissionMatrix(id, pkgIndex)).rows) }
-    catch (e) { message.error(String(e)) }
+    catch (e) { message.error(errorMessage(e)) }
   }
   const doExport = async (fn: string) => {
     setBusy(true)
     try {
       const r = await api.exportFile(id, fn)
       if (r.ok) message.success(r.pdf ? '正式 Word 和 PDF 已生成，请使用下方链接下载' : `正式 Word 已生成；${r.notes.join('；')}`)
-      else message.error(`导出被阻断：${r.blocked_by.join('；')}`)
+      else message.error(`暂时无法导出：${r.blocked_by.join('；')}`)
       await refreshFlow()
-    } catch (e) { message.error(String(e)) } finally { setBusy(false) }
+    } catch (e) { message.error(errorMessage(e)) } finally { setBusy(false) }
   }
 
   return (
@@ -127,7 +128,7 @@ export default function WorkbenchPage() {
           <Button disabled={running} onClick={async () => {
             setBusy(true)
             try { const result = await api.reparse(id); setTaskId(result.task_id); await refreshFlow() }
-            catch (e) { message.error(String(e)) } finally { setBusy(false) }
+            catch (e) { message.error(errorMessage(e)) } finally { setBusy(false) }
           }}>重新解析原文件</Button>
           <Button onClick={() => nav(`/projects/${id}`)}>返回项目</Button>
         </Space>
@@ -135,25 +136,28 @@ export default function WorkbenchPage() {
       <Steps current={step} onChange={value => { if (value === 1) goToGeneration(); else setStep(value) }}
         items={[{ title: '准备资料' }, { title: '生成标书', disabled: running && step !== 1 },
           { title: '审阅与导出', disabled: !gen }]} />
-      {flowError && <Alert type="error" message="无法读取当前审查状态" description={String(flowError)} />}
-      {preparationError && <Alert type="error" message="无法读取准备状态，请刷新重试" description={String(preparationError)} />}
+      {flowError && <Alert type="error" message="无法读取当前审查状态" description={errorMessage(flowError)} />}
+      {preparationError && <Alert type="error" message="无法读取准备状态，请刷新重试" description={errorMessage(preparationError)} />}
       {step === 0 && <>
       {!!flow?.preflight?.length && <Alert showIcon type={flow.preflight.some(x => x.blocking) ? 'error' : 'warning'}
-        message="生成前检查" description={<ul>{flow.preflight.map((x, i) => <li key={i}>{x.message} — {x.action}</li>)}</ul>} />}
+        message="生成前检查" description={<>
+          <ul>{flow.preflight.map((x, i) => <li key={i}>{purchaseWarningLabel(x.message)}{purchaseWarningLabel(x.message) === x.message && <> — {x.action}</>}</li>)}</ul>
+          <Collapse size="small" items={[{ key: 'details', label: '查看文件名及详细原因', children: flow.preflight.map((x, i) => <Typography.Paragraph key={i} style={{ overflowWrap: 'anywhere' }}>{x.message} — {x.action}</Typography.Paragraph>) }]} />
+        </>} />}
       {flow?.stale && <Alert showIcon type="warning" message={running ? "正在处理，请等待标书更新完成" : "资料已更新，标书尚未更新"}
-        description={running ? "处理完成后将刷新文件状态；下方旧文件仅供追溯。" : "可继续处理其他资料，完成后进入“生成标书”步骤。下方旧文件及其问题仅供追溯，不代表当前资料缺口。"} />}
+        description={running ? "处理完成后将刷新文件状态；下方旧文件仅供查看历史记录。" : "可继续处理其他资料，完成后进入“生成标书”步骤。下方旧文件及其问题仅供查看历史记录，不代表当前仍缺少资料。"} />}
       <div ref={preparationAnchor}>
       {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onRepair={repair} onSaved={() => { setScore(null); void refreshFlow() }} />}
       </div>
       {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }) }} />}
 
       <Card size="small" title="准备检查">
-        {!profile ? <Empty description="请先选择企业档案与标包" /> : !readiness ? <Typography.Text>正在检查准备状态…</Typography.Text> : <Space direction="vertical" style={{ width: '100%' }}>
+        {!profile ? <Empty description="请先选择企业档案与采购包" /> : !readiness ? <Typography.Text>正在检查准备状态…</Typography.Text> : <Space direction="vertical" style={{ width: '100%' }}>
           <Alert showIcon type={readiness.blockers.length ? 'error' : readiness.confirmations.length ? 'warning' : 'success'}
             message={readiness.blockers.length ? '请先解决招标文件问题' : readiness.confirmations.length ? `还有 ${readiness.confirmations.length} 项本次安排需要确认` : '本次安排已确认，可以生成标书'}
             description={<><ul>{readiness.blockers.map((x, i) => <li key={i}>{x}</li>)}
-              {readiness.confirmations.map(x => <li key={x.task}>{x.title}：{x.message}</li>)}</ul>
-              <span>准备检查不等于资格通过；证明材料和生成内容仍需审阅。</span></>} />
+              {readiness.confirmations.map(x => <li key={x.task}>{x.title}：{taskMessageLabel(x.message)}</li>)}</ul>
+              <span>资料准备完成不代表已符合投标资格；证明材料和生成内容仍需审阅。</span></>} />
           {!!readiness.warnings.length && <Collapse items={[{ key: 'warnings', label: '资料与原文提醒（不强制阻止生成草稿）', children: <ul>{readiness.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul> }]} />}
         </Space>}
         <Space style={{ marginTop: 16 }}>
@@ -166,7 +170,7 @@ export default function WorkbenchPage() {
       </>}
       {step === 1 && <Card title="生成标书">
         <Typography.Paragraph>使用本包已保存的资料生成商务、技术文件。已有版本会保留，生成后进入审阅。</Typography.Paragraph>
-        {task && task.status !== 'done' && <><Progress percent={Math.round(task.progress * 100)} status={task.status === 'failed' ? 'exception' : 'active'} /><Typography.Paragraph>{task.message}</Typography.Paragraph></>}
+        {task && task.status !== 'done' && <><Progress percent={Math.round(task.progress * 100)} status={task.status === 'failed' ? 'exception' : 'active'} /><Typography.Paragraph>{taskMessageLabel(task.message)}</Typography.Paragraph></>}
         {!running && !readiness?.ready && <Alert type="warning" message="准备状态已变化，请返回准备资料核对，或明确生成待完善草稿。" />}
         <Space>
           <Button disabled={running} onClick={() => setStep(0)}>返回准备资料</Button>
@@ -178,15 +182,15 @@ export default function WorkbenchPage() {
       {!gen && <Empty description="尚未生成标书，请先完成准备资料" />}
       {gen && <Space style={{ marginBottom: 16 }}>
         <Button onClick={() => setStep(0)}>返回准备资料</Button>
-        <Button type="primary" onClick={doReview} disabled={!profile || running || flow?.stale}>合规审查 / 复查</Button>
-        <Button onClick={doScore} disabled={!profile || running || flow?.stale}>模拟评分</Button>
-        <Button onClick={doMatrix}>递交矩阵</Button>
+        <Button type="primary" onClick={doReview} disabled={!profile || running || flow?.stale}>检查投标文件 / 复查</Button>
+        <Button onClick={doScore} disabled={!profile || running || flow?.stale}>预估评分</Button>
+        <Button onClick={doMatrix}>查看怎么提交</Button>
       </Space>}
-      {flow?.stale && <Alert type="warning" showIcon message="资料已变化，以下旧版本仅供追溯" description="请返回准备资料处理受影响事项，再更新标书。" />}
-      {gen?.generation_mode === 'incomplete_draft' && <Alert type="info" showIcon message="本版本为提前生成的待完善草稿" description="请核对准备事项和文件缺口，补齐后更新标书并重新审查。" />}
-      {flow && <Card size="small" title="整改与正式导出">
+      {flow?.stale && <Alert type="warning" showIcon message="资料已变化，以下旧版本仅供查看历史记录" description="请返回准备资料处理受影响事项，再更新标书。" />}
+      {gen?.generation_mode === 'incomplete_draft' && <Alert type="info" showIcon message="本版本为提前生成的待完善草稿" description="请核对准备事项和待补充内容，补齐后更新标书并重新审查。" />}
+      {flow && <Card size="small" title="处理问题并导出正式文件">
         <Alert showIcon type={flow.blockers.length ? 'warning' : 'success'}
-          message={flow.blockers.length ? '正式导出尚未就绪' : '本版本审查有效，可以正式导出'}
+          message={flow.blockers.length ? '还有问题需要处理，暂时无法导出正式文件' : '当前文件已完成检查，可以导出正式文件'}
           description={flow.blockers.length ? <ul>{flow.blockers.map((reason) => <li key={reason}>{reason}</li>)}</ul> : '导出前仍会重新核对资料、规则和文件版本。'} />
         <Space wrap style={{ marginTop: 12 }}>
           <Button onClick={() => nav(`/projects/${id}/trm`)}>1. 核对采购信息</Button>
@@ -200,13 +204,13 @@ export default function WorkbenchPage() {
         </div>)}
       </Card>}
 
-      {gen?.llm_connection && <Typography.Text type="secondary">本次生成连接：{gen.llm_connection.name} · 模型：{gen.llm_connection.model}</Typography.Text>}
+      {gen?.llm_connection && <Typography.Text type="secondary">本次使用的 AI 服务：{gen.llm_connection.name} · 模型：{gen.llm_connection.model}</Typography.Text>}
       {gen && (
         <Tabs items={[
-          ...(gen.confirmations?.length ? [{ key: 'c', label: `${flow?.stale ? '历史版本核对' : '集中核对'}（${gen.confirmations.length}）`, children: (
+          ...(gen.confirmations?.length ? [{ key: 'c', label: `${flow?.stale ? '历史版本核对' : '待核对事项'}（${gen.confirmations.length}）`, children: (
             <Space direction="vertical" style={{ width: '100%' }}>
-              <Alert type="info" showIcon message={flow?.stale ? '历史文件问题，仅供追溯；当前待办请返回“准备资料”步骤' : '企业事实与系统修复分开处理'}
-                description="引用及生成错误由系统先修复；团队资料集中核对一次。此清单不替代合规审查。" />
+              <Alert type="info" showIcon message={flow?.stale ? '历史文件问题，仅供查看历史记录；当前待办请返回“准备资料”步骤' : '请核对企业资料，系统会协助修复引用和起草问题'}
+                description="系统先处理引用和起草错误；请核对团队资料。完成这些事项后，仍需检查整份投标文件。" />
               <Select allowClear placeholder="全部问题类型" style={{ minWidth: 220 }} value={issueCategory} onChange={setIssueCategory}
                 options={[...new Set(gen.confirmations.map(x => x.category))].map(category => ({ value: category, label: `${category}（${gen.confirmations!.filter(x => x.category === category).length}）` }))} />
               <Table size="small" rowKey={(_, i) => String(i)} dataSource={gen.confirmations.filter(x => !issueCategory || x.category === issueCategory)} pagination={{ pageSize: 15 }}
@@ -222,10 +226,10 @@ export default function WorkbenchPage() {
           { key: 'f', label: '文件与问题位置', children: (
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert type={gen.summary.export_blocked ? 'warning' : 'success'}
-                message={gen.summary.export_blocked ? `文件共 ${gen.summary.todo_count} 处标记，重复问题已在集中核对中合并；不等于缺少同等数量的企业材料` : '无待补充；正式导出还需通过本版本合规审查'} />
+                message={gen.summary.export_blocked ? `文件共 ${gen.summary.todo_count} 处标记，重复问题已在“待核对事项”中合并；不等于缺少同等数量的企业材料` : '无待补充；正式导出还需通过本版本检查投标文件'} />
               {gen.summary.mode && (
                 <Typography.Text type="secondary">
-                  版式：{Object.values(gen.summary.mode).every((m) => m === 'master') ? '采购文件规定格式（原版式）' : Object.values(gen.summary.mode).every((m) => m === 'plain') ? '系统自建版式（未取到母版）' : `商务 ${gen.summary.mode.commercial === 'master' ? '母版' : '自建'} / 技术 ${gen.summary.mode.technical === 'master' ? '母版' : '自建'}`}
+                  版式：{Object.values(gen.summary.mode).every((m) => m === 'master') ? '采购文件规定格式（原版式）' : Object.values(gen.summary.mode).every((m) => m === 'plain') ? '系统默认格式（未识别到采购文件规定的格式）' : `商务 ${gen.summary.mode.commercial === 'master' ? '采购规定格式' : '系统默认格式'} / 技术 ${gen.summary.mode.technical === 'master' ? '采购规定格式' : '系统默认格式'}`}
                   {(gen.summary.notes ?? []).length > 0 && <>；{gen.summary.notes!.join('；')}</>}
                 </Typography.Text>
               )}
@@ -244,38 +248,38 @@ export default function WorkbenchPage() {
               ))}
             </Space>
           ) },
-          { key: 'p', label: '技术参数响应', children: (
+          { key: 'p', label: '技术参数是否符合要求', children: (
             <Tabs items={gen.tech_params.map((tp) => ({
               key: tp.spec_id, label: `${tp.spec_id}（${tp.responses.length} 行）`,
               children: (
                 <Table size="small" rowKey="row" pagination={{ pageSize: 20 }} dataSource={tp.responses}
                   columns={[
-                    { title: '#', dataIndex: 'row', width: 50 },
-                    { title: '项目需求值', dataIndex: 'required', render: (v: string, r) => <>{r.star && <Tag color="red">★</Tag>}{v}</> },
-                    { title: '投标人保证值', dataIndex: 'response', width: 320 },
+                    { title: '序号', dataIndex: 'row', width: 50 },
+                    { title: '采购方要求的参数', dataIndex: 'required', render: (v: string, r) => <>{r.star && <Tag color="red">★</Tag>}{v}</> },
+                    { title: '我方提供的参数', dataIndex: 'response', width: 320 },
                     { title: '判定', dataIndex: 'verdict', width: 90, render: (v: string) => <Tag color={VERDICT[v]}>{VERDICT_CN[v] ?? v}</Tag> },
                     { title: '说明', dataIndex: 'reason', width: 260 },
                   ]} />
               ),
             }))} />
           ) },
-          ...(Object.keys(gen.draft_sources ?? {}).length ? [{ key: 's', label: '起草引用依据', children: (
+          ...(Object.keys(gen.draft_sources ?? {}).length ? [{ key: 's', label: '方案采用的资料', children: (
             <Space direction="vertical" style={{ width: '100%' }}>
-            {!!gen.evidence_coverage?.length && <Collapse items={[{ key: 'coverage', label: '附件识别范围与未核验部分', children: <ul>{gen.evidence_coverage.map((value, i) => <li key={i}>{value}</li>)}</ul> }]} />}
+            {!!gen.evidence_coverage?.length && <Collapse items={[{ key: 'coverage', label: '已识别的附件及尚未核实的内容', children: <ul>{gen.evidence_coverage.map((value, i) => <li key={i}>{value}</li>)}</ul> }]} />}
             <Table size="small" rowKey="id" pagination={{ pageSize: 10 }}
               dataSource={Object.entries(gen.draft_sources ?? {}).map(([id, text]) => ({ id, text }))}
               columns={[{ title: '引用编号', dataIndex: 'id', width: 200 }, { title: '资料 / 招标要求原文', dataIndex: 'text' }]} />
             </Space>
           ) }] : []),
-          ...(gen.draft_markdown ? [{ key: 'd', label: '起草稿（带溯源）', children: <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{gen.draft_markdown}</pre> }] : []),
+          ...(gen.draft_markdown ? [{ key: 'd', label: '方案草稿（附资料来源）', children: <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{gen.draft_markdown}</pre> }] : []),
         ]} />
       )}
 
       {review && (
-        <Card size="small" title={<Space><span>合规审查</span><Tag color={review.blocked ? 'red' : 'green'}>{review.blocked ? '存在否决项' : '无否决项'}</Tag><Typography.Text type="secondary">生成版本 {review.generation_id}</Typography.Text>{Object.entries(review.counts).map(([k, v]) => <Tag key={k} color={LEVEL[k]}>{k} {v}</Tag>)}</Space>}>
+        <Card size="small" title={<Space><span>检查投标文件</span><Tag color={review.blocked ? 'red' : 'green'}>{review.blocked ? '有投标无效风险' : '未发现投标无效风险'}</Tag><Typography.Text type="secondary">文件版本编号：{review.generation_id}</Typography.Text>{Object.entries(review.counts).map(([k, v]) => <Tag key={k} color={LEVEL[k]}>{reviewLevelLabel(k)} {v}</Tag>)}</Space>}>
           <Table<Finding> size="small" rowKey={(_, i) => String(i)} pagination={{ pageSize: 15 }} dataSource={review.findings}
             columns={[
-              { title: '级别', dataIndex: 'level', width: 80, render: (v: string) => <Tag color={LEVEL[v]}>{v}</Tag> },
+              { title: '级别', dataIndex: 'level', width: 110, render: (v: string) => <Tag color={LEVEL[v]}>{reviewLevelLabel(v)}</Tag> },
               { title: '规则', dataIndex: 'rule_id', width: 90 }, { title: '问题', dataIndex: 'title', width: 220 },
               { title: '说明', dataIndex: 'message' }, { title: '位置', dataIndex: 'location', width: 160 }, { title: '依据', dataIndex: 'source', width: 150 },
             ]} />
@@ -283,25 +287,25 @@ export default function WorkbenchPage() {
       )}
 
       {score && (
-        <Card size="small" title={`模拟评分：技术 ${score.tech_total ?? '?'}/${score.tech_max}　商务 ${score.biz_total ?? '?'}/${score.biz_max}　加权（不含价格）${score.weighted ?? '?'}`}>
+        <Card size="small" title={`预估评分：技术 ${score.tech_total ?? '?'}/${score.tech_max}　商务 ${score.biz_total ?? '?'}/${score.biz_max}　按权重折算（不含价格分）${score.weighted ?? '?'}`}>
           <Table<ItemScore> size="small" rowKey="element" pagination={false} dataSource={score.items}
             columns={[
-              { title: '要素', dataIndex: 'element', width: 260 }, { title: '类别', dataIndex: 'kind', width: 60 },
-              { title: '预测', dataIndex: 'predicted', width: 70, render: (v) => v ?? '—' },
-              { title: '区间', width: 90, render: (_, r) => `${r.score_min}~${r.score_max}` },
-              { title: '方法', dataIndex: 'method', width: 70 }, { title: '依据', dataIndex: 'basis' },
-              { title: '缺证据（提分路径）', dataIndex: 'missing', render: (m: string[]) => m.map((x, i) => <div key={i}>{x}</div>) },
+              { title: '评分项目', dataIndex: 'element', width: 260 }, { title: '类别', dataIndex: 'kind', width: 70, render: scoreKindLabel },
+              { title: '预估得分', dataIndex: 'predicted', width: 70, render: (v) => v ?? '—' },
+              { title: '评分范围', width: 90, render: (_, r) => `${r.score_min}~${r.score_max}` },
+              { title: '估分方式', dataIndex: 'method', width: 150, render: scoreMethodLabel }, { title: '依据', dataIndex: 'basis' },
+              { title: '提高评分需补充的材料', dataIndex: 'missing', render: (m: string[]) => m.map((x, i) => <div key={i}>{x}</div>) },
             ]} />
         </Card>
       )}
 
       {matrix.length > 0 && (
-        <Card size="small" title="递交矩阵（第六章提交方式表 × 本包）">
+        <Card size="small" title="本包投标文件怎么提交">
           <Table size="small" rowKey={(_, i) => String(i)} pagination={false} dataSource={matrix}
             columns={[
-              { title: '文件', dataIndex: 'section', width: 150 }, { title: '序号', dataIndex: 'seq', width: 60 }, { title: '内容', dataIndex: 'item' },
-              { title: '渠道', dataIndex: 'channels', width: 180, render: (c: string[]) => c.map((x) => <Tag key={x}>{x}</Tag>) },
-              { title: '端口', dataIndex: 'port', width: 220 },
+              { title: '文件类别', dataIndex: 'section', width: 150 }, { title: '序号', dataIndex: 'seq', width: 60 }, { title: '提交材料', dataIndex: 'item' },
+              { title: '提交渠道', dataIndex: 'channels', width: 180, render: (c: string[]) => c.map((x) => <Tag key={x}>{x}</Tag>) },
+              { title: '投标工具上传位置', dataIndex: 'port', width: 220 },
               { title: '状态', dataIndex: 'status', width: 150, render: (s: string) => <Tag color={s.startsWith('系统') ? 'green' : s.startsWith('工具') ? 'blue' : 'orange'}>{s}</Tag> },
             ]} />
         </Card>

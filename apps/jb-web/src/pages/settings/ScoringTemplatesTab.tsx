@@ -1,3 +1,4 @@
+import { errorMessage } from '../../uiLabels'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Checkbox, Form, Input, Drawer, Popconfirm, Select, Space, Table, Tag, Typography, Upload, message } from 'antd'
@@ -5,10 +6,10 @@ import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { api, fmtUtc, ScoringTemplateFull, ScoringTemplateSummary } from '../../api'
 
 const KIND_CN: Record<string, string> = { tech: '技术', biz: '商务', price: '价格', other: '其他' }
-const ORIGIN_CN: Record<string, string> = { parsed: '解析入库', upload: '上传', manual: '手工' }
+const ORIGIN_CN: Record<string, string> = { parsed: '从采购文件识别', upload: '上传', manual: '手工' }
 type Item = ScoringTemplateFull['items'][number]
 
-/** 评分模板库：解析招标文件时自动入库；可上传 xlsx / 手工录入；按名称被各包评审办法引用，模拟评分缺细则时兜底。 */
+/** 评分模板库：解析招标文件时自动入库；可上传 xlsx / 手工录入；按名称被各包评审办法引用，预估评分缺细则时兜底。 */
 export default function ScoringTemplatesTab() {
   const qc = useQueryClient()
   const { data = [], isLoading } = useQuery({ queryKey: ['scoring-templates'], queryFn: api.scoringTemplates })
@@ -35,28 +36,28 @@ export default function ScoringTemplatesTab() {
       return editing === 'new' ? api.createScoringTemplate(body) : api.updateScoringTemplate((editing as ScoringTemplateFull).id, body)
     },
     onSuccess: () => { message.success('已保存'); setEditing(null); refresh() },
-    onError: (e) => message.error(String(e)),
+    onError: (e) => message.error(errorMessage(e)),
   })
   const upload = async (file: File) => {
-    try { const t = await api.uploadScoringTemplate(file, overwrite); message.success(`已入库：${t.name}（${t.item_count} 项）`); refresh() } catch (e) { message.error(String(e)) }
+    try { const t = await api.uploadScoringTemplate(file, overwrite); message.success(`已保存：${t.name}（${t.item_count} 项）`); refresh() } catch (e) { message.error(errorMessage(e)) }
     return false
   }
   const setItem = (i: number, patch: Partial<Item>) => setItems(items.map((x, k) => k === i ? { ...x, ...patch } : x))
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Alert type="info" showIcon message="解析采购文件时，系统会保存识别到的评分细则，保留已维护的同名模板。采购文件仅提供评分模板名称时，模拟评分将使用这里的同名细则。" />
+      <Alert type="info" showIcon message="解析采购文件时，系统会保存识别到的评分细则，保留已维护的同名模板。采购文件仅提供评分模板名称时，预估评分将使用这里的同名细则。" />
       <Space wrap>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>手工新建</Button>
         <Upload accept=".xlsx,.xls" beforeUpload={upload} showUploadList={false}><Button icon={<UploadOutlined />}>上传评分细则 xlsx</Button></Upload>
-        <Checkbox checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)}>同名覆盖</Checkbox>
+        <Checkbox checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)}>替换已有的同名评分标准</Checkbox>
         <Typography.Text type="secondary">xlsx 格式同国网模板库：首行模板名，次行表头（评审要素 | 评审内容），要素内嵌分值区间如"项目团队（12-20 分）"</Typography.Text>
       </Space>
       <Table<ScoringTemplateSummary> size="small" rowKey="id" loading={isLoading} dataSource={data} pagination={false}
         columns={[
           { title: '模板名称', dataIndex: 'name', render: (v, r) => <a onClick={() => open(r)}>{v}</a> },
           { title: '类别', dataIndex: 'kind', width: 80, render: (k: string) => <Tag color={k === 'tech' ? 'blue' : k === 'biz' ? 'green' : 'default'}>{KIND_CN[k] ?? k}</Tag> },
-          { title: '要素数', dataIndex: 'item_count', width: 80 },
+          { title: '评分项目数', dataIndex: 'item_count', width: 80 },
           { title: '来源', dataIndex: 'origin', width: 90, render: (o: string) => ORIGIN_CN[o] ?? o },
           { title: '出处', dataIndex: 'source', ellipsis: true },
           { title: '更新', dataIndex: 'updated_at', width: 200, render: (v: string, r) => `${fmtUtc(v)}${r.updated_by ? ` · ${r.updated_by}` : ''}` },
@@ -77,10 +78,10 @@ export default function ScoringTemplatesTab() {
         <Table<Item> size="small" rowKey={(_, i) => String(i)} dataSource={items} pagination={false} scroll={{ y: 380 }}
           columns={[
             { title: '分组', dataIndex: 'group', width: 150, render: (v, _, i) => <Input size="small" value={v} onChange={(e) => setItem(i, { group: e.target.value })} /> },
-            { title: '评审要素', dataIndex: 'element', width: 220, render: (v, _, i) => <Input size="small" value={v} onChange={(e) => setItem(i, { element: e.target.value })} placeholder="如 项目团队（12-20 分）" /> },
-            { title: '评审内容 / 档位标准', dataIndex: 'content', render: (v, _, i) => <Input.TextArea size="small" autoSize={{ minRows: 1, maxRows: 4 }} value={v} onChange={(e) => setItem(i, { content: e.target.value })} /> },
-            { title: '最低', dataIndex: 'score_min', width: 70, render: (v, _, i) => <Input size="small" value={v ?? ''} onChange={(e) => setItem(i, { score_min: e.target.value === '' ? null : Number(e.target.value) })} /> },
-            { title: '最高', dataIndex: 'score_max', width: 70, render: (v, _, i) => <Input size="small" value={v ?? ''} onChange={(e) => setItem(i, { score_max: e.target.value === '' ? null : Number(e.target.value) })} /> },
+            { title: '评分项目', dataIndex: 'element', width: 220, render: (v, _, i) => <Input size="small" value={v} onChange={(e) => setItem(i, { element: e.target.value })} placeholder="如 项目团队（12-20 分）" /> },
+            { title: '评分要求与得分标准', dataIndex: 'content', render: (v, _, i) => <Input.TextArea size="small" autoSize={{ minRows: 1, maxRows: 4 }} value={v} onChange={(e) => setItem(i, { content: e.target.value })} /> },
+            { title: '最低分', dataIndex: 'score_min', width: 70, render: (v, _, i) => <Input size="small" value={v ?? ''} onChange={(e) => setItem(i, { score_min: e.target.value === '' ? null : Number(e.target.value) })} /> },
+            { title: '最高分', dataIndex: 'score_max', width: 70, render: (v, _, i) => <Input size="small" value={v ?? ''} onChange={(e) => setItem(i, { score_max: e.target.value === '' ? null : Number(e.target.value) })} /> },
             { title: '', width: 50, render: (_, __, i) => <Button size="small" type="link" danger onClick={() => setItems(items.filter((_, k) => k !== i))}>删</Button> },
           ]} />
         <Button size="small" style={{ marginTop: 8 }} icon={<PlusOutlined />} onClick={() => setItems([...items, { group: '', element: '', content: '', score_min: null, score_max: null }])}>加一行</Button>

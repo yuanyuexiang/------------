@@ -1,3 +1,4 @@
+import { errorMessage } from '../uiLabels'
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Card, Select, Space, Typography, message } from 'antd'
@@ -5,7 +6,7 @@ import { api, KbItem, MaterialSelection } from '../api'
 
 const KINDS = [
   ['certificates', '本包证照与查询材料'],
-  ['performances', '本包业绩'], ['financials', '财务年度'],
+  ['performances', '本包业绩'], ['financials', '财务报告年度'],
   ['products', '产品'], ['test_reports', '检测报告'],
 ] as const
 
@@ -24,13 +25,13 @@ export default function MaterialPicker({ id, profile, pkgIndex, disabled, onSave
     try {
       await api.saveMaterials(id, profile, pkgIndex, selection)
       await refetch(); onSaved()
-      message.success('本包选材已保存，请重新生成并审查')
-    } catch (e) { message.error(String(e)) } finally { setSaving(false) }
+      message.success('本包使用的资料已保存，请更新标书并检查')
+    } catch (e) { message.error(errorMessage(e)) } finally { setSaving(false) }
   }
-  return <Card size="small" title="本包选材">
-    {error && <Alert type="error" message={String(error)} />}
+  return <Card size="small" title="选择本包使用的资料">
+    {error && <Alert type="error" message={errorMessage(error)} />}
     {data?.profile.is_demo === true && <Alert type="warning" showIcon message="演示档案：文件使用模拟数据并带演示标识，不可用于正式投标" style={{ marginBottom: 12 }} />}
-    <Typography.Paragraph type="secondary">人员与岗位请在上方“本次项目团队”维护。这里只选择证照、业绩等已审核材料。空白表示自动使用已审核资料（财务取最近三年）；手动清空全部选项表示本包不使用该类资料。请依据本包资格要求选材，保存后旧产出失效。</Typography.Paragraph>
+    <Typography.Paragraph type="secondary">人员和岗位请在上方“本次项目团队”中填写。这里选择本包使用的证照、业绩等已审核资料。默认使用列表中显示的资料，财务报告取最近三年；清空某一类的选择，表示本包不使用该类资料。保存后需重新生成并检查标书。</Typography.Paragraph>
     <Space direction="vertical" style={{ width: '100%' }}>
       {data && KINDS.map(([kind, label]) => {
         const items = (data.profile[kind] as KbItem[]).filter(x => x.status === 'approved')
@@ -39,7 +40,7 @@ export default function MaterialPicker({ id, profile, pkgIndex, disabled, onSave
           ? items.filter(x => x.report_kind !== 'comparative').sort((a, b) => String(b.year).localeCompare(String(a.year))).slice(0, 3).map(x => x.id)
           : items.map(x => x.id)
         return <div key={kind}>
-          <Typography.Text>{label}{automatic ? '（自动）' : '（已指定）'}</Typography.Text>
+          <Typography.Text>{label}{automatic ? '（自动选择）' : '（手动选择）'}</Typography.Text>
           <Select mode="multiple" aria-label={label} style={{ width: '100%' }} disabled={disabled || saving}
             value={automatic ? defaultIds : selection[kind] ?? []}
             onChange={value => setSelection(old => ({ ...old, [kind]: value }))}
@@ -47,7 +48,7 @@ export default function MaterialPicker({ id, profile, pkgIndex, disabled, onSave
         </div>
       })}
       <Space>
-        <Button type="primary" onClick={save} disabled={disabled || !data} loading={saving}>保存本包选材</Button>
+        <Button type="primary" onClick={save} disabled={disabled || !data} loading={saving}>保存资料选择</Button>
         <Button onClick={() => setSelection(old => ({ personnel: old.personnel }))} disabled={disabled || saving}>恢复自动选择</Button>
       </Space>
     </Space>

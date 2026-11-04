@@ -71,11 +71,11 @@ def _run_parse(task_id: str, project_id: str) -> None:
         pkg_nos = [k.pkg_no for k in trm.packages]
         pm.log_event(s, project_id, "parsed",
                      f"解析完成：{len(pkg_nos)} 个包（{'、'.join(pkg_nos)}）"
-                     + (f"，投标截止 {p.deadline}" if p.deadline else "，公告未抽到截止时间，请人工录入")
-                     + (f"，{len(trm.warnings)} 条告警" if trm.warnings else "")
-                     + (f"，{n_tpl} 个评分模板入库" if n_tpl else ""),
+                     + (f"，投标截止 {p.deadline}" if p.deadline else "，未识别到投标截止时间，请对照公告填写")
+                     + (f"，{len(trm.warnings)} 条信息需要核对" if trm.warnings else "")
+                     + (f"，{n_tpl} 套评分标准已保存" if n_tpl else ""),
                      {"packages": pkg_nos, "deadline": p.deadline, "summary": trm.summary(), "warnings": trm.warnings})
-    _update(task_id, status="done", progress=1.0, message=trm.summary(),
+    _update(task_id, status="done", progress=1.0, message=f"采购文件已读取，共 {len(trm.packages)} 个采购包、{len(trm.prenotice)} 项采购重要事项，请核对采购信息。",
             result={"packages": len(trm.packages), "warnings": trm.warnings})
 
 
@@ -135,7 +135,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
             if any(not section.get('by_llm') for section in sections):
                 previous_sections = sections
     if not (0 <= pkg_index < len(trm.packages)):
-        _update(task_id, status="failed", message="pkg_index 越界")
+        _update(task_id, status="failed", message="所选采购包不存在，请重新选择")
         return
     pkg = trm.packages[pkg_index]
     from jb_agents.preflight import generation_issues
@@ -147,7 +147,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
     drafts = None
     if with_draft:
         from jb_agents.preparation import collect_evidence
-        _update(task_id, progress=0.07, message='自动检索已有人员证明；扫描页进行本地OCR')
+        _update(task_id, progress=0.07, message='查找已有人员证明，并识别扫描件中的文字')
         with session() as evidence_session:
             evidence, notes = collect_evidence(evidence_session, full_profile, 'team')
         budget, selected_evidence = 24000, []
@@ -169,14 +169,14 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
         with tempfile.TemporaryDirectory(dir=zip_dir) as staging:
             master, spec_paths, master_note = None, {}, ""
             if zip_path and os.path.exists(zip_path):
-                _update(task_id, progress=0.1, message="解压招标文件包，提取第六章母版与规范书原件")
+                _update(task_id, progress=0.1, message="读取采购文件规定的格式和技术规范书原件")
                 try:
                     files = package_files(zip_path, pkg, workdir=os.path.join(staging, "src"))
                     master, spec_paths = files.main_doc, files.spec_docs
                     if master is None:
                         master_note = "招标文件包内未找到六章主文件，使用自建版式"
                 except Exception as exc:
-                    master_note = f"提取母版失败，使用自建版式：{exc!r}"
+                    master_note = f"未能读取采购文件规定的格式，将使用系统默认格式：{exc!r}"
             if with_draft:
                 from jb_agents.writer import draft_package
 
@@ -187,7 +187,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                 d = draft_package(trm, pkg, cp, use_llm=True, spec_paths=spec_paths,
                                   on_progress=report_progress, previous_sections=previous_sections)
                 drafts, draft_md = d.sections, d.markdown()
-            _update(task_id, progress=0.8, message="装配商务/技术文件")
+            _update(task_id, progress=0.8, message="整理并生成商务和技术文件")
             res = generate(trm, pkg, cp, staging, product_model or None, drafts=drafts,
                            master_docx=master, attachment_paths=att_paths, spec_paths=spec_paths,
                            response_plans=d.response_plans if d else None,

@@ -79,7 +79,7 @@ def test_confirmation_review_and_force_gate(bid):
     assert "采购信息尚未核对，请先核对并保存采购信息" in export(bid, name)["blocked_by"]
     assert review(bid).status_code == 409
     bid["client"].put(bid["url"] + "/trm", json=bid["trm"])
-    assert "尚未审查" in "；".join(export(bid, name)["blocked_by"])
+    assert "当前标书尚未检查，请先检查投标文件" in export(bid, name)["blocked_by"]
     assert review(bid).json()["blocked"] is False
     assert export(bid, name, force=True)["ok"] is False
     assert export(bid, name)["ok"] is True
@@ -145,7 +145,7 @@ def test_rule_change_requires_review_and_todos_cannot_be_disabled(bid):
     review(bid)
     c = bid["client"]
     assert c.put("/api/config/rules/DOC-01", json={"enabled": False}).status_code == 200
-    assert "规则配置已变化" in "；".join(export(bid, name)["blocked_by"])
+    assert "文件检查规则已修改，请重新检查标书" in export(bid, name)["blocked_by"]
     assert review(bid).status_code == 200
     assert export(bid, name)["ok"]
     bid["body"]["text"] = "【待补充：营业执照】"

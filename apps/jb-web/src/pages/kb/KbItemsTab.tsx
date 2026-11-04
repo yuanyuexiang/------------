@@ -6,8 +6,9 @@ import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { api, Attachment, KbItem } from '../../api'
 import { FieldSpec, KindSpec } from './fields'
+import { errorMessage, attachmentKindLabel, kbOptionLabel } from '../../uiLabels'
 
-const DATE_RULE = { pattern: /^\d{4}(-\d{2}(-\d{2})?)?$/, message: '格式 YYYY-MM-DD（可只填到月）' }
+const DATE_RULE = { pattern: /^\d{4}(-\d{2}(-\d{2})?)?$/, message: '请按“年-月-日”填写，例如 2026-11-04；也可只填到月' }
 const BOOL3 = [{ value: true, label: '是' }, { value: false, label: '否' }]
 
 /** 键值对 ↔ "k=v" 多行文本（产品参数表） */
@@ -40,7 +41,7 @@ function renderCell(f: FieldSpec, v: unknown) {
     case 'textarea':
       return <Typography.Paragraph ellipsis={{ rows: 2, tooltip: String(v ?? '') }} style={{ margin: 0 }}>{String(v ?? '')}</Typography.Paragraph>
     case 'select':
-      if (f.key === 'validity_kind') return v === 'permanent' ? '长期' : v === 'point_in_time' ? '时点材料' : '固定到期日'
+      if (f.key === 'validity_kind' || f.key === 'report_kind') return kbOptionLabel(String(v ?? '未录入'))
       if (f.key === 'status') return v === 'draft' ? <Tag color="orange">待审核</Tag> : <Tag color="green">已审核</Tag>
       return String(v ?? '')
     default:
@@ -52,11 +53,11 @@ function fieldInput(f: FieldSpec) {
   switch (f.type) {
     case 'textarea': return <Input.TextArea rows={f.key === 'text' ? 8 : 4} />
     case 'number': return <InputNumber style={{ width: '100%' }} />
-    case 'date': return <Input placeholder="YYYY-MM-DD" />
+    case 'date': return <Input placeholder="例如 2026-11-04" />
     case 'bool3': return <Select allowClear placeholder="未录入" options={BOOL3} />
     case 'tags': return <Select mode="tags" tokenSeparators={[',', '，', ' ']} options={f.options?.map((o) => ({ value: o }))} />
     case 'kv': return <Input.TextArea rows={8} placeholder={'参数名=值\n例：CPU=2*32Core@2.6GHz'} />
-    case 'select': return <Select allowClear={f.key !== 'status'} options={f.options?.map((o) => ({ value: o, label: o === 'approved' ? '已审核' : o === 'draft' ? '待审核' : o === 'independent' ? '独立年度报告' : o === 'comparative' ? '比较列数据' : o === 'dated' ? '有固定到期日' : o === 'permanent' ? '长期' : o === 'point_in_time' ? '时点查询材料' : o }))} />
+    case 'select': return <Select allowClear={f.key !== 'status'} options={f.options?.map((o) => ({ value: o, label: kbOptionLabel(o) }))} />
     default: return <Input />
   }
 }
@@ -79,12 +80,12 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
       ? api.kbUpdate(company, spec.kind, editing.id, payload)
       : api.kbCreate(company, spec.kind, payload),
     onSuccess: () => { message.success('已保存'); setEditing(null); invalidate() },
-    onError: (e) => message.error(String(e)),
+    onError: (e) => message.error(errorMessage(e)),
   })
   const remove = useMutation({
     mutationFn: (id: string) => api.kbDelete(company, spec.kind, id),
     onSuccess: () => { message.success('已删除'); invalidate() },
-    onError: (e) => message.error(String(e)),
+    onError: (e) => message.error(errorMessage(e)),
   })
 
   const open = (item: KbItem | 'new') => {
@@ -119,7 +120,7 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
       qc.invalidateQueries({ queryKey: ['attachments', company] })
       form.setFieldValue('attachments', Array.from(new Set([...(form.getFieldValue('attachments') ?? []), a.id])))
       message.success(`已上传 ${a.filename}`)
-    } catch (e) { message.error(String(e)) }
+    } catch (e) { message.error(errorMessage(e)) }
     return false
   }
   const attName = (id: string) => attachments.find((a: Attachment) => a.id === id)
@@ -181,7 +182,7 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
             <Form.Item name="attachments" label="扫描件附件" style={{ gridColumn: '1 / -1' }}
               extra="可从已上传附件中选择，或直接上传（自动归入本类）">
               <Select mode="multiple" placeholder="选择附件" optionFilterProp="label"
-                options={attachments.map((a: Attachment) => ({ value: a.id, label: `${a.filename}（${a.kind}）` }))} />
+                options={attachments.map((a: Attachment) => ({ value: a.id, label: `${a.filename}（${attachmentKindLabel(a.kind)}）` }))} />
             </Form.Item>
             <Upload beforeUpload={uploadInForm} showUploadList={false} multiple>
               <Button icon={<UploadOutlined />}>上传新附件</Button>

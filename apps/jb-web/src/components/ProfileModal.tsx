@@ -1,3 +1,4 @@
+import { errorMessage } from '../uiLabels'
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Descriptions, Modal, Space, Typography, Upload, message } from 'antd'
@@ -28,7 +29,7 @@ export default function ProfileModal({ onClose }: { onClose: () => void }) {
       void qc.invalidateQueries({ queryKey: ['users'] })
       void qc.invalidateQueries({ queryKey: ['account-audit'] })
       message.success('头像已更新'); onClose()
-    } catch (e) { message.error(String(e)) } finally { setBusy(false) }
+    } catch (e) { message.error(errorMessage(e)) } finally { setBusy(false) }
   }
   return <Modal title="个人资料" open onCancel={busy ? undefined : onClose} closable={!busy} keyboard={!busy} maskClosable={!busy} okText="保存头像" cancelText="取消" confirmLoading={busy} okButtonProps={{ disabled: !file && !remove }} cancelButtonProps={{ disabled: busy }} onOk={() => void save()}>
     <Space direction="vertical" size="large" style={{ width: '100%' }}>

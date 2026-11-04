@@ -31,17 +31,17 @@ export default function LoginPage() {
 
         <div className="login-content">
           <section className="login-intro" aria-labelledby="login-headline">
-            <div className="login-eyebrow"><span /> {COMPANY_NAME} · 企业专属工作台</div>
+            <div className="login-eyebrow"><span /> {COMPANY_NAME} · 企业投标准备助手</div>
             <h1 id="login-headline">每一份准备，<br /><span>都离中标更近。</span></h1>
             <p className="login-intro-description">从招标文件解析到投标文件生成，<br />将繁杂要求理清，让每一步都有据可依。</p>
 
             <div className="login-emblem" aria-hidden="true"><span>金</span><div className="login-emblem-orbit" /></div>
-            <div className="login-capabilities"><span>智能解析</span><i /><span>资格自检</span><i /><span>文件生成</span><i /><span>合规审查</span></div>
+            <div className="login-capabilities"><span>智能解析</span><i /><span>检查投标资格</span><i /><span>文件生成</span><i /><span>检查投标文件</span></div>
           </section>
 
           <section className="login-panel" aria-labelledby="login-form-title">
             <div className="login-panel-eyebrow">欢迎使用金榜</div>
-            <h2 id="login-form-title">登录工作台</h2>
+            <h2 id="login-form-title">登录系统</h2>
             <p className="login-panel-description">{COMPANY_NAME}</p>
             {error && <Alert type="error" showIcon message={error} className="login-error" />}
             <Form onFinish={submit} layout="vertical" size="large" requiredMark={false}>
@@ -51,7 +51,7 @@ export default function LoginPage() {
               <Form.Item name="password" label="密码" rules={[{ required: true, message: '请输入密码' }]}>
                 <Input.Password prefix={<LockOutlined />} placeholder="请输入密码" autoComplete="current-password" />
               </Form.Item>
-              <Button type="primary" htmlType="submit" block loading={loading} className="login-submit">登录工作台 {!loading && <ArrowRightOutlined />}</Button>
+              <Button type="primary" htmlType="submit" block loading={loading} className="login-submit">登录系统 {!loading && <ArrowRightOutlined />}</Button>
             </Form>
             <div className="login-account-help"><SafetyCertificateOutlined /><span>账号由企业管理员统一管理<br /><small>如需开通账号或重置密码，请联系管理员</small></span></div>
 

@@ -1,3 +1,4 @@
+import { errorMessage, taskMessageLabel } from '../uiLabels'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -42,7 +43,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     void api.suggestPreparation(id, profile, pkgIndex, 'registration').then(r => {
       if (!r.busy_other) suggestionCache.current.set(key, r.task_id)
       if (active) setSuggestionTask(r.task_id)
-    }).catch(e => { if (active) message.error(`资料整理未完成，可点击重新检索：${String(e)}`) })
+    }).catch(e => { if (active) message.error(`资料整理未完成，可点击重新查找：${errorMessage(e)}`) })
       .finally(() => { if (active) setSuggesting(false) })
     return () => { active = false; setSuggesting(false) }
   }, [editor, id, profile, pkgIndex, disabled])
@@ -85,7 +86,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     if (!editor) return
     setSuggesting(true)
     try { const r = await api.suggestPreparation(id, profile, pkgIndex, editor.kind, itemId); if (editorRef.current === editor) setSuggestionTask(r.task_id) }
-    catch (e) { message.error(String(e)) } finally { setSuggesting(false) }
+    catch (e) { message.error(errorMessage(e)) } finally { setSuggesting(false) }
   }
   const apply = (candidate: FactSuggestions['candidates'][number]) => {
     if (!editor || suggestion?.revision !== editor.snapshot.revision) return
@@ -108,21 +109,21 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
   })}</Space>
   const requiredCount = snapshot?.roles.reduce((n, r) => n + r.count, 0) ?? 0
   return <Card size="small" title="投标准备任务" extra={<Button disabled={disabled} onClick={() => void refetch()}>刷新核对</Button>}>
-    {error && <Alert type="error" message={String(error)} />}
-    <Typography.Paragraph type="secondary">按业务事项处理，一次保存供关联章节复用。企业资料跨项目复用；授权、岗位和到岗承诺只对本标包生效。保存不会自动代表合规通过。</Typography.Paragraph>
+    {error && <Alert type="error" message={errorMessage(error)} />}
+    <Typography.Paragraph type="secondary">按业务事项处理，一次保存供关联章节复用。企业资料跨项目复用；授权、岗位和到岗承诺只对本采购包生效。保存不会自动代表合规通过。</Typography.Paragraph>
     {data?.generation_stale && <Alert type="info" showIcon message="当前任务根据现有资料核对；旧文件标记仅保留在各任务的历史提示中，不计作新增资料。" style={{ marginBottom: 12 }} />}
     <Typography.Title level={5}>需要您确认的事项</Typography.Title>
     <div className="preparation-task-grid">
       {data?.tasks.filter(t => !t.complete && !['system', 'other'].includes(t.id)).map(t => <Card key={t.id} size="small" title={t.title}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Tag color="orange">{t.status}</Tag>
-          {t.current_notes?.map((note, i) => <Typography.Text key={i} type="secondary">{note}</Typography.Text>)}
+          {t.current_notes?.map((note, i) => <Typography.Text key={i} type="secondary">{taskMessageLabel(note)}</Typography.Text>)}
           <Button disabled={disabled} onClick={() => open(t.id)}>完善{t.id === 'team' ? '团队安排' : '资料'}</Button>
         </Space>
       </Card>)}
     </div>
     {data && !data.tasks.some(t => !t.complete && !['system', 'other'].includes(t.id)) && <Alert type="success" showIcon message="当前准备事项已处理，可进入生成标书。生成内容仍需审阅。" />}
-    <Card size="small" style={{ marginTop: 16 }} title="AI 处理与检查" extra={<Button type="primary" loading={disabled} disabled={disabled} onClick={onRepair}>{disabled ? '正在处理' : 'AI 更新标书并检查'}</Button>}>
+    <Card size="small" style={{ marginTop: 16 }} title="AI 协助更新和检查标书" extra={<Button type="primary" loading={disabled} disabled={disabled} onClick={onRepair}>{disabled ? '正在处理' : 'AI 更新标书并检查'}</Button>}>
       <Typography.Paragraph>{data?.generation_stale ? '资料已更新。以下为旧文件问题，更新标书后再核对，不计入当前待补资料。' : '引用与起草问题交给系统处理。更新将生成本包商务、技术文件的新版本，保留旧版；结果会显示在审阅步骤。'}</Typography.Paragraph>
       {data?.tasks.filter(t => ['system', 'other'].includes(t.id)).map(t => <div key={t.id} style={{ marginBottom: 12 }}><Space wrap><Typography.Text strong>{t.title}</Typography.Text><Tag>{data.generation_stale ? '待更新后复核' : `${t.items.length} 项待检查`}</Tag><Button type="link" onClick={() => open(t.id)}>查看问题与处理动作</Button></Space></div>)}
       {!data?.tasks.some(t => ['system', 'other'].includes(t.id)) && <Typography.Text type="secondary">尚无已生成文件的系统问题记录；不代表标书已通过审查。</Typography.Text>}
@@ -133,11 +134,11 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
       footer={editor && !['relationship', 'other', 'system'].includes(editor.kind) && <Space wrap>
         <Button disabled={saving} onClick={() => setEditor(undefined)}>取消</Button>
         <Button type="primary" disabled={disabled || saving} loading={saving} onClick={() => void save()}>保存</Button>
-        <Typography.Text type="secondary">保存后自动刷新待办。资料处理完后，回到工作台统一生成或更新标书。</Typography.Text>
+        <Typography.Text type="secondary">保存后自动刷新待办。资料处理完后，回到标书准备页生成或更新标书。</Typography.Text>
       </Space>}>
       {snapshot && editor && <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        {['statistics', 'registration', 'performance', 'team'].includes(editor.kind) && <Card size="small" title={editor.kind === 'team' ? 'AI 检索人员证据并推荐岗位' : '1. 已有资料整理结果'} extra={<Button loading={suggestionRunning} disabled={disabled || saving || suggestionRunning || (editor.kind === 'performance' && !itemId)} onClick={() => void suggest()}>{suggestionRunning ? '正在整理资料' : suggestion ? '重新检索' : '检索已有资料'}</Button>}>
-          <Typography.Paragraph type="secondary">系统先从本企业已有资料提取，来源和页码随建议带入，无需重复查找。多条同名建议请比较日期与原文后选择；不会覆盖已保存记录。{editor.kind === 'team' ? '核实并保存后，仅作为本包人员安排，不自动认定资格通过。' : '核实并保存后才写入知识库。'}</Typography.Paragraph>
+        {['statistics', 'registration', 'performance', 'team'].includes(editor.kind) && <Card size="small" title={editor.kind === 'team' ? 'AI 查找人员证明并推荐岗位' : '1. 已有资料中的相关记录'} extra={<Button loading={suggestionRunning} disabled={disabled || saving || suggestionRunning || (editor.kind === 'performance' && !itemId)} onClick={() => void suggest()}>{suggestionRunning ? '正在整理资料' : suggestion ? '重新查找' : '查找已有资料'}</Button>}>
+          <Typography.Paragraph type="secondary">系统先从本企业已有资料提取，来源和页码随建议带入，无需重复查找。多条同名建议请比较日期与原文后选择；不会覆盖已保存记录。{editor.kind === 'team' ? '核实并保存后，仅作为本包人员安排，不自动认定资格通过。' : '核实并保存后才更新企业资料。'}</Typography.Paragraph>
           {editor.kind === 'registration' && <Collapse items={[{ key: 'files', label: '已提供的相关资料（可直接查看原件）', children: <Space direction="vertical">{snapshot.attachments.filter(a => /营业|信用|公示|股东|章程|补充|说明/.test(a.filename)).map(a => <a key={a.id} href={api.attachmentUrl(a.id)} target="_blank" rel="noreferrer">{a.filename}</a>)}<Link to={`/kb/${encodeURIComponent(profile)}?tab=attachments`}>查看附件库或补充资料</Link></Space> }]} />}
           {suggestionRunning && <Alert type="info" showIcon message="本项目正在整理资料，已接续任务进度。您可以继续核对下方内容，无需重复点击。" />}
           {task && <Alert type={task.status === 'failed' ? 'error' : 'info'} message={task.message} />}
@@ -149,17 +150,17 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
               <Typography.Paragraph>原文：{r.quote}</Typography.Paragraph>
               <Typography.Text type="secondary">来源：{r.source}</Typography.Text>
               {r.attachment_id && <a href={api.attachmentUrl(r.attachment_id)} target="_blank" rel="noreferrer"> 查看原件</a>}
-              <Typography.Paragraph>仍需核实：{r.missing.join('、') || '本包可投入情况及岗位资格原件'}。建议不代表资格通过。</Typography.Paragraph>
+              <Typography.Paragraph>仍需核实：{r.missing.join('、') || '能否参加本包项目情况及岗位资格原件'}。建议不代表资格通过。</Typography.Paragraph>
             </Card>)}
-            {suggestion.revision !== snapshot.revision && <Alert type="warning" message="建议与当前表单版本不一致，请刷新任务并重新检索。" />}
+            {suggestion.revision !== snapshot.revision && <Alert type="warning" message="资料已发生变化，请刷新本页并重新查找资料。" />}
             {suggestion.candidates.map((c, i) => <Card size="small" key={i} title={LABELS[c.field] ?? c.field} extra={<Button disabled={suggestion.revision !== snapshot.revision || saving || disabled} onClick={() => apply(c)}>采用此记录（待保存）</Button>}>
               <pre style={{ whiteSpace: 'pre-wrap' }}>{Array.isArray(c.value) ? c.value.map(x => `${x.name}：出资 ${x.amount_wan ?? '未记载'} 万元；比例 ${x.ratio ?? '未记载'}%`).join('\n') : String(c.value)}</pre>
               <Typography.Paragraph>原文：{c.quote}</Typography.Paragraph>
               {c.attachment_id ? <a href={api.attachmentUrl(c.attachment_id)} target="_blank" rel="noreferrer">{c.source}</a> : <Typography.Text>{c.source}</Typography.Text>}
               <Typography.Paragraph type="secondary">{c.note}</Typography.Paragraph>
             </Card>)}
-            {!suggestion.candidates.length && !suggestion.recommendations?.length && <Typography.Paragraph>没有提取到可核实候选值，不能据此认定“不适用”。</Typography.Paragraph>}
-            <Collapse items={[{ key: 'coverage', label: '查看检索范围与未读取原件', children: <><ul>{suggestion.checked.map((x, i) => <li key={i}>{x.title}</li>)}</ul><ul>{suggestion.unreadable.map((x, i) => <li key={i}>{x}</li>)}</ul></> }]} />
+            {!suggestion.candidates.length && !suggestion.recommendations?.length && <Typography.Paragraph>没有找到可核实的记录。请查看原件，不能据此认定“不适用”。</Typography.Paragraph>}
+            <Collapse items={[{ key: 'coverage', label: '查看查找过的资料及未能读取的文件', children: <><ul>{suggestion.checked.map((x, i) => <li key={i}>{x.title}</li>)}</ul><ul>{suggestion.unreadable.map((x, i) => <li key={i}>{x}</li>)}</ul></> }]} />
           </>}
         </Card>}
         {snapshot.tasks.find(t => t.id === editor.kind)?.items.length ? <Collapse items={[{ key: 'issues', label: snapshot.generation_stale ? '历史版本问题（不代表当前缺项）' : '查看关联文件中的原始提示', children: <ul>{snapshot.tasks.find(t => t.id === editor.kind)?.items.map((x, i) => <li key={i}>{x.message}<Typography.Text type="secondary">（{x.file}）</Typography.Text></li>)}</ul> }]} /> : null}
@@ -177,24 +178,24 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
               <Form.Item name="identity_attachments" label="本次授权书附用的身份证明" extra="请核对材料内容并选择身份证正反面或要求的身份证明，系统自动装入商务文件。"><Select mode="multiple" options={snapshot.attachments.filter(x => candidates.find(p => p.id === personId)?.attachments?.includes(x.id)).map(x => ({ value: x.id, label: x.filename }))} /></Form.Item>
               <Form.Item name="title" label="本次授权书所填职务" rules={[{ required: true, whitespace: true }]}><Input /></Form.Item>
               {personId && <Card size="small" title="被授权人已有证明材料">{attachmentsFor(candidates.find(x => x.id === personId)?.attachments)}<br /><Link to={personLink(candidates.find(x => x.id === personId))}>补充或核对该人员的身份证及职务材料</Link></Card>}
-              <Link to={personLink()}>知识库新增人员</Link>
+              <Link to={personLink()}>新增企业人员</Link>
             </>}
             {editor.kind === 'team' && <div className="preparation-team">
               <Alert type="info" showIcon message="选择人员和岗位只确认本次安排，不自动证明符合资格。工作经历、专业、社保等仍应对照原件核验。" />
               {snapshot.roles.length ? <Table size="small" rowKey="role" pagination={false} dataSource={snapshot.roles} columns={[
                 { title: '原文岗位', dataIndex: 'role' }, { title: '人数', dataIndex: 'count', width: 65 },
                 { title: '岗位要求及出处', render: (_, row) => <>{row.requirement}<br /><Typography.Text type="secondary">{row.source}</Typography.Text></> },
-              ]} /> : <Alert type="warning" message="未识别到结构化岗位人数，请展开原文核对，系统不猜测人数。" />}
+              ]} /> : <Alert type="warning" message="未识别到各岗位所需人数，请展开原文核对后填写。" />}
               <Collapse items={[{ key: 'req', label: '查看人员要求原文', children: snapshot.team_requirements.map(x => <Typography.Paragraph key={x.id}>{x.text}</Typography.Paragraph>) }]} />
-              <Typography.Paragraph>当前选择 {members.length} 人{requiredCount ? `；原岗位表要求 ${requiredCount} 人` : ''}。请逐岗核对，下方证据摘要不等于资格审查通过。</Typography.Paragraph>
+              <Typography.Paragraph>当前选择 {members.length} 人{requiredCount ? `；原岗位表要求 ${requiredCount} 人` : ''}。请逐岗核对，下方证明材料摘要不能代替资格核实。</Typography.Paragraph>
               <Form.List name="members">{(fields, { add, remove }) => <>
                 {fields.map(({ key, name }) => <div key={key} className="preparation-member">
                   <Form.Item name={[name, 'person_id']} label="人员" rules={[{ required: true }]}><Select style={{ width: '100%' }} options={candidates.map(x => ({ value: x.id, label: x.name }))} /></Form.Item>
                   <Form.Item name={[name, 'role']} label="本次岗位" rules={[{ required: true, whitespace: true }]}>{snapshot.roles.length ? <Select style={{ width: '100%' }} options={snapshot.roles.map(x => ({ value: x.role }))} /> : <Input style={{ width: '100%' }} placeholder="按招标原文填写岗位" />}</Form.Item>
-                  <Form.Item name={[name, 'available']} label="本包可投入" rules={[{ required: true }]}><Select style={{ width: '100%' }} options={[{ value: true, label: '确认可投入' }, { value: false, label: '暂不可投入' }]} /></Form.Item>
+                  <Form.Item name={[name, 'available']} label="能否参加本包项目" rules={[{ required: true }]}><Select style={{ width: '100%' }} options={[{ value: true, label: '确认可以参加' }, { value: false, label: '暂时不能参加' }]} /></Form.Item>
                   <Button type="text" danger className="preparation-member-remove" onClick={() => { remove(name); form.setFieldValue('arrival_commitment', false) }}>移除</Button>
                 </div>)}
-                <div className="preparation-team-actions"><Button type="dashed" onClick={() => { add({}); form.setFieldValue('arrival_commitment', false) }}>＋ 添加团队成员</Button><Link to={personLink()}>人员不在列表？去知识库新增</Link></div>
+                <div className="preparation-team-actions"><Button type="dashed" onClick={() => { add({}); form.setFieldValue('arrival_commitment', false) }}>＋ 添加团队成员</Button><Link to={personLink()}>人员不在列表？去企业资料中新增</Link></div>
               </>}</Form.List>
               <Form.Item name="arrival_commitment" valuePropName="checked" style={{ marginTop: 16 }}><Checkbox disabled={!members.length || members.some(x => x.available !== true)}>确认所选可投入人员的本包到岗安排，允许系统据此起草到岗承诺（仍需按采购要求签章）</Checkbox></Form.Item>
               {members.map((m, i) => {
@@ -217,13 +218,13 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
             </>}
 
             {['system', 'other'].includes(editor.kind) && <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Alert type="info" showIcon message={snapshot.generation_stale ? '这些是旧文件问题，先更新标书再复核' : '先由 AI 重新检索原文、修复引用并起草内容'} description="系统不会替您确认人员投入或编造企业事实。更新后仍未解决的项目保留具体位置和说明。" />
+              <Alert type="info" showIcon message={snapshot.generation_stale ? '这些是旧文件问题，先更新标书再复核' : '先由 AI 重新查找原文、修复引用并起草内容'} description="系统不会替您确认人员投入或编造企业事实。更新后仍未解决的项目保留具体位置和说明。" />
               <Table size="small" rowKey={r => r.file + r.message} pagination={{ pageSize: 5 }} dataSource={snapshot.tasks.find(t => t.id === editor.kind)?.items ?? []} columns={[
                 { title: '问题及位置', render: (_, r) => <><Typography.Paragraph>{r.message}</Typography.Paragraph><Typography.Text type="secondary">{r.file}</Typography.Text></> },
-                { title: '处理方式', width: '40%', render: (_, r) => /原文|规范正文|招标编号|分标名称/.test(r.message) ? <><Typography.Paragraph>核对采购原件中的这一项；若原件已提供，重新解析后更新标书。</Typography.Paragraph><Link to={`/projects/${id}/trm`}>核对采购信息</Link></> : <Typography.Paragraph>{/引用|来源|数值/.test(r.message) ? '系统重新匹配原文和证据，修复可验证的引用；无法证实的值继续保留提示。' : /起草|响应|方案|模型/.test(r.message) ? 'AI 根据本包原文重新起草并检查；失败时在生成结果中显示原因。' : '系统重新检索已选企业资料并填充；仍无法确定的内容会保留原问题，请按此项名称核对具体资料。'}</Typography.Paragraph> },
+                { title: '处理方式', width: '40%', render: (_, r) => /原文|规范正文|招标编号|分标名称/.test(r.message) ? <><Typography.Paragraph>核对采购原件中的这一项；若原件已提供，重新解析后更新标书。</Typography.Paragraph><Link to={`/projects/${id}/trm`}>核对采购信息</Link></> : <Typography.Paragraph>{/引用|来源|数值/.test(r.message) ? '系统重新匹配原文和证据，修复可验证的引用；无法证实的值继续保留提示。' : /起草|响应|方案|模型/.test(r.message) ? 'AI 根据本包原文重新起草并检查；失败时在生成结果中显示原因。' : '系统重新查找已选企业资料并填充；仍无法确定的内容会保留原问题，请按此项名称核对具体资料。'}</Typography.Paragraph> },
               ]} />
               <Button type="primary" disabled={disabled} onClick={() => { setEditor(undefined); onRepair() }}>AI 更新标书并检查</Button>
-              <Typography.Text type="secondary">本次更新整个标包的商务、技术文件，不只重试单个章节。旧版本保留，完成后审阅新版本。</Typography.Text>
+              <Typography.Text type="secondary">本次更新整个采购包的商务、技术文件，不只重试单个章节。旧版本保留，完成后审阅新版本。</Typography.Text>
             </Space>}
 
           </Form>}

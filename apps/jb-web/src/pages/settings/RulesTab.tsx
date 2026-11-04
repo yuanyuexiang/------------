@@ -2,14 +2,15 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Form, Input, InputNumber, Drawer, Select, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import { api, RuleEntry } from '../../api'
+import { errorMessage, reviewLevelLabel, ruleTitleLabel, ruleDescriptionLabel } from '../../uiLabels'
 
 const LEVEL_COLOR: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
 
 function LevelTags({ level }: { level: string }) {
-  return <>{level.split('/').map((l) => <Tag key={l} color={LEVEL_COLOR[l]}>{l}</Tag>)}</>
+  return <>{level.split('/').map((l) => <Tag key={l} color={LEVEL_COLOR[l]}>{reviewLevelLabel(l)}</Tag>)}</>
 }
 
-/** 否决规则库：规则本体在代码（jb_rules.RULES），这里维护启停 / 级别覆盖 / 参数 / 备注。 */
+/** 否决规则库：规则本体在代码（jb_rules.RULES），这里维护启停 / 调整风险级别 / 参数 / 备注。 */
 export default function RulesTab() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({ queryKey: ['rules'], queryFn: api.rules })
@@ -18,7 +19,7 @@ export default function RulesTab() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['rules'] })
 
   const toggle = async (r: RuleEntry, enabled: boolean) => {
-    try { await api.updateRule(r.rule_id, { enabled, level_override: r.level_override, params: r.params, note: r.note }); refresh() } catch (e) { message.error(String(e)) }
+    try { await api.updateRule(r.rule_id, { enabled, level_override: r.level_override, params: r.params, note: r.note }); refresh() } catch (e) { message.error(errorMessage(e)) }
   }
   const open = (r: RuleEntry) => {
     setEditing(r)
@@ -38,28 +39,28 @@ export default function RulesTab() {
     try {
       await api.updateRule(editing.rule_id, { enabled: editing.enabled, level_override: v.level_override || '', params, note: v.note || '' })
       message.success('已保存'); setEditing(null); refresh()
-    } catch (e) { message.error(String(e)) }
+    } catch (e) { message.error(errorMessage(e)) }
   }
   const reset = async (r: RuleEntry) => { await api.resetRule(r.rule_id); message.success('已恢复默认'); refresh() }
   const customized = (r: RuleEntry) => !r.enabled || !!r.level_override || Object.keys(r.params).length > 0 || !!r.note
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Alert type="warning" showIcon message="停用或降级一条否决规则，意味着该类问题不再阻断导出——只在确认本批次招标文件确实没有该要求时才调整，并在备注里写明依据（条款号）。规则本体来自否决情形表与国网典型案例库（docs/国网物资与服务投标-场景细化方案 §8.2）。" />
+      <Alert type="warning" showIcon message="停用检查或降低风险级别后，系统可能不再要求先处理此类问题才能导出。请先核实本次采购要求，再调整设置，并在备注中写明依据和条款编号。" />
       <Table<RuleEntry> size="small" rowKey="rule_id" loading={isLoading} dataSource={data?.rules ?? []} pagination={false}
         rowClassName={(r) => r.enabled ? '' : 'ant-table-row-disabled'}
         columns={[
           { title: '启用', dataIndex: 'enabled', width: 70, render: (v: boolean, r) => <Switch size="small" checked={v} onChange={(c) => toggle(r, c)} /> },
           { title: '规则', dataIndex: 'rule_id', width: 110, render: (v: string) => <Typography.Text code>{v}</Typography.Text> },
-          { title: '名称', dataIndex: 'title', width: 150 },
-          { title: '默认级别', dataIndex: 'level', width: 120, render: (l: string) => <LevelTags level={l} /> },
-          { title: '生效级别', dataIndex: 'level_override', width: 100, render: (l: string, r) => l ? <Tag color={LEVEL_COLOR[l]}>{l}（覆盖）</Tag> : <LevelTags level={r.level} /> },
-          { title: '说明', dataIndex: 'doc', ellipsis: true, render: (d: string, r) => d || r.title },
+          { title: '检查内容', dataIndex: 'title', width: 220, render: (value: string, row) => ruleTitleLabel(row.rule_id, value) },
+          { title: '默认风险级别', dataIndex: 'level', width: 120, render: (l: string) => <LevelTags level={l} /> },
+          { title: '当前风险级别', dataIndex: 'level_override', width: 100, render: (l: string, r) => l ? <Tag color={LEVEL_COLOR[l]}>{reviewLevelLabel(l)}（已调整）</Tag> : <LevelTags level={r.level} /> },
+          { title: '说明', dataIndex: 'doc', ellipsis: true, render: (d: string, r) => ruleDescriptionLabel(r.rule_id, d || r.title) },
           { title: '依据', dataIndex: 'source', width: 120, ellipsis: true },
-          { title: '参数', width: 120, render: (_, r) => {
+          { title: '可调整的设置', width: 120, render: (_, r) => {
             const keys = Object.keys(r.default_params)
             if (!keys.length) return <Typography.Text type="secondary">—</Typography.Text>
-            return keys.map((k) => <Tag key={k} color={k in r.params ? 'geekblue' : 'default'}>{k}{k in r.params ? '*' : ''}</Tag>)
+            return keys.map((k) => <Tag key={k} color={k in r.params ? 'geekblue' : 'default'}>{{ phrases: '笼统表述', threshold: '文字相似度', months: '社保连续月份' }[k] ?? k}{k in r.params ? '（已调整）' : ''}</Tag>)
           } },
           { title: '备注', dataIndex: 'note', width: 140, ellipsis: true },
           { title: '操作', width: 130, render: (_, r) => (
@@ -70,22 +71,22 @@ export default function RulesTab() {
           ) },
         ]} />
 
-      <Drawer width={560} open={!!editing} title={editing ? `${editing.rule_id} ${editing.title}` : ""} onClose={() => setEditing(null)} destroyOnClose footer={<Space><Button onClick={() => setEditing(null)}>取消</Button><Button type="primary" onClick={save}>保存</Button></Space>}>
+      <Drawer width={560} open={!!editing} title={editing ? `${editing.rule_id} ${ruleTitleLabel(editing.rule_id, editing.title)}` : ""} onClose={() => setEditing(null)} destroyOnClose footer={<Space><Button onClick={() => setEditing(null)}>取消</Button><Button type="primary" onClick={save}>保存</Button></Space>}>
         {editing && (
           <Form form={form} layout="vertical">
-            <Typography.Paragraph type="secondary">{editing.doc || editing.title}　依据：{editing.source}</Typography.Paragraph>
-            <Form.Item name="level_override" label="级别覆盖" extra={`默认 ${editing.level}；覆盖后该规则的所有发现统一为所选级别`}>
-              <Select options={[{ value: '', label: '（用默认级别）' }, ...(data?.levels ?? []).map((l) => ({ value: l, label: l }))]} />
+            <Typography.Paragraph type="secondary">{ruleDescriptionLabel(editing.rule_id, editing.doc || editing.title)}　依据：{editing.source}</Typography.Paragraph>
+            <Form.Item name="level_override" label="调整风险级别" extra={`默认：${reviewLevelLabel(editing.level)}；调整后，这项检查发现的问题都按所选风险级别提示`}>
+              <Select options={[{ value: '', label: '（用默认风险级别）' }, ...(data?.levels ?? []).map((l) => ({ value: l, label: reviewLevelLabel(l) }))]} />
             </Form.Item>
             {'phrases' in editing.default_params && (
-              <Form.Item name="phrases" label="禁用套话（每行一个）" extra="技术参数响应等于或以这些词结尾即判为套话">
+              <Form.Item name="phrases" label="不允许使用的笼统表述（每行一个）" extra="如果参数答复只有这些词，或以这些词结尾，系统会提示缺少具体说明">
                 <Input.TextArea rows={5} />
               </Form.Item>
             )}
             {'threshold' in editing.default_params && (
-              <Form.Item name="threshold" label="雷同判定阈值（Jaccard 相似度，0~1）"><InputNumber min={0} max={1} step={0.05} style={{ width: 160 }} /></Form.Item>
+              <Form.Item name="threshold" label="文字相似度标准（0～1）" extra="越接近 1，两段文字需要越相似才会提示雷同。"><InputNumber min={0} max={1} step={0.05} style={{ width: 160 }} /></Form.Item>
             )}
-            <Form.Item name="note" label="备注（调整依据）"><Input.TextArea rows={2} placeholder="如：本批次前附表 1.11.2 未作套话禁止要求" /></Form.Item>
+            <Form.Item name="note" label="备注（调整依据）"><Input.TextArea rows={2} placeholder="如：本批次采购文件第 1.11.2 条未作套话禁止要求" /></Form.Item>
           </Form>
         )}
       </Drawer>

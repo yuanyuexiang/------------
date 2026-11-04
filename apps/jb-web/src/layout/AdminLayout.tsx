@@ -1,3 +1,4 @@
+import { errorMessage } from '../uiLabels'
 import { ReactNode, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Breadcrumb, Button, Dropdown, Form, Input, Layout, Menu, Modal, Space, Tag, Typography, message } from 'antd'
@@ -18,7 +19,7 @@ function PasswordModal({ open, onClose, forced }: { open: boolean; onClose: () =
   const refresh = useAuth((s) => s.refresh)
   const submit = async () => {
     const v = await form.validateFields()
-    try { await api.changePassword(v.old_password, v.new_password); message.success('密码已修改'); await refresh(); form.resetFields(); onClose() } catch (e) { message.error(String(e)) }
+    try { await api.changePassword(v.old_password, v.new_password); message.success('密码已修改'); await refresh(); form.resetFields(); onClose() } catch (e) { message.error(errorMessage(e)) }
   }
   return (
     <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={open} title="修改密码" onOk={submit} onCancel={forced ? undefined : onClose} closable={!forced} maskClosable={false}
@@ -26,14 +27,14 @@ function PasswordModal({ open, onClose, forced }: { open: boolean; onClose: () =
       {forced && <Alert type="warning" showIcon message="当前是初始密码，请先修改后再使用系统" style={{ marginBottom: 12 }} />}
       <Form form={form} layout="vertical">
         <Form.Item name="old_password" label="原密码" rules={[{ required: true }]}><Input.Password /></Form.Item>
-        <Form.Item name="new_password" label="新密码（8～128 位，可使用长口令）" rules={[{ required: true, min: 8, max: 128, message: '请输入 8～128 位密码' }]}><Input.Password /></Form.Item>
+        <Form.Item name="new_password" label="新密码（8～128 个字符）" rules={[{ required: true, min: 8, max: 128, message: '请输入 8～128 位密码' }]}><Input.Password /></Form.Item>
         <Form.Item name="confirm" label="确认新密码" dependencies={['new_password']} rules={[{ required: true }, ({ getFieldValue }) => ({ validator: (_, v) => v === getFieldValue('new_password') ? Promise.resolve() : Promise.reject(new Error('两次输入不一致')) })]}><Input.Password /></Form.Item>
       </Form>
     </Modal>
   )
 }
 
-/** 管理后台外壳：侧边栏菜单（投标项目 / 企业知识库 / 配置中心 / 用户与权限·仅管理员），顶栏用户菜单。 */
+/** 管理后台外壳：侧边栏菜单（投标项目 / 企业资料 / 系统设置 / 用户与权限·仅管理员），顶栏用户菜单。 */
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
   const nav = useNavigate()
@@ -54,14 +55,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     : pathname.startsWith('/settings') ? '/settings'
     : pathname.startsWith('/users') ? '/users' : '/'
   const isAdmin = user?.role === 'admin'
-  const section = selected === '/kb' ? '企业知识库' : selected === '/settings' ? '配置中心' : selected === '/users' ? '用户与权限' : '投标项目'
-  const page = pathname.endsWith('/workbench') ? { title: '生成与审查工作台', description: '准备投标文件，核查问题，并完成正式导出。' }
-    : pathname.endsWith('/qualify') ? { title: '资格自检', description: '对照招标要求，逐项核查企业资格与证明材料。' }
+  const section = selected === '/kb' ? '企业资料' : selected === '/settings' ? '系统设置' : selected === '/users' ? '用户与权限' : '投标项目'
+  const page = pathname.endsWith('/workbench') ? { title: '准备投标文件', description: '准备投标文件，核查问题，并完成正式导出。' }
+    : pathname.endsWith('/qualify') ? { title: '检查投标资格', description: '对照招标要求，逐项核查企业资格与证明材料。' }
     : pathname.endsWith('/trm') ? { title: '核对采购信息', description: '对照采购原件，核对项目、包号、关键条款和人员、业绩要求。' }
-    : pathname.startsWith('/projects/') ? { title: '项目详情', description: '掌握项目进度、关键日期和文件产出。' }
-    : pathname.startsWith('/kb/') ? { title: '企业档案', description: '统一维护企业事实与证明材料，为投标文件提供依据。' }
+    : pathname.startsWith('/projects/') ? { title: '项目详情', description: '掌握项目进度、关键日期和生成的文件。' }
+    : pathname.startsWith('/kb/') ? { title: '企业档案', description: '填写和更新企业信息，并上传投标所需的证明材料。' }
     : selected === '/kb' ? { title: section, description: '集中管理企业信息、证照、人员、业绩与产品资料。' }
-    : selected === '/settings' ? { title: section, description: '维护评分模板、合规规则与模型连接设置。' }
+    : selected === '/settings' ? { title: section, description: '管理评分标准、文件检查规则和 AI 服务。' }
     : selected === '/users' ? { title: section, description: '管理团队账号、角色与价格数据访问权限。' }
     : { title: section, description: '从导入招标文件开始，有序推进每一个投标项目。' }
 
@@ -78,9 +79,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <Menu theme="dark" mode="inline" selectedKeys={[selected]}
           items={[
             { key: '/', icon: <FileSearchOutlined />, label: <Link to="/">投标项目</Link> },
-            { key: '/kb', icon: <DatabaseOutlined />, label: <Link to="/kb">企业知识库</Link> },
+            { key: '/kb', icon: <DatabaseOutlined />, label: <Link to="/kb">企业资料</Link> },
             ...(isAdmin ? [{ key: '/users', icon: <TeamOutlined />, label: <Link to="/users">用户与权限</Link> }] : []),
-            { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">配置中心</Link> },
+            { key: '/settings', icon: <SettingOutlined />, label: <Link to="/settings">系统设置</Link> },
           ]} />
         </div>
         <footer className="admin-sidebar-footer">
@@ -112,8 +113,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </Header>
         <Content className="admin-content">
           <div className="admin-page-heading"><div><h1>{page.title}</h1><p>{page.description}</p></div><span className="admin-workspace-label">{COMPANY_NAME}</span></div>
-          {isAdmin && devSecret && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="正在使用开发默认签名密钥：部署时请设置环境变量 JB_SECRET_KEY（任意长随机串），否则令牌可被伪造。" />}
-          {user?.must_change_password ? <Alert type="info" message="请先完成初始密码修改，再进入业务工作台。" /> : children}
+          {isAdmin && devSecret && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="系统正在使用默认安全密钥，存在账号冒用风险。请联系系统维护人员设置专用安全密钥（JB_SECRET_KEY）。" />}
+          {user?.must_change_password ? <Alert type="info" message="请先完成初始密码修改，再使用系统。" /> : children}
         </Content>
         <footer className="admin-copyright">{COPYRIGHT_NOTICE}</footer>
       </Layout>

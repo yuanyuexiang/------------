@@ -303,7 +303,7 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
     """生成商务/技术文件（异步任务；with_draft 时先由写作 Agent 起草）。轮询 /api/tasks/{id}。"""
     trm, _ = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):
-        raise HTTPException(400, "pkg_index 越界")
+        raise HTTPException(400, "所选采购包不存在，请重新选择")
     with session() as s:
         p = s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
         try:
@@ -336,7 +336,7 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
 def get_materials(project_id: str, profile: str, pkg_index: int = 0):
     trm, cp = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):
-        raise HTTPException(400, "pkg_index 越界")
+        raise HTTPException(400, "所选采购包不存在，请重新选择")
     with session() as s:
         p = _get_project(s, project_id)
         return {"selection": workflow.material_selection(p, pkg_index, profile).model_dump(),
@@ -347,14 +347,14 @@ def get_materials(project_id: str, profile: str, pkg_index: int = 0):
 def put_materials(project_id: str, profile: str, data: dict, pkg_index: int = 0):
     trm, cp = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):
-        raise HTTPException(400, "pkg_index 越界")
+        raise HTTPException(400, "所选采购包不存在，请重新选择")
     with session() as s:
         p = _get_project(s, project_id)
         try:
             workflow.save_selection(p, pkg_index, cp, data)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        pm.log_event(s, p.id, "materials", "更新本包选材，已有产出需要重新生成", {"pkg_index": pkg_index, "profile": profile})
+        pm.log_event(s, p.id, "materials", "本包使用的资料已更新，请重新生成标书", {"pkg_index": pkg_index, "profile": profile})
     return {"ok": True}
 
 
@@ -362,7 +362,7 @@ def put_materials(project_id: str, profile: str, data: dict, pkg_index: int = 0)
 def get_relationship(project_id: str, profile: str, pkg_index: int = 0):
     trm, _ = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):
-        raise HTTPException(400, "pkg_index 越界")
+        raise HTTPException(400, "所选采购包不存在，请重新选择")
     with session() as s:
         return workflow.relationship_state(_get_project(s, project_id), pkg_index, profile, preview=True)
 
@@ -371,7 +371,7 @@ def get_relationship(project_id: str, profile: str, pkg_index: int = 0):
 def put_relationship(project_id: str, profile: str, data: dict, pkg_index: int = 0):
     trm, _ = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):
-        raise HTTPException(400, "pkg_index 越界")
+        raise HTTPException(400, "所选采购包不存在，请重新选择")
     with session() as s:
         p = s.scalar(select(Project).where(Project.id == project_id).with_for_update())
         if not p:
@@ -435,7 +435,7 @@ def submission_matrix(project_id: str, profile: str = "", pkg_index: int = 0):
             raise HTTPException(404, "项目或采购文件解析结果不存在")
         trm = TRM.model_validate(p.trm_confirmed or p.trm)
         if not 0 <= pkg_index < len(trm.packages):
-            raise HTTPException(400, "pkg_index 越界")
+            raise HTTPException(400, "所选采购包不存在，请重新选择")
         generation = workflow.latest(p, pkg_index)
     out_dir = os.path.join(UPLOAD_DIR, project_id, "out")
     produced = [name for name in (generation or {}).get("files", {})
@@ -481,7 +481,7 @@ def score_project(project_id: str, profile: str, pkg_index: int = 0, llm: bool =
     from jb_agents.writer import DraftSection
     trm, cp = _load_trm_profile(project_id, profile)
     if not 0 <= pkg_index < len(trm.packages):
-        raise HTTPException(400, "pkg_index 越界")
+        raise HTTPException(400, "所选采购包不存在，请重新选择")
     pkg = trm.packages[pkg_index]
     with session() as s:
         cp = workflow.selected_profile(_get_project(s, project_id), pkg_index, cp)

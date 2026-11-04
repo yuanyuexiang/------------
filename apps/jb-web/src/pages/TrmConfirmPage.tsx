@@ -1,3 +1,4 @@
+import { errorMessage, purchaseWarningLabel } from '../uiLabels'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -22,18 +23,18 @@ function KeyTermsForm({ kt, onChange }: { kt: KeyTerms; onChange: (k: KeyTerms) 
         <InputNumber value={kt.validity_days ?? undefined} onChange={(v) => set('validity_days', v ?? null)} min={1} />
         {kt.validity_days === null && <Tag color="orange" style={{ marginLeft: 8 }}>未识别</Tag>}
       </Form.Item>
-      <Form.Item label={<>保证金模式 {llm('deposit_mode')}<Text type="secondary"> 条款 {kt.deposit_clause}</Text></>}>
+      <Form.Item label={<>保证金要求 {llm('deposit_mode')}<Text type="secondary"> 条款 {kt.deposit_clause}</Text></>}>
         <Select value={kt.deposit_mode ?? undefined} onChange={(v) => set('deposit_mode', v)} allowClear style={{ width: 240 }}
           options={['none', '诚信担保', '年度保证金', '按包保证金'].map((v) => ({ value: v, label: v === 'none' ? '不要求保证金' : v }))} />
       </Form.Item>
       <Space size="large" wrap className="key-terms-switches">
-        <Form.Item label="整体电子签章"><Switch checked={!!kt.sign_whole_doc} onChange={(v) => set('sign_whole_doc', v)} /></Form.Item>
-        <Form.Item label="不接收纸质文件"><Switch checked={!!kt.paperless} onChange={(v) => set('paperless', v)} /></Form.Item>
-        <Form.Item label="电子招标投标"><Switch checked={!!kt.electronic} onChange={(v) => set('electronic', v)} /></Form.Item>
+        <Form.Item label="整份文件统一电子签章"><Switch checked={!!kt.sign_whole_doc} onChange={(v) => set('sign_whole_doc', v)} /></Form.Item>
+        <Form.Item label="仅提交电子文件（不接收纸质文件）"><Switch checked={!!kt.paperless} onChange={(v) => set('paperless', v)} /></Form.Item>
+        <Form.Item label="通过电子平台投标"><Switch checked={!!kt.electronic} onChange={(v) => set('electronic', v)} /></Form.Item>
       </Space>
-      <Form.Item label="澄清截止时间"><Input value={kt.clarify_deadline ?? ''} onChange={(e) => set('clarify_deadline', e.target.value || null)} /></Form.Item>
+      <Form.Item label="采购问题澄清截止时间"><Input value={kt.clarify_deadline ?? ''} onChange={(e) => set('clarify_deadline', e.target.value || null)} /></Form.Item>
       <Form.Item label={`最高限价说明（条款 ${kt.max_price_clause || '-'}）`}><Input.TextArea value={kt.max_price_note} onChange={(e) => set('max_price_note', e.target.value)} autoSize /></Form.Item>
-      <Form.Item label="增值税说明"><Input.TextArea value={kt.vat_note} onChange={(e) => set('vat_note', e.target.value)} autoSize /></Form.Item>
+      <Form.Item label="增值税要求"><Input.TextArea value={kt.vat_note} onChange={(e) => set('vat_note', e.target.value)} autoSize /></Form.Item>
     </Form>
   )
 }
@@ -51,7 +52,7 @@ function PackagePanel({ pkg, onChange }: { pkg: PackageTRM; onChange: (p: Packag
         <Descriptions.Item label="报价方式"><Missing v={pkg.price_mode} /></Descriptions.Item>
         <Descriptions.Item label="联合体">{pkg.allow_consortium === null ? <Missing v={null} /> : pkg.allow_consortium ? '允许' : '不允许'}</Descriptions.Item>
         <Descriptions.Item label="评审办法" span={3}>
-          {sr.price_method || '-'}（C={sr.benchmark_c ?? '?'}）｜商务 {sr.biz_template || '-'} {sr.weight_biz ?? '?'}%｜技术 {sr.tech_template || '-'} {sr.weight_tech ?? '?'}%｜价格 {sr.weight_price ?? '?'}%
+          {sr.price_method || '-'}（价格计算系数：{sr.benchmark_c ?? '未识别'}）｜商务 {sr.biz_template || '-'} {sr.weight_biz ?? '?'}%｜技术 {sr.tech_template || '-'} {sr.weight_tech ?? '?'}%｜价格 {sr.weight_price ?? '?'}%
         </Descriptions.Item>
       </Descriptions>
       <Collapse items={[
@@ -75,14 +76,14 @@ function PackagePanel({ pkg, onChange }: { pkg: PackageTRM; onChange: (p: Packag
         ) },
         ...pkg.spec_docs.map((sd, si) => ({
           key: `s${si}`,
-          label: <>技术规范书 {sd.spec_id || sd.title}（参数 {sd.param_rows.length} 行，★{sd.param_rows.filter((r) => r.star).length}）{!sd.structured && <Tag style={{ marginLeft: 8 }}>按附件逐项响应</Tag>}</>,
+          label: <>技术规范书 {sd.spec_id || sd.title}（参数 {sd.param_rows.length} 行，重点要求 {sd.param_rows.filter((r) => r.star).length} 项）{!sd.structured && <Tag style={{ marginLeft: 8 }}>按附件逐项响应</Tag>}</>,
           children: (
             <Table size="small" rowKey="row" pagination={{ pageSize: 20 }} dataSource={sd.param_rows}
               columns={[
-                { title: '#', dataIndex: 'row', width: 50 },
+                { title: '序号', dataIndex: 'row', width: 50 },
                 { title: '参数名称', dataIndex: 'name', width: 140 },
-                { title: '项目需求值', dataIndex: 'required', render: (v: string, r) => <>{r.star && <Tag color="red">★</Tag>}{v}</> },
-                { title: '投标人保证值（生成标书时填写）', dataIndex: 'response', width: 200, render: (v: string | null, r) => (
+                { title: '采购方要求的参数', dataIndex: 'required', render: (v: string, r) => <>{r.star && <Tag color="red">★</Tag>}{v}</> },
+                { title: '我方提供的参数（生成标书时填写）', dataIndex: 'response', width: 200, render: (v: string | null, r) => (
                   <Input size="small" value={v ?? ''} placeholder="待填" onChange={(e) => {
                     const rows = sd.param_rows.map((x) => x.row === r.row ? { ...x, response: e.target.value || null } : x)
                     const docs = pkg.spec_docs.map((d, i) => i === si ? { ...d, param_rows: rows } : d)
@@ -106,16 +107,16 @@ export default function TrmConfirmPage() {
   const [saving, setSaving] = useState(false)
   useEffect(() => { if (data) setTrm(data) }, [data])
 
-  if (error) return <Alert type="error" message={String(error)} />
+  if (error) return <Alert type="error" message={errorMessage(error)} />
   if (isLoading || !trm) return <Spin />
 
   const save = async () => {
     setSaving(true)
     try {
       await api.confirmTrm(id, trm)
-      message.success('采购信息已保存，将用于资格自检、标书生成和审查')
+      message.success('采购信息已保存，将用于检查投标资格、标书生成和审查')
       nav(`/projects/${id}`)
-    } catch (e) { message.error(String(e)) } finally { setSaving(false) }
+    } catch (e) { message.error(errorMessage(e)) } finally { setSaving(false) }
   }
   const setPkg = (i: number, p: PackageTRM) => setTrm({ ...trm, packages: trm.packages.map((x, k) => k === i ? p : x) })
 
@@ -125,42 +126,52 @@ export default function TrmConfirmPage() {
         <Space wrap>
           <Text strong>{trm.batch_name || trm.source_zip}</Text>
           <Tag>{trm.batch_no || '批次号未识别'}</Tag>
-          <Tag color="blue">{trm.terminology}体系</Tag>
-          <Text type="secondary">前附表 {trm.prenotice.length} 条 · 否决 {trm.rejection_rules.length} 条 · 提交项 {trm.submission_table.length} · 标包 {trm.packages.length} · 评分模板 {trm.scoring_templates.length}</Text>
+          <Text type="secondary">采购重要事项 {trm.prenotice.length} 条 · 投标无效情形 {trm.rejection_rules.length} 条 · 文件提交要求 {trm.submission_table.length} 项 · 采购包 {trm.packages.length} · 评分标准 {trm.scoring_templates.length} 套</Text>
         </Space>
-        {trm.warnings.length > 0 && <Alert style={{ marginTop: 8 }} type="warning" message={trm.warnings.join('；')} />}
+        {trm.warnings.length > 0 && <>
+          <Alert style={{ marginTop: 8 }} type="warning" showIcon message="请核对以下采购信息"
+            description={<ul>{trm.warnings.map((warning, i) => <li key={i}>{purchaseWarningLabel(warning)}</li>)}</ul>} />
+          <Collapse size="small" style={{ marginTop: 8 }} items={[{ key: 'warnings', label: '查看文件名及详细原因', children: trm.warnings.map((warning, i) => <Typography.Paragraph key={i} style={{ overflowWrap: 'anywhere' }}>{warning}</Typography.Paragraph>) }]} />
+        </>}
       </Card>
       <Tabs items={[
-        { key: 'kt', label: '关键条件', children: <KeyTermsForm kt={trm.key_terms} onChange={(k) => setTrm({ ...trm, key_terms: k })} /> },
-        { key: 'pk', label: `标包（${trm.packages.length}）`, children: (
+        { key: 'kt', label: '关键投标要求', children: <KeyTermsForm kt={trm.key_terms} onChange={(k) => setTrm({ ...trm, key_terms: k })} /> },
+        { key: 'pk', label: `采购包（${trm.packages.length}）`, children: (
           <Tabs className="package-tabs" tabPosition="top" items={trm.packages.map((p, i) => ({
             key: String(i), label: `${p.sub_no} ${p.sub_name} ${p.pkg_no}`.trim() || `包 ${i + 1}`,
             children: <PackagePanel pkg={p} onChange={(np) => setPkg(i, np)} />,
           }))} />
         ) },
-        { key: 'rj', label: `否决规则（${trm.rejection_rules.length}）`, children: (
+        { key: 'rj', label: `可能导致投标无效的情形（${trm.rejection_rules.length}）`, children: (
           <Table size="small" rowKey={(_, i) => String(i)} pagination={{ pageSize: 15 }} dataSource={trm.rejection_rules}
-            columns={[{ title: '类别', dataIndex: 'category', width: 110 }, { title: '方面', dataIndex: 'aspect', width: 110 }, { title: '否决情形', dataIndex: 'text' }]} />
+            columns={[{ title: '类别', dataIndex: 'category', width: 110 }, { title: '方面', dataIndex: 'aspect', width: 110 }, { title: '具体情形', dataIndex: 'text' }]} />
         ) },
-        { key: 'sb', label: `提交方式表（${trm.submission_table.length}）`, children: (
-          <Table size="small" rowKey={(_, i) => String(i)} pagination={false} dataSource={trm.submission_table}
+        { key: 'sb', label: `投标文件怎么提交（${trm.submission_table.length}）`, children: (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Text type="secondary">查看需要提交哪些材料、通过什么渠道提交，以及在投标工具中的上传位置。</Text>
+            <Table size="small" rowKey={(_, i) => String(i)} pagination={false} dataSource={trm.submission_table}
+              locale={{ emptyText: '未识别到文件提交要求，请对照采购文件核对。' }}
             columns={[
-              { title: '文件', dataIndex: 'section', width: 160 }, { title: '序号', dataIndex: 'seq', width: 70 },
-              { title: '内容', dataIndex: 'item' },
-              { title: '渠道', dataIndex: 'channels', width: 200, render: (c: string[]) => c.map((x) => <Tag key={x}>{x}</Tag>) },
-              { title: '投标工具端口', dataIndex: 'port', width: 240 },
+              { title: '文件类别', dataIndex: 'section', width: 160 }, { title: '序号', dataIndex: 'seq', width: 70 },
+              { title: '提交材料', dataIndex: 'item' },
+              { title: '提交渠道', dataIndex: 'channels', width: 200, render: (c: string[]) => c.map((x) => <Tag key={x}>{x}</Tag>) },
+              { title: '投标工具上传位置', dataIndex: 'port', width: 240 },
             ]} />
+          </Space>
         ) },
-        { key: 'pn', label: `前附表（${trm.prenotice.length}）`, children: (
-          <Table size="small" rowKey={(_, i) => String(i)} pagination={{ pageSize: 20 }} dataSource={trm.prenotice}
-            columns={[{ title: '条款', dataIndex: 'clause_no', width: 100 }, { title: '名称', dataIndex: 'name', width: 200 }, { title: '编列内容', dataIndex: 'content' }]} />
+        { key: 'pn', label: `采购重要事项（${trm.prenotice.length}）`, children: (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Text type="secondary">汇总采购文件中的重要事项，可按条款编号对照原文。</Text>
+            <Table size="small" rowKey={(_, i) => String(i)} pagination={{ pageSize: 20 }} dataSource={trm.prenotice}
+              columns={[{ title: '条款编号', dataIndex: 'clause_no', width: 100 }, { title: '事项', dataIndex: 'name', width: 200 }, { title: '具体要求', dataIndex: 'content' }]} />
+          </Space>
         ) },
       ]} />
       <Card size="small" className="confirmation-actions">
         <Space wrap>
           <Button type="primary" loading={saving} onClick={save}>确认采购信息并保存</Button>
           <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
-          <Text type="secondary">请对照采购原件核对；保存后的信息将用于资格自检、标书生成和审查</Text>
+          <Text type="secondary">请对照采购原件核对；保存后的信息将用于检查投标资格、标书生成和审查</Text>
         </Space>
       </Card>
     </Space>

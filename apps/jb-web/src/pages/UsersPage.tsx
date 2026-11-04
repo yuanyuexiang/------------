@@ -1,3 +1,4 @@
+import { errorMessage } from '../uiLabels'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Drawer, Form, Input, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
@@ -22,7 +23,7 @@ function AuditList({ targetId = '' }: { targetId?: string }) {
       <Select aria-label="操作类型" style={{ width: 180 }} value={filters.action} onChange={action => setFilters(f => ({ ...f, action, page: 1 }))} options={[{ value: '', label: '全部操作' }, ...Object.entries(ACTIONS).map(([value, label]) => ({ value, label }))]} />
       <Select aria-label="操作结果" style={{ width: 130 }} value={filters.result} onChange={result => setFilters(f => ({ ...f, result, page: 1 }))} options={[{ value: '', label: '全部结果' }, { value: 'success', label: '成功' }, { value: 'failed', label: '失败' }]} />
     </Space>
-    {error && <Alert type="error" message={String(error)} />}
+    {error && <Alert type="error" message={errorMessage(error)} />}
     <Table<AccountAudit> rowKey="id" size="small" loading={isFetching} dataSource={data?.rows ?? []} scroll={{ x: 700 }} pagination={{ current: filters.page, pageSize: 10, total: data?.total ?? 0, showSizeChanger: false, onChange: page => setFilters(f => ({ ...f, page })) }} columns={[
       { title: '时间', dataIndex: 'created_at', width: 155, render: fmtUtc },
       { title: '操作人', dataIndex: 'actor', render: v => v || '未认证访客' },
@@ -36,15 +37,15 @@ function AuditList({ targetId = '' }: { targetId?: string }) {
 
 function PermissionGuide() {
   return <Card title={<Space><SafetyCertificateOutlined />角色与权限说明</Space>}>
-    <Typography.Paragraph>角色决定功能范围，价格权限单独授予成员。当前业务资料在企业工作空间内共享，尚未按项目成员隔离。价格功能授权不对原始附件和正文中的金额自动脱敏。</Typography.Paragraph>
+    <Typography.Paragraph>角色决定功能范围，价格权限单独授予成员。当前企业的业务资料由团队共享，暂不支持按项目成员分别设置查看权限。即使没有价格功能权限，用户仍可能在原始附件和正文中看到金额。</Typography.Paragraph>
     <Table rowKey="feature" pagination={false} dataSource={[
-      { feature: '投标项目、企业知识库', admin: '可使用和维护', member: '可使用和维护' },
+      { feature: '投标项目、企业资料', admin: '可使用和维护', member: '可使用和维护' },
       { feature: '用户管理、配置修改、AI 连接与日志', admin: '可管理', member: '不可管理' },
-      { feature: '评分模板与否决规则查询', admin: '可查看', member: '可查看' },
-      { feature: '价格功能（报价校验、基准价模拟）', admin: '角色自带', member: '需单独授权' },
+      { feature: '评分标准与文件检查规则查询', admin: '可查看', member: '可查看' },
+      { feature: '价格功能（报价校验、基准价模拟）', admin: '管理员自动拥有', member: '需单独授权' },
     ]} columns={[{ title: '功能', dataIndex: 'feature' }, { title: '管理员', dataIndex: 'admin' }, { title: '成员', dataIndex: 'member' }]} />
-    <Typography.Paragraph style={{ marginTop: 20 }}>新增账号默认为成员且不授予价格权限。管理员价格权限由角色继承；降为成员后，以保存时明确选择的价格权限为准。</Typography.Paragraph>
-    <Typography.Paragraph type="secondary">停用账号保留历史身份；恢复后需重新登录。权限变更、重置密码或修改密码均使旧登录会话失效。</Typography.Paragraph>
+    <Typography.Paragraph style={{ marginTop: 20 }}>新增账号默认为成员且不授予价格权限。管理员价格权限由管理员身份自动授予；降为成员后，以保存时明确选择的价格权限为准。</Typography.Paragraph>
+    <Typography.Paragraph type="secondary">停用账号保留历史身份；恢复后需重新登录。权限变更、重置密码或修改密码均使原有登录状态失效，用户需要重新登录。</Typography.Paragraph>
   </Card>
 }
 
@@ -69,7 +70,7 @@ export default function UsersPage() {
   const refresh = () => { void qc.invalidateQueries({ queryKey: ['users'] }); void qc.invalidateQueries({ queryKey: ['account-audit'] }) }
   const action = async (run: () => Promise<void>) => {
     setBusy(true)
-    try { await run(); refresh(); return true } catch (e) { message.error(String(e)); refresh(); return false } finally { setBusy(false) }
+    try { await run(); refresh(); return true } catch (e) { message.error(errorMessage(e)); refresh(); return false } finally { setBusy(false) }
   }
   const ask = (value: Confirmation) => { setPassword(''); setConfirmation(value) }
   const open = (user: User | 'new') => {
@@ -96,13 +97,13 @@ export default function UsersPage() {
       setEditing(null)
     }
     const sensitive = creating ? values.role === 'admin' || values.can_view_price : values.role !== (selected as User).role || (values.role !== 'admin' && values.can_view_price !== (selected as User).can_view_price)
-    if (sensitive) ask({ title: creating ? '确认创建授权账号' : '确认权限变更', lines: creating ? [`账号：${values.username}`, `角色：${valueLabel(values.role)}`, `价格权限：${values.role === 'admin' ? '管理员自带' : valueLabel(values.can_view_price)}`] : [`账号：${(selected as User).username}`, ...changes({ role: (selected as User).role, can_view_price: (selected as User).can_view_price }, { role: values.role, can_view_price: values.role === 'admin' ? true : values.can_view_price }), '保存后该用户的旧会话将失效。'], run })
+    if (sensitive) ask({ title: creating ? '确认创建有管理或价格权限的账号' : '确认权限变更', lines: creating ? [`账号：${values.username}`, `角色：${valueLabel(values.role)}`, `价格权限：${values.role === 'admin' ? '管理员自带' : valueLabel(values.can_view_price)}`] : [`账号：${(selected as User).username}`, ...changes({ role: (selected as User).role, can_view_price: (selected as User).can_view_price }, { role: values.role, can_view_price: values.role === 'admin' ? true : values.can_view_price }), '保存后该用户的原有登录状态将失效。'], run })
     else await action(() => run())
   }
-  const changeStatus = (user: User) => ask({ title: user.active ? '停用账号' : '恢复账号', lines: [`账号：${user.username}`, user.active ? '该账号将无法登录，现有会话立即失效。历史操作记录保留。' : '该账号恢复使用，须重新登录；原有角色和权限保持不变。'], run: async confirmation_password => {
+  const changeStatus = (user: User) => ask({ title: user.active ? '停用账号' : '恢复账号', lines: [`账号：${user.username}`, user.active ? '该账号将无法登录，已登录的用户会立即退出。历史操作记录保留。' : '该账号恢复使用，须重新登录；原有角色和权限保持不变。'], run: async confirmation_password => {
     await api.updateUser(user.id, { active: !user.active, confirmation_password }); setEditing(null); message.success(user.active ? '账号已停用' : '账号已恢复')
   } })
-  const reset = (user: User) => ask({ title: '重置密码', lines: [`账号：${user.username}`, '将生成新的临时密码，旧密码与旧会话立即失效。用户下次登录必须修改密码。'], run: async confirmation_password => {
+  const reset = (user: User) => ask({ title: '重置密码', lines: [`账号：${user.username}`, '将生成新的临时密码，旧密码与原有登录状态立即失效。用户下次登录必须修改密码。'], run: async confirmation_password => {
     const result = await api.resetUserPassword(user.id, confirmation_password)
     setEditing(null); setCredential({ username: user.username, password: result.temporary_password })
   } })
@@ -116,7 +117,7 @@ export default function UsersPage() {
         <Select aria-label="状态筛选" style={{ width: 130 }} value={filters.active} onChange={v => filter('active', v)} options={[{ value: '', label: '全部状态' }, { value: 'enabled', label: '已启用' }, { value: 'disabled', label: '已停用' }]} />
         <Select aria-label="价格权限筛选" style={{ width: 160 }} value={filters.price} onChange={v => filter('price', v)} options={[{ value: '', label: '全部价格权限' }, { value: 'allowed', label: '可见价格' }, { value: 'denied', label: '不可见价格' }]} />
       </Space>
-      {error && <Alert type="error" message={String(error)} />}
+      {error && <Alert type="error" message={errorMessage(error)} />}
       <Table<User> rowKey="id" loading={isFetching} dataSource={data?.rows ?? []} scroll={{ x: 800 }} pagination={{ current: filters.page, pageSize: 10, total: data?.total ?? 0, showSizeChanger: false, showTotal: total => `共 ${total} 人`, onChange: page => setFilters(f => ({ ...f, page })) }} columns={[
         { title: '姓名 / 账号', render: (_, u) => <Space><UserAvatar user={u} size={36} /><span><Typography.Text strong>{u.display_name}</Typography.Text> {u.id === me?.id && <Tag>我</Tag>}<br /><Typography.Text type="secondary">{u.username}</Typography.Text></span></Space> },
         { title: '角色', dataIndex: 'role_cn', render: v => <Tag>{v}</Tag> },
@@ -134,12 +135,12 @@ export default function UsersPage() {
           {editing === 'new' && <Form.Item name="username" label="登录账号" rules={[{ required: true, pattern: /^[a-zA-Z0-9_.-]{2,32}$/, message: '请输入 2～32 位字母、数字或 _ . -' }]}><Input autoComplete="off" maxLength={32} /></Form.Item>}
           <Form.Item name="display_name" label="姓名 / 显示名" rules={[{ max: 64 }]}><Input maxLength={64} placeholder="例如：张三" /></Form.Item>
           <Form.Item name="role" label="角色" extra="管理员可管理用户和系统配置，并自带价格权限。"><Select disabled={editing !== 'new' && editing?.id === me?.id} onChange={() => form.setFieldValue('can_view_price', false)} options={[{ value: 'member', label: '成员' }, { value: 'admin', label: '管理员' }]} /></Form.Item>
-          {role === 'admin' ? <Alert type="info" message="价格权限由管理员角色继承，无需单独授权。" /> : <Form.Item name="can_view_price" label="价格功能权限" valuePropName="checked" extra="允许使用报价校验和基准价模拟。"><Switch /></Form.Item>}
+          {role === 'admin' ? <Alert type="info" message="管理员自动拥有价格功能权限，无需另外授权。" /> : <Form.Item name="can_view_price" label="价格功能权限" valuePropName="checked" extra="允许使用报价校验和基准价模拟。"><Switch /></Form.Item>}
         </Form>
         {editing && editing !== 'new' && <Descriptions style={{ marginTop: 24 }} column={1} items={[{ key: 'username', label: '登录账号', children: editing.username }, { key: 'created', label: '创建时间', children: fmtUtc(editing.created_at) }]} />}
       </div>
       {drawerTab === 'security' && editing && editing !== 'new' && <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Alert type="info" message="账号安全操作独立执行，须验证当前管理员身份。" />
+        <Alert type="info" message="修改密码或停用账号前，需要输入当前管理员密码。" />
         <Card size="small" title="密码"><Typography.Paragraph>{editing.must_change_password ? '用户尚未完成初始密码修改。' : '用户已设置密码。'}</Typography.Paragraph><Button disabled={editing.id === me?.id || !editing.active} onClick={() => reset(editing)}>重置密码</Button>{editing.id === me?.id && <Typography.Paragraph type="secondary">修改自己的密码请使用右上角账号菜单。</Typography.Paragraph>}</Card>
         <Card size="small" title="账号状态"><Typography.Paragraph>{editing.active ? '账号已启用。停用后禁止登录，保留历史操作记录。' : '账号已停用。恢复后需要重新登录。'}</Typography.Paragraph><Button danger={editing.active} disabled={editing.id === me?.id} onClick={() => changeStatus(editing)}>{editing.active ? '停用账号' : '恢复账号'}</Button></Card>
       </Space>}
@@ -155,7 +156,7 @@ export default function UsersPage() {
       <label htmlFor="account-confirm-password">当前管理员密码</label>
       <Input.Password id="account-confirm-password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} maxLength={128} style={{ marginTop: 8 }} />
     </Modal>
-    <Modal title="请保存临时登录凭据" open={!!credential} onCancel={() => setCredential(undefined)} footer={<Button type="primary" onClick={() => setCredential(undefined)}>已保存，关闭</Button>} maskClosable={false} destroyOnClose>
+    <Modal title="请保存临时账号和密码" open={!!credential} onCancel={() => setCredential(undefined)} footer={<Button type="primary" onClick={() => setCredential(undefined)}>已保存，关闭</Button>} maskClosable={false} destroyOnClose>
       <Alert type="warning" showIcon message="临时密码仅在此展示一次，请通过企业认可的渠道交给本人。关闭后无法再次查看，可重新重置。" style={{ marginBottom: 16 }} />
       <Descriptions column={1} items={[{ key: 'username', label: '登录账号', children: credential?.username }]} />
       <Input.Password aria-label="临时密码" readOnly value={credential?.password ?? ''} autoComplete="off" />

@@ -13,7 +13,7 @@ def readiness(p, index, profile):
 
     trm = TRM.model_validate(p.trm_confirmed or p.trm or {})
     if not 0 <= index < len(trm.packages):
-        return {'blockers': ['请先选择有效标包'], 'confirmations': [], 'warnings': [], 'ready': False}
+        return {'blockers': ['请先选择本次投标的采购包'], 'confirmations': [], 'warnings': [], 'ready': False}
     pkg = trm.packages[index]
     issues = generation_issues(trm, pkg)
     blockers = [x['message'] for x in issues if x['blocking']]

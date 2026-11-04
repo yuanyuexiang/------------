@@ -38,12 +38,12 @@ function RegistrationRow({ name, form }: { name: string; form: FormInstance }) {
 
 export default function CompanyFactsFields({ kind, form }: { kind: string; form: FormInstance }) {
   if (kind === 'statistics') return <>
-    <Typography.Paragraph type="secondary">填写企业整体统计，不能用知识库已录入人员条数代替。未知留空，0 表示已确认没有。保存后可供其他项目复用。</Typography.Paragraph>
+    <Typography.Paragraph type="secondary">填写企业整体统计，不能用已录入的人员记录数代替。未知留空，0 表示已确认没有。保存后可供其他项目复用。</Typography.Paragraph>
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
       {STAT_FIELDS.map(([name, label]) => <Form.Item key={name} name={name} label={label}><InputNumber min={0} precision={0} style={{ width: '100%' }} /></Form.Item>)}
     </div>
     <Form.Item name="staff_as_of" label="统计日期" rules={[{ required: true }, { pattern: /^\d{4}-\d{2}-\d{2}$/, message: '格式为 YYYY-MM-DD' }]}><Input type="date" /></Form.Item>
-    <Form.Item name="staff_source" label="统计口径与依据" rules={[{ required: true }]}><Input.TextArea rows={3} placeholder="例如截至该日期的在职人员名册，技术人员及职称人数由人事核实" /></Form.Item>
+    <Form.Item name="staff_source" label="统计范围与证明依据" rules={[{ required: true }]}><Input.TextArea rows={3} placeholder="例如截至该日期的在职人员名册，技术人员及职称人数由人事核实" /></Form.Item>
   </>
   return <>
     <Typography.Paragraph type="secondary">上方建议采用后会带入以下内容及依据；已有记录可直接核对。暂不确定的项可留待确认，不必为了保存而选择“不适用”。</Typography.Paragraph>
@@ -59,7 +59,7 @@ export default function CompanyFactsFields({ kind, form }: { kind: string; form:
         <Form.Item name={[name, 'source']} label="资料出处及页码" rules={[{ required: true }]}><Input /></Form.Item>
         <Button onClick={() => remove(name)}>移除此行</Button>
       </div>)}
-      <Button onClick={() => add({})}>资料未覆盖？手动补充股东</Button>
+      <Button onClick={() => add({})}>没有找到股东记录？手动补充</Button>
     </>}</Form.List>
   </>
 }

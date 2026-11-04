@@ -1,3 +1,4 @@
+import { errorMessage } from '../../uiLabels'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -8,7 +9,7 @@ import { KIND_TITLES } from './fields'
 
 const COUNT_KINDS: KbKind[] = ['certificates', 'personnel', 'performances', 'financials', 'products', 'test_reports', 'boilerplates']
 
-/** 企业知识库列表：各企业档案概览（条目数）+ 新建 / 删除。系统为供应商自用，通常只有本企业一条。 */
+/** 企业资料列表：各企业资料数量（条目数）+ 新建 / 删除。系统为供应商自用，通常只有本企业一条。 */
 export default function KbListPage() {
   const nav = useNavigate()
   const qc = useQueryClient()
@@ -18,23 +19,23 @@ export default function KbListPage() {
   const create = useMutation({
     mutationFn: (v: { name: string; credit_code: string }) => api.saveMain(v.name, { credit_code: v.credit_code }),
     onSuccess: (_, v) => { message.success('已新建'); setCreating(false); qc.invalidateQueries({ queryKey: ['profiles'] }); nav(`/kb/${encodeURIComponent(v.name)}`) },
-    onError: (e) => message.error(String(e)),
+    onError: (e) => message.error(errorMessage(e)),
   })
   const remove = useMutation({
     mutationFn: (name: string) => api.deleteProfile(name),
     onSuccess: () => { message.success('已删除'); qc.invalidateQueries({ queryKey: ['profiles'] }) },
-    onError: (e) => message.error(String(e)),
+    onError: (e) => message.error(errorMessage(e)),
   })
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Alert type="info" showIcon message="知识库是投标文件中所有事实字段的唯一来源：企业信息、证照、人员、业绩、产品参数只从这里填入，系统不会生成。证照与检测报告录入有效期后自动预警。" />
+      <Alert type="info" showIcon message="请在这里填写企业信息、证照、人员、业绩和产品参数，并上传证明材料。系统依据这些资料填写标书；资料不足时会提示补充。填写证照和检测报告的到期日后，可查看到期提醒。" />
       <Card size="small" title="企业档案" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setCreating(true) }}>新建企业</Button>}>
         <Table<ProfileSummary> rowKey="name" loading={isLoading} dataSource={data} pagination={false}
           columns={[
             { title: '企业', dataIndex: 'name', render: (v: string) => <a onClick={() => nav(`/kb/${encodeURIComponent(v)}`)}>{v}</a> },
             { title: '统一社会信用代码', dataIndex: 'credit_code', width: 200 },
-            { title: '档案概览', dataIndex: 'counts', render: (c: Record<KbKind, number>) => (
+            { title: '资料数量', dataIndex: 'counts', render: (c: Record<KbKind, number>) => (
               <Space size={[4, 4]} wrap>
                 {COUNT_KINDS.map((k) => <Tag key={k} color={c[k] ? 'blue' : 'default'}>{KIND_TITLES[k]} {c[k] ?? 0}</Tag>)}
               </Space>

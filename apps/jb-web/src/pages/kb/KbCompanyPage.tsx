@@ -1,3 +1,4 @@
+import { errorMessage } from '../../uiLabels'
 import { useEffect, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -21,8 +22,8 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
   useEffect(() => { form.setFieldsValue(profile) }, [profile, form])
   const save = useMutation({
     mutationFn: (v: Partial<CompanyProfile>) => api.saveMain(company, v),
-    onSuccess: () => { message.success('主档已保存'); qc.invalidateQueries({ queryKey: ['profile', company] }); qc.invalidateQueries({ queryKey: ['profiles'] }) },
-    onError: (e) => message.error(String(e)),
+    onSuccess: () => { message.success('基本信息已保存'); qc.invalidateQueries({ queryKey: ['profile', company] }); qc.invalidateQueries({ queryKey: ['profiles'] }) },
+    onError: (e) => message.error(errorMessage(e)),
   })
   const text = (name: string, label: string, span = 1) => (
     <Form.Item name={name} label={label} style={{ gridColumn: `span ${span}` }}><Input /></Form.Item>
@@ -38,24 +39,24 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
         {text('legal_person_id_no', '法定代表人身份证号')}
         {text('legal_person_gender', '法定代表人性别')}
         {text('legal_person_since', '法定代表人任职起始日')}
-        {text('sgcc_relationship', '国网人员关系历史资料（本次情况请在工作台确认）')}
+        {text('sgcc_relationship', '国网人员关系历史资料（本次情况请在标书准备页核对）')}
         {text('legal_or_admin', '行政/技术负责人')}
         {text('company_type', '单位性质')}
         {text('founded', '成立时间')}
-        {num('registered_capital_wan', '注册资本（万）')}
+        {num('registered_capital_wan', '注册资本（万元）')}
         {text('authorized_rep', '常用被授权人')}
         {text('authorized_rep_title', '被授权人职务')}
         {text('address', '单位地址及邮编', 2)}
         {text('bank', '开户银行及账号', 2)}
         {text('contact', '联系人')}
         {text('phone', '电话')}
-        {text('email', 'E-mail')}
+        {text('email', '电子邮箱')}
         {text('website', '网址')}
 
         <Form.Item name="business_scope" label="经营范围" style={{ gridColumn: '1 / -1' }}><Input.TextArea rows={3} /></Form.Item>
       </div>
       <Space>
-        <Button type="primary" htmlType="submit" loading={save.isPending}>保存主档</Button>
+        <Button type="primary" htmlType="submit" loading={save.isPending}>保存基本信息</Button>
         <Typography.Text type="secondary">建档依据：{profile.sources?.length ? profile.sources.join('；') : '（无）'}</Typography.Text>
       </Space>
     </Form>
@@ -74,14 +75,14 @@ function CompanyFactsTab({ company, profile, kind }: { company: string; profile:
       await api.saveMain(company, values)
       message.success('已保存企业资料，关联投标项目需重新生成和复查')
       await qc.invalidateQueries({ queryKey: ['profile', company] })
-    } catch (e) { message.error(String(e)) } finally { setSaving(false) }
+    } catch (e) { message.error(errorMessage(e)) } finally { setSaving(false) }
   }}>
     <CompanyFactsFields kind={kind} form={form} />
     <Button type="primary" htmlType="submit" loading={saving} style={{ marginTop: 16 }}>保存企业资料</Button>
   </Form>
 }
 
-/** 有效期看板：证照 + 检测报告，按开标日推算。 */
+/** 证照到期提醒：证照 + 检测报告，按开标日推算。 */
 function ExpiryTab({ company }: { company: string }) {
   const [days, setDays] = useState(90)
   const [on, setOn] = useState('')
@@ -91,10 +92,10 @@ function ExpiryTab({ company }: { company: string }) {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       <Space wrap>
-        <span>预警范围</span>
+        <span>到期提醒范围</span>
         <Select value={days} onChange={setDays} style={{ width: 110 }} options={[30, 60, 90, 180, 365].map((d) => ({ value: d, label: `${d} 天内` }))} />
         <span>按开标日推算</span>
-        <Input placeholder="YYYY-MM-DD（默认今天）" value={on} onChange={(e) => setOn(e.target.value)} style={{ width: 200 }} status={on && !valid ? 'error' : undefined} />
+        <Input placeholder="核对日期，如 2026-11-04（默认今天）" value={on} onChange={(e) => setOn(e.target.value)} style={{ width: 200 }} status={on && !valid ? 'error' : undefined} />
         {(['expired', 'd30', 'd60', 'd90', 'unknown'] as const).map((lv) => (
           <Tag key={lv} color={(s[lv] ?? 0) > 0 ? LEVEL[lv].color : 'default'}>{LEVEL[lv].text} {s[lv] ?? 0}</Tag>
         ))}
@@ -119,7 +120,7 @@ function AttachmentsTab({ company }: { company: string }) {
   const { data = [], isLoading } = useQuery({ queryKey: ['attachments', company], queryFn: () => api.attachments(company) })
   const refresh = () => qc.invalidateQueries({ queryKey: ['attachments', company] })
   const upload = async (file: File) => {
-    try { const a = await api.uploadAttachment(company, kind, file); message.success(`已上传 ${a.filename}`); refresh() } catch (e) { message.error(String(e)) }
+    try { const a = await api.uploadAttachment(company, kind, file); message.success(`已上传 ${a.filename}`); refresh() } catch (e) { message.error(errorMessage(e)) }
     return false
   }
   const kinds = [['certificate', '证照'], ['person', '人员'], ['performance', '业绩'], ['financial', '财务'], ['product', '产品'], ['test_report', '检测报告'], ['other', '其他']]
@@ -140,7 +141,7 @@ function AttachmentsTab({ company }: { company: string }) {
           { title: '大小', dataIndex: 'size', width: 100, render: (n: number) => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB` },
           { title: '上传时间', dataIndex: 'uploaded_at', width: 170, render: fmtUtc },
           { title: '操作', width: 80, render: (_, r) => (
-            <Popconfirm title="删除附件？已挂接的条目会失去该文件" onConfirm={async () => { await api.deleteAttachment(company, r.id); refresh() }}>
+            <Popconfirm title="删除附件？使用此附件的资料记录将无法再查看该文件" onConfirm={async () => { await api.deleteAttachment(company, r.id); refresh() }}>
               <Button size="small" type="link" danger>删除</Button>
             </Popconfirm>
           ) },
@@ -149,7 +150,7 @@ function AttachmentsTab({ company }: { company: string }) {
   )
 }
 
-/** 企业知识库详情：主档 / 有效期看板 / 各类条目 / 附件库。Tab 记在 URL（?tab=）便于回跳。 */
+/** 企业资料详情：主档 / 证照到期提醒 / 各类条目 / 附件库。Tab 记在 URL（?tab=）便于回跳。 */
 export default function KbCompanyPage() {
   const { name = '' } = useParams()
   const [params, setParams] = useSearchParams()
@@ -161,15 +162,15 @@ export default function KbCompanyPage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      {params.get('returnTo')?.match(/^\/projects\/[a-z0-9]+\/workbench$/) && <Link to={params.get('returnTo')!}>返回本次投标工作台</Link>}
-      <Breadcrumb items={[{ title: <Link to="/kb">企业知识库</Link> }, { title: profile.name }]} />
+      {params.get('returnTo')?.match(/^\/projects\/[a-z0-9]+\/workbench$/) && <Link to={params.get('returnTo')!}>返回本次标书准备页</Link>}
+      <Breadcrumb items={[{ title: <Link to="/kb">企业资料</Link> }, { title: profile.name }]} />
       <Card size="small" title={<Space>{profile.name}<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{profile.credit_code}</Typography.Text></Space>}>
         <Tabs activeKey={tab} onChange={(k) => { const next = new URLSearchParams(params); next.set('tab', k); next.delete('item'); setParams(next) }} destroyInactiveTabPane
           items={[
-            { key: 'main', label: '主档', children: <MainTab company={name} profile={profile} /> },
+            { key: 'main', label: '基本信息', children: <MainTab company={name} profile={profile} /> },
             { key: 'statistics', label: '人员统计', children: <CompanyFactsTab company={name} profile={profile} kind="statistics" /> },
             { key: 'registration', label: '登记与股权', children: <CompanyFactsTab company={name} profile={profile} kind="registration" /> },
-            { key: 'expiry', label: <Badge count={alert} size="small" offset={[10, 0]}>有效期看板</Badge>, children: <ExpiryTab company={name} /> },
+            { key: 'expiry', label: <Badge count={alert} size="small" offset={[10, 0]}>证照到期提醒</Badge>, children: <ExpiryTab company={name} /> },
             ...KIND_SPECS.map((spec) => ({
               key: spec.kind, label: `${spec.title}（${profile[spec.kind]?.length ?? 0}）`,
               children: <KbItemsTab company={name} spec={spec} />,
