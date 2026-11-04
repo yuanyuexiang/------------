@@ -111,12 +111,12 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
     config_api.install_usage_hook()      # Celery worker 进程内也记账、也读配置中心的 LLM 覆盖
     config_api.load_llm_settings()
     _as_actor(task_id)
-    _update(task_id, status="running", progress=0.05, message="加载 TRM 与档案")
+    _update(task_id, status="running", progress=0.05, message="加载采购要求与企业档案")
     with session() as s:
         p = s.get(Project, project_id)
         cp = kb_repo.load_profile(s, profile_name)
         if not p or cp is None or not (p.trm_confirmed or p.trm):
-            _update(task_id, status="failed", message="项目/档案/TRM 不存在")
+            _update(task_id, status="failed", message="项目、企业档案或采购文件解析结果不存在")
             return
         trm, cp, input_hash = inputs(s, p, profile_name)
         full_profile = cp.model_copy(deep=True)

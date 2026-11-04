@@ -57,7 +57,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const section = selected === '/kb' ? '企业知识库' : selected === '/settings' ? '配置中心' : selected === '/users' ? '用户与权限' : '投标项目'
   const page = pathname.endsWith('/workbench') ? { title: '生成与审查工作台', description: '准备投标文件，核查问题，并完成正式导出。' }
     : pathname.endsWith('/qualify') ? { title: '资格自检', description: '对照招标要求，逐项核查企业资格与证明材料。' }
-    : pathname.endsWith('/trm') ? { title: '招标要求确认', description: '核对关键条款与分包要求，确认后用于后续投标准备。' }
+    : pathname.endsWith('/trm') ? { title: '核对采购信息', description: '对照采购原件，核对项目、包号、关键条款和人员、业绩要求。' }
     : pathname.startsWith('/projects/') ? { title: '项目详情', description: '掌握项目进度、关键日期和文件产出。' }
     : pathname.startsWith('/kb/') ? { title: '企业档案', description: '统一维护企业事实与证明材料，为投标文件提供依据。' }
     : selected === '/kb' ? { title: section, description: '集中管理企业信息、证照、人员、业绩与产品资料。' }

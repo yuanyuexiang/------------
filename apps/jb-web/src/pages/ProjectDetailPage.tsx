@@ -5,7 +5,7 @@ import { Alert, Button, Card, Col, Descriptions, Input, Popconfirm, Row, Select,
 import { api, fmtUtc, ProjectEvent } from '../api'
 import { DaysLeft, OUTCOME_COLOR } from './ProjectsPage'
 
-const STAGE_TITLE = ['解析', '确认 TRM', '资格自检', '生成文件', '合规审查', '递交']
+const STAGE_TITLE = ['解析', '核对采购信息', '资格自检', '生成文件', '合规审查', '递交']
 const VERDICT_COLOR: Record<string, string> = { 可投: 'green', 有风险: 'orange', 不可投: 'red' }
 const EVENT_COLOR: Record<string, string> = {
   parsed: 'blue', confirmed: 'cyan', qualified: 'geekblue', generated: 'purple', reviewed: 'gold', scored: 'purple',
@@ -36,7 +36,7 @@ export default function ProjectDetailPage() {
 
   const ready = ['parsed', 'confirmed'].includes(p.status)
   const r = p.results
-  // 各环节按实际结果逐项点亮（阶段可跳：未确认 TRM 也能自检），而不是"到达最远阶段前全部算完成"
+  // 各环节按实际结果逐项点亮（阶段可跳：未核对采购信息也能自检），而不是"到达最远阶段前全部算完成"
   const done = [ready, p.confirmed, !!r.qualify, !!r.generate && Object.keys(r.generate).length > 0,
     !!r.review && Object.keys(r.review).length > 0, ['submitted', 'won', 'lost'].includes(p.outcome)]
   const current = Math.max(0, done.lastIndexOf(true))
@@ -48,7 +48,7 @@ export default function ProjectDetailPage() {
 
       <Card className="project-detail-overview" size="small" title={<Space wrap>{p.batch_name || p.filename}<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{p.batch_no}</Typography.Text><Tag color={OUTCOME_COLOR[p.outcome]}>{p.outcome_cn}</Tag></Space>}
         extra={<Space wrap>
-          <Button type="primary" disabled={!ready} onClick={() => nav(`/projects/${id}/trm`)}>{p.confirmed ? '查看确认版' : '确认 TRM'}</Button>
+          <Button type="primary" disabled={!ready} onClick={() => nav(`/projects/${id}/trm`)}>{p.confirmed ? '查看采购信息' : '核对采购信息'}</Button>
           <Button disabled={!ready} onClick={() => nav(`/projects/${id}/qualify`)}>资格自检</Button>
           <Button disabled={!ready} onClick={() => nav(`/projects/${id}/workbench`)}>生成与审查</Button>
           <Popconfirm title="删除项目及其产出文件？" onConfirm={async () => { await api.deleteProject(id); nav('/') }}><Button danger>删除</Button></Popconfirm>
@@ -123,11 +123,11 @@ export default function ProjectDetailPage() {
         <Col xs={24} xl={12}>
           <Card size="small" title={`时间线（${p.events.length}）`} style={{ maxHeight: 480, overflowY: 'auto' }}>
             {p.tasks.filter((t) => t.status === 'running' || t.status === 'queued').map((t) => (
-              <Alert key={t.id} type="info" showIcon style={{ marginBottom: 8 }} message={`${t.kind} 进行中 ${Math.round(t.progress * 100)}%`} description={t.message} />
+              <Alert key={t.id} type="info" showIcon style={{ marginBottom: 8 }} message={`${t.kind} 进行中 ${Math.round(t.progress * 100)}%`} description={t.message.replace(/\bTRM\b/g, '采购信息')} />
             ))}
             <Timeline items={p.events.map((e: ProjectEvent) => ({
               color: EVENT_COLOR[e.kind] ?? 'gray',
-              children: <span><Typography.Text type="secondary">{fmt(e.created_at)} · {e.actor || 'system'}</Typography.Text> <Tag style={{ marginLeft: 6 }}>{EVENT_CN[e.kind] ?? e.kind}</Tag>{e.message}</span>,
+              children: <span><Typography.Text type="secondary">{fmt(e.created_at)} · {e.actor || 'system'}</Typography.Text> <Tag style={{ marginLeft: 6 }}>{EVENT_CN[e.kind] ?? e.kind}</Tag>{e.message.replace(/\bTRM\b/g, '采购信息')}</span>,
             }))} />
             {p.events.length === 0 && <Typography.Text type="secondary">暂无事件</Typography.Text>}
           </Card>

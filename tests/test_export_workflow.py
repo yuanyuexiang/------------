@@ -76,7 +76,7 @@ def test_confirmation_review_and_force_gate(bid):
     with session() as s:
         s.get(Project, bid["id"]).trm_confirmed = None
     name = generate(bid)
-    assert "尚未人工确认" in "；".join(export(bid, name)["blocked_by"])
+    assert "采购信息尚未核对，请先核对并保存采购信息" in export(bid, name)["blocked_by"]
     assert review(bid).status_code == 409
     bid["client"].put(bid["url"] + "/trm", json=bid["trm"])
     assert "尚未审查" in "；".join(export(bid, name)["blocked_by"])

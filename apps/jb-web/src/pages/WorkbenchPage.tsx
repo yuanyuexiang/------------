@@ -82,7 +82,7 @@ export default function WorkbenchPage() {
   })
   const repair = () => {
     if (running || !readiness || preparationLoading || preparationError) return message.info('请等待准备状态刷新后重试')
-    if (readiness.blockers.length) { setStep(0); return message.warning(`请先核对招标要求：${readiness.blockers.join('；')}`) }
+    if (readiness.blockers.length) { setStep(0); return message.warning(`请先核对采购信息：${readiness.blockers.join('；')}`) }
     Modal.confirm({ title: 'AI 更新标书并检查', okText: readiness.ready ? '开始更新' : '生成待完善草稿', cancelText: '继续准备',
       content: <><p>系统将重新检索已选资料、起草并检查本包商务和技术文件，旧版本保留。</p>{!readiness.ready && <><p>以下安排未完成，新版仍为待完善草稿：</p><ul>{readiness.confirmations.map(x => <li key={x.task}>{x.message}</li>)}</ul></>}<p>完成后进入审阅步骤；正式导出仍需通过检查。</p></>,
       onOk: () => { setWithDraft(true); return run(!readiness.ready, true) },
@@ -123,7 +123,7 @@ export default function WorkbenchPage() {
           <div className="workbench-draft"><span>技术方案起草<small>AI 先写方案，人工核对事实与承诺</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
         </div>
         <Space style={{ marginTop: 16 }}>
-          <Button onClick={() => nav(`/projects/${id}/trm`)}>核对招标要求</Button>
+          <Button onClick={() => nav(`/projects/${id}/trm`)}>核对采购信息</Button>
           <Button disabled={running} onClick={async () => {
             setBusy(true)
             try { const result = await api.reparse(id); setTaskId(result.task_id); await refreshFlow() }
@@ -158,7 +158,7 @@ export default function WorkbenchPage() {
         </Space>}
         <Space style={{ marginTop: 16 }}>
           <Button type="primary" disabled={running || !readiness || !!preparationError || preparationLoading} onClick={() => readiness?.ready ? setStep(1) : readiness?.blockers.length ? nav(`/projects/${id}/trm`) : preparationAnchor.current?.scrollIntoView({ behavior: 'smooth' })}>
-            {readiness?.ready ? '下一步：生成标书' : readiness?.blockers.length ? '核对招标要求' : '继续完善资料'}
+            {readiness?.ready ? '下一步：生成标书' : readiness?.blockers.length ? '核对采购信息' : '继续完善资料'}
           </Button>
           <Button disabled={running || !readiness || !!readiness.blockers.length || !!preparationError || preparationLoading} onClick={draft}>生成待完善草稿</Button>
         </Space>
@@ -189,7 +189,7 @@ export default function WorkbenchPage() {
           message={flow.blockers.length ? '正式导出尚未就绪' : '本版本审查有效，可以正式导出'}
           description={flow.blockers.length ? <ul>{flow.blockers.map((reason) => <li key={reason}>{reason}</li>)}</ul> : '导出前仍会重新核对资料、规则和文件版本。'} />
         <Space wrap style={{ marginTop: 12 }}>
-          <Button onClick={() => nav(`/projects/${id}/trm`)}>1. 核对招标要求</Button>
+          <Button onClick={() => nav(`/projects/${id}/trm`)}>1. 核对采购信息</Button>
           <Button disabled={!profile} onClick={() => nav(`/kb/${encodeURIComponent(profile ?? '')}`)}>2. 补齐企业资料</Button>
           <Button disabled={running || !profile} onClick={goToGeneration}>3. 前往{generationLabel}</Button>
           <Button disabled={running || !gen || !profile} onClick={doReview}>4. 复查本版本</Button>

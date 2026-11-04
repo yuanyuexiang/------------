@@ -230,7 +230,7 @@ def get_trm(project_id: str, confirmed: bool = False):
             raise HTTPException(404, "项目不存在")
         data = p.trm_confirmed if confirmed and p.trm_confirmed else p.trm
         if data is None:
-            raise HTTPException(409, f"TRM 尚未就绪（状态 {p.status}）")
+            raise HTTPException(409, f"采购文件解析结果尚未就绪（状态 {p.status}）")
         return data
 
 
@@ -246,7 +246,7 @@ def confirm_trm(project_id: str, trm: dict):
         p.batch_name, p.batch_no = validated.batch_name, validated.batch_no
         p.status = "confirmed"
         pm.advance(p, "confirmed")
-        pm.log_event(s, project_id, "confirmed", "TRM 人工确认")
+        pm.log_event(s, project_id, "confirmed", "采购信息已核对并保存")
     return {"ok": True}
 
 
@@ -290,7 +290,7 @@ def _load_trm_profile(project_id: str, profile: str):
             raise HTTPException(404, "项目不存在")
         data = p.trm_confirmed or p.trm
         if data is None:
-            raise HTTPException(409, "TRM 尚未就绪")
+            raise HTTPException(409, "采购文件解析结果尚未就绪")
         cp = kb_repo.load_profile(s, profile)
         if cp is None:
             raise HTTPException(404, "企业档案不存在")
@@ -432,7 +432,7 @@ def submission_matrix(project_id: str, profile: str = "", pkg_index: int = 0):
     with session() as s:
         p = s.get(Project, project_id)
         if not p or not (p.trm_confirmed or p.trm):
-            raise HTTPException(404, "项目/TRM 不存在")
+            raise HTTPException(404, "项目或采购文件解析结果不存在")
         trm = TRM.model_validate(p.trm_confirmed or p.trm)
         if not 0 <= pkg_index < len(trm.packages):
             raise HTTPException(400, "pkg_index 越界")

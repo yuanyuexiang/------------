@@ -45,7 +45,7 @@ export default function ScoringTemplatesTab() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Alert type="info" showIcon message="解析招标文件包时，带评审要素的评分细则自动入库（不覆盖已维护的同名模板）。各包评审办法按模板名称引用；TRM 里只有模板名、没有细则时，模拟评分按名称到这里兜底——只按名称匹配，不按类别乱配。" />
+      <Alert type="info" showIcon message="解析采购文件时，系统会保存识别到的评分细则，保留已维护的同名模板。采购文件仅提供评分模板名称时，模拟评分将使用这里的同名细则。" />
       <Space wrap>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => open('new')}>手工新建</Button>
         <Upload accept=".xlsx,.xls" beforeUpload={upload} showUploadList={false}><Button icon={<UploadOutlined />}>上传评分细则 xlsx</Button></Upload>

@@ -59,7 +59,7 @@ export default function ProjectsPage() {
       <div className="project-overview">
         <div><span className="project-stat-icon"><FileSearchOutlined /></span><div><span>当前列表项目</span><strong>{isLoading ? '—' : projects.length}<small>个</small></strong></div></div>
         <div><span className="project-stat-icon amber"><ClockCircleOutlined /></span><div><span>七天内截止 · 当前列表</span><strong>{isLoading ? '—' : projects.filter((p) => p.days_left !== null && p.days_left >= 0 && p.days_left <= 7).length}<small>个</small></strong></div></div>
-        <div><span className="project-stat-icon teal"><SafetyCertificateOutlined /></span><div><span>已确认要求 · 当前列表</span><strong>{isLoading ? '—' : projects.filter((p) => p.confirmed).length}<small>个</small></strong></div></div>
+        <div><span className="project-stat-icon teal"><SafetyCertificateOutlined /></span><div><span>已核对采购信息 · 当前列表</span><strong>{isLoading ? '—' : projects.filter((p) => p.confirmed).length}<small>个</small></strong></div></div>
       </div>
       <Card size="small" title="导入招标文件包" className="project-import">
         <Upload.Dragger accept=".zip" beforeUpload={upload} showUploadList={false} style={{ padding: 0 }}>
@@ -97,7 +97,7 @@ export default function ProjectsPage() {
                 <Button size="small" type="primary" onClick={() => nav(`/projects/${r.id}`)}>详情</Button>
                 <Button size="small" type="link" disabled={!ready(r)} onClick={() => nav(`/projects/${r.id}/workbench`)}>工作台</Button>
                 <Dropdown trigger={['click']} menu={{ items: [
-                  { key: 'trm', label: r.confirmed ? '查看确认版' : '核对招标要求', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/trm`) },
+                  { key: 'trm', label: r.confirmed ? '查看采购信息' : '核对采购信息', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/trm`) },
                   { key: 'qualify', label: '资格自检', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/qualify`) },
                 ] }}><Button size="small" type="text" aria-label="更多项目操作" icon={<MoreOutlined />} /></Dropdown>
                 <Popconfirm title="删除项目及其产出文件？" onConfirm={async () => { await api.deleteProject(r.id); qc.invalidateQueries({ queryKey: ['projects'] }) }}>

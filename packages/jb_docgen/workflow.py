@@ -49,7 +49,7 @@ def file_hash(path) -> str:
 def inputs(s, p: Project, profile: str):
     cp = repo.load_profile(s, profile)
     if cp is None or not (p.trm_confirmed or p.trm):
-        raise WorkflowError("企业档案或 TRM 不存在，请补齐资料后重新生成")
+        raise WorkflowError("企业档案或采购文件解析结果不存在，请补齐资料后重新生成")
     trm = TRM.model_validate(p.trm_confirmed or p.trm)
     attachments = [{"id": a.id, "sha256": a.sha256} for a in s.scalars(
         select(KbAttachment).where(KbAttachment.company == profile).order_by(KbAttachment.id))]
@@ -126,7 +126,7 @@ def rules_hash(s) -> str:
 def source_blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> list[str]:
     reasons = []
     if not p.trm_confirmed:
-        reasons.append("TRM 尚未人工确认，请先确认招标要求")
+        reasons.append("采购信息尚未核对，请先核对并保存采购信息")
     active = s.scalar(select(Task.id).where(Task.project_id == p.id, Task.kind.in_(["parse", "generate"]),
                                            Task.status.in_(["queued", "running"])).limit(1))
     if active:
@@ -138,7 +138,7 @@ def source_blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> 
     try:
         _, current_profile, digest = inputs(s, p, a["profile"])
         if digest != a["input_hash"]:
-            reasons.append("TRM、企业档案或附件已变化，请重新生成后复查")
+            reasons.append("采购要求、企业档案或附件已变化，请重新生成后复查")
         from .preparation import fact_state, team_blockers
         for kind, state in fact_state(p, a['pkg_index'], current_profile).items():
             if state['stale']:

@@ -8,19 +8,19 @@ import { api, KeyTerms, PackageTRM, TRM } from '../api'
 
 const { Text } = Typography
 
-/** 未抽到（None）的字段高亮，提醒人工补录；LLM 填充的字段打标。 */
+/** 未识别（None）的字段高亮，提醒人工补录；LLM 填充的字段打标。 */
 function Missing({ v }: { v: unknown }) {
-  return v === null || v === undefined || v === '' ? <Tag color="orange">未抽到，待确认</Tag> : <>{String(v)}</>
+  return v === null || v === undefined || v === '' ? <Tag color="orange">未识别，请核对</Tag> : <>{String(v)}</>
 }
 
 function KeyTermsForm({ kt, onChange }: { kt: KeyTerms; onChange: (k: KeyTerms) => void }) {
   const set = <K extends keyof KeyTerms>(k: K, v: KeyTerms[K]) => onChange({ ...kt, [k]: v })
-  const llm = (k: string) => kt.llm_filled.includes(k) ? <Tag color="purple">LLM 兜底</Tag> : null
+  const llm = (k: string) => kt.llm_filled.includes(k) ? <Tag color="purple">AI 提取，请核对</Tag> : null
   return (
     <Form layout="vertical" className="key-terms-form">
       <Form.Item label={<>投标有效期（日）{llm('validity_days')}<Text type="secondary"> 条款 {kt.validity_clause}</Text></>}>
         <InputNumber value={kt.validity_days ?? undefined} onChange={(v) => set('validity_days', v ?? null)} min={1} />
-        {kt.validity_days === null && <Tag color="orange" style={{ marginLeft: 8 }}>未抽到</Tag>}
+        {kt.validity_days === null && <Tag color="orange" style={{ marginLeft: 8 }}>未识别</Tag>}
       </Form.Item>
       <Form.Item label={<>保证金模式 {llm('deposit_mode')}<Text type="secondary"> 条款 {kt.deposit_clause}</Text></>}>
         <Select value={kt.deposit_mode ?? undefined} onChange={(v) => set('deposit_mode', v)} allowClear style={{ width: 240 }}
@@ -58,7 +58,7 @@ function PackagePanel({ pkg, onChange }: { pkg: PackageTRM; onChange: (p: Packag
         { key: 'q', label: `资格要求（${pkg.qualification.length}）`, children: (
           <Table size="small" rowKey={(_, i) => String(i)} pagination={false} dataSource={pkg.qualification}
             columns={[
-              { title: '业绩要求', dataIndex: 'performance_req', render: (v, r) => <>{v || <Missing v="" />}{r.llm_extracted && <Tag color="purple" style={{ marginLeft: 6 }}>LLM</Tag>}</> },
+              { title: '业绩要求', dataIndex: 'performance_req', render: (v, r) => <>{v || <Missing v="" />}{r.llm_extracted && <Tag color="purple" style={{ marginLeft: 6 }}>AI 提取</Tag>}</> },
               { title: '年限', dataIndex: 'perf_years', width: 70, render: (v) => <Missing v={v} /> },
               { title: '范围', dataIndex: 'perf_scope' },
               { title: '试验报告要求', dataIndex: 'test_report_req' },
@@ -70,19 +70,19 @@ function PackagePanel({ pkg, onChange }: { pkg: PackageTRM; onChange: (p: Packag
             columns={[
               { title: '项目', dataIndex: 'project' }, { title: '物资描述', dataIndex: 'desc' },
               { title: '数量', dataIndex: 'qty', width: 70 }, { title: '单位', dataIndex: 'unit', width: 60 },
-              { title: '交货', dataIndex: 'deliver_date', width: 110 }, { title: '规范书ID', dataIndex: 'spec_id', width: 190 },
+              { title: '交货', dataIndex: 'deliver_date', width: 110 }, { title: '规范书编号', dataIndex: 'spec_id', width: 190 },
             ]} />
         ) },
         ...pkg.spec_docs.map((sd, si) => ({
           key: `s${si}`,
-          label: <>技术规范书 {sd.spec_id || sd.title}（参数 {sd.param_rows.length} 行，★{sd.param_rows.filter((r) => r.star).length}）{!sd.structured && <Tag style={{ marginLeft: 8 }}>非结构化·附件逐项响应</Tag>}</>,
+          label: <>技术规范书 {sd.spec_id || sd.title}（参数 {sd.param_rows.length} 行，★{sd.param_rows.filter((r) => r.star).length}）{!sd.structured && <Tag style={{ marginLeft: 8 }}>按附件逐项响应</Tag>}</>,
           children: (
             <Table size="small" rowKey="row" pagination={{ pageSize: 20 }} dataSource={sd.param_rows}
               columns={[
                 { title: '#', dataIndex: 'row', width: 50 },
                 { title: '参数名称', dataIndex: 'name', width: 140 },
                 { title: '项目需求值', dataIndex: 'required', render: (v: string, r) => <>{r.star && <Tag color="red">★</Tag>}{v}</> },
-                { title: '投标人保证值（S3 自动填）', dataIndex: 'response', width: 200, render: (v: string | null, r) => (
+                { title: '投标人保证值（生成标书时填写）', dataIndex: 'response', width: 200, render: (v: string | null, r) => (
                   <Input size="small" value={v ?? ''} placeholder="待填" onChange={(e) => {
                     const rows = sd.param_rows.map((x) => x.row === r.row ? { ...x, response: e.target.value || null } : x)
                     const docs = pkg.spec_docs.map((d, i) => i === si ? { ...d, param_rows: rows } : d)
@@ -97,7 +97,7 @@ function PackagePanel({ pkg, onChange }: { pkg: PackageTRM; onChange: (p: Packag
   )
 }
 
-/** TRM 确认页：机器解析结果逐项核对/修改 → 提交人工确认版（下游一律以确认版为准）。 */
+/** 采购信息核对页：逐项核对解析结果，保存后用于后续投标准备。 */
 export default function TrmConfirmPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
@@ -113,7 +113,7 @@ export default function TrmConfirmPage() {
     setSaving(true)
     try {
       await api.confirmTrm(id, trm)
-      message.success('确认版已保存，下游流程将以此为准')
+      message.success('采购信息已保存，将用于资格自检、标书生成和审查')
       nav(`/projects/${id}`)
     } catch (e) { message.error(String(e)) } finally { setSaving(false) }
   }
@@ -124,7 +124,7 @@ export default function TrmConfirmPage() {
       <Card size="small">
         <Space wrap>
           <Text strong>{trm.batch_name || trm.source_zip}</Text>
-          <Tag>{trm.batch_no || '批次号未抽到'}</Tag>
+          <Tag>{trm.batch_no || '批次号未识别'}</Tag>
           <Tag color="blue">{trm.terminology}体系</Tag>
           <Text type="secondary">前附表 {trm.prenotice.length} 条 · 否决 {trm.rejection_rules.length} 条 · 提交项 {trm.submission_table.length} · 标包 {trm.packages.length} · 评分模板 {trm.scoring_templates.length}</Text>
         </Space>
@@ -158,9 +158,9 @@ export default function TrmConfirmPage() {
       ]} />
       <Card size="small" className="confirmation-actions">
         <Space wrap>
-          <Button type="primary" loading={saving} onClick={save}>确认并保存为人工确认版</Button>
+          <Button type="primary" loading={saving} onClick={save}>确认采购信息并保存</Button>
           <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
-          <Text type="secondary">确认后下游（资格自检/生成/审查）一律使用确认版</Text>
+          <Text type="secondary">请对照采购原件核对；保存后的信息将用于资格自检、标书生成和审查</Text>
         </Space>
       </Card>
     </Space>
