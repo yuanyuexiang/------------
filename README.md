@@ -105,3 +105,17 @@ open http://localhost:8080
 
 专项回归：`pytest -q tests/test_reliability.py tests/test_export_workflow.py tests/test_auth.py`。
 业务验收仍待完成：独立人工标注集的字段级准确率报告、未参与调试标包的全流程计时、生成 Word/PDF 的逐节逐页核对。已有真实样本回归不替代这些验收。
+
+## 标准成品对比
+
+安装项目后，可对任意标准 DOCX 和生成 DOCX 执行只读对比：
+
+```bash
+python scripts/compare_documents.py <标准.docx> <生成.docx> -o data/comparison.json
+```
+
+报告列出业务表数、标题差异、待补充、超出所在节页面边界的行内图片，
+并按原图 SHA-256、裁剪、旋转、翻转及重复次数比较图片视图。
+标题不同不等于正文缺失，图片一致也不能证明资格、日期或业务事实正确；
+仍需渲染并逐页核对。`GOOD/`、`BAD/` 和 `data/` 均为本地资料，不进入 Git。
+商务母版的长格式标题及编号子章节单独识别，避免因短标题抽取限制漏入目录。

@@ -291,7 +291,7 @@ def find_table(doc, keywords: list[str], min_hits: int = 2, head_rows: int = 3) 
 
 
 def set_cell_text(cell: _Cell, text: str) -> None:
-    """只改文本：保留首段的段落格式与首个 run 的字体。"""
+    """保留首个 run 字体，填写的数据使用紧凑行距，避免母版网格放大行高。"""
     paras = cell.paragraphs
     p = paras[0]
     # 某些采购母版的数据格套用了带大纲级别的自定义样式；填写后的值不是章节标题。
@@ -303,6 +303,16 @@ def set_cell_text(cell: _Cell, text: str) -> None:
     outline.set(qn("w:val"), "9")
     # 数据格不能继承母版标题的“与下段同页”，否则多行表与后续证据连锁推到下一页。
     p.paragraph_format.keep_with_next = False
+    # 母版的 1.5 倍行距叠加节网格，在 LibreOffice 中可膨胀至约 47 磅。
+    # 仅调整新填写的数据段落，不改变原始要求、表头、签章或表格合并关系。
+    grid = properties.find(qn('w:snapToGrid'))
+    if grid is None:
+        grid = OxmlElement('w:snapToGrid')
+        properties.append(grid)
+    grid.set(qn('w:val'), '0')
+    p.paragraph_format.line_spacing = 1.15
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
     for extra in paras[1:]:
         extra._p.getparent().remove(extra._p)
     runs = p.runs

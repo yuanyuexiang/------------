@@ -239,6 +239,35 @@ def _cert_section(ctx: GenContext, doc, anchor_el, title: str, certs: list):
     return last
 
 
+def _commercial_headings(doc, format_blocks) -> None:
+    """恢复长商务格式标题的层级；短标题抽取结果不能充当完整章节目录。"""
+    titles = {M.norm(block.title) for block in format_blocks}
+    topics = (
+        '法定代表人（单位负责人）授权委托书', '商务偏差表', '响应保证保险格式',
+        '响应保证金', '响应保证金银行保函格式', '汇款凭证', '银行基本账户证明扫描件',
+        '响应供应商与国家电网公司系统人员关系说明', '响应供应商基本情况表',
+        '企业法人营业执照', '有效的税务登记证明',
+        '符合采购文件响应供应商资格要求的证明文件',
+        '符合第一章响应供应商资格要求的证明文件', '查询报告及截图', '财务状况',
+        '采购文件“响应供应商须知前附表附件', '企业名称变更', '联合体协议书',
+        'XX年财务信息审核结果凭证单', '公章对投标专用章授权书',
+    )
+    for paragraph in doc.paragraphs:
+        text = M.norm(paragraph.text)
+        match = re.match(r'^(\d+(?:\.\d+)*)[.．、]?\s*(.+)$', text)
+        title = match[2] if match else text
+        # 只匹配明确的格式名称，不能把保险条款、填表说明等编号正文提升为标题。
+        known = title in titles or any(
+            title == topic or title.startswith(topic + '（') or title.startswith(topic + '(')
+            for topic in topics
+        ) or title.startswith('采购文件“响应供应商须知前附表附件')
+        if not known:
+            continue
+        level = min(3, 2 + match[1].count('.')) if match else 2
+        if M._style_or_none(doc, f'Heading {level}') is not None:
+            paragraph.style = f'Heading {level}'
+
+
 def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
     doc = M.carve(master_path, "commercial")
     if doc is None:
@@ -250,12 +279,7 @@ def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
     M.remove_guidance(doc)
     from .optional_sections import apply_optional_sections
     apply_optional_sections(doc, ctx)
-    format_titles = {M.norm(block.title) for block in ctx.trm.format_blocks}
-    for paragraph in doc.paragraphs:
-        text = M.norm(paragraph.text)
-        title = re.sub(r"^\d+(?:\.\d+)*[.．、]?", "", text)
-        if title in format_titles and M._style_or_none(doc, "Heading 2") is not None:
-            paragraph.style = "Heading 2"
+    _commercial_headings(doc, ctx.trm.format_blocks)
     M.fill_all(doc, _subs(ctx))
     _fill_basic_info(doc, ctx)
 
