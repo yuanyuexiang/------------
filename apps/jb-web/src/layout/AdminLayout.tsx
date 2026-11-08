@@ -36,7 +36,7 @@ function PasswordModal({ open, onClose, forced }: { open: boolean; onClose: () =
 
 /** 管理后台外壳：侧边栏菜单（投标项目 / 企业资料 / 系统设置 / 用户与权限·仅管理员），顶栏用户菜单。 */
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const nav = useNavigate()
   const { user, devSecret, logout } = useAuth()
   const [collapsed, setCollapsed] = useState(() => {
@@ -56,10 +56,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     : pathname.startsWith('/users') ? '/users' : '/'
   const isAdmin = user?.role === 'admin'
   const section = selected === '/kb' ? '企业资料' : selected === '/settings' ? '系统设置' : selected === '/users' ? '用户与权限' : '投标项目'
-  const page = pathname.endsWith('/workbench') ? { title: '准备投标文件', description: '准备投标文件，核查问题，并完成正式导出。' }
+  const page = pathname.endsWith('/workbench') ? new URLSearchParams(search).get('view') === 'review'
+    ? { title: '审阅与导出', description: '检查当前版本，处理问题，并导出正式投标文件。' }
+    : { title: '准备与生成', description: '准备本包资料与安排，生成商务和技术文件。' }
     : pathname.endsWith('/qualify') ? { title: '检查投标资格', description: '对照招标要求，逐项核查企业资格与证明材料。' }
     : pathname.endsWith('/trm') ? { title: '核对采购信息', description: '对照采购原件，核对项目、包号、关键条款和人员、业绩要求。' }
-    : pathname.startsWith('/projects/') ? { title: '项目详情', description: '掌握项目进度、关键日期和生成的文件。' }
+    : pathname.startsWith('/projects/') ? { title: '项目概览', description: '掌握项目进度、关键日期和生成的文件。' }
     : pathname.startsWith('/kb/') ? { title: '企业档案', description: '填写和更新企业信息，并上传投标所需的证明材料。' }
     : selected === '/kb' ? { title: section, description: '集中管理企业信息、证照、人员、业绩与产品资料。' }
     : selected === '/settings' ? { title: section, description: '管理评分标准、文件检查规则和 AI 服务。' }
@@ -69,7 +71,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <Layout className="admin-shell">
-      <Sider className="admin-sidebar" collapsed={collapsed} collapsedWidth={72} width={224}>
+      <Sider className="admin-sidebar" breakpoint="lg" onBreakpoint={small => { if (small) setCollapsed(true) }} collapsed={collapsed} collapsedWidth={72} width={224}>
         <Link to="/" className="admin-logo" aria-label="金榜首页">
           <img className="admin-logo-icon" src="/logo.svg" alt="金榜" />
           {!collapsed && <span className="admin-logo-name">金榜<small>JINBANG</small></span>}

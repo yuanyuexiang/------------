@@ -1,9 +1,10 @@
 import { errorMessage, purchaseWarningLabel } from '../uiLabels'
-import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useBeforeUnload, useBlocker, useNavigate, useParams } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useProjectWorkspace } from '../components/ProjectWorkspace'
 import {
-  Alert, Button, Card, Collapse, Descriptions, Form, Input, InputNumber, Select, Space, Spin, Switch, Table, Tabs, Tag, Typography, message,
+  Alert, Button, Card, Collapse, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin, Switch, Table, Tabs, Tag, Typography, message,
 } from 'antd'
 import { api, KeyTerms, PackageTRM, TRM } from '../api'
 
@@ -102,20 +103,43 @@ function PackagePanel({ pkg, onChange }: { pkg: PackageTRM; onChange: (p: Packag
 export default function TrmConfirmPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
+  const qc = useQueryClient()
+  const { href, pkgIndex, setPkgIndex } = useProjectWorkspace()
   const { data, isLoading, error } = useQuery({ queryKey: ['trm', id], queryFn: () => api.trm(id, true) })
   const [trm, setTrm] = useState<TRM | null>(null)
   const [saving, setSaving] = useState(false)
-  useEffect(() => { if (data) setTrm(data) }, [data])
+  const saved = useRef('')
+  const dirty = !!trm && JSON.stringify(trm) !== saved.current
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && !saving && currentLocation.pathname !== nextLocation.pathname)
+  useBeforeUnload(useCallback((event: BeforeUnloadEvent) => {
+    if (dirty) { event.preventDefault(); event.returnValue = '' }
+  }, [dirty]))
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    const dialog = Modal.confirm({ title: '采购信息尚未保存', content: '离开后将丢弃本次修改。请先保存，或确认放弃修改。',
+      okText: '放弃修改并离开', cancelText: '继续核对', onOk: () => blocker.proceed(), onCancel: () => blocker.reset() })
+    return () => dialog.destroy()
+  }, [blocker])
+  useEffect(() => { if (data) { saved.current = JSON.stringify(data); setTrm(data) } }, [data])
 
   if (error) return <Alert type="error" message={errorMessage(error)} />
   if (isLoading || !trm) return <Spin />
 
-  const save = async () => {
+  const save = async (continueToQualification = false) => {
     setSaving(true)
     try {
       await api.confirmTrm(id, trm)
+      saved.current = JSON.stringify(trm)
+      qc.setQueryData(['trm', id], trm)
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['project-detail', id] }),
+        qc.invalidateQueries({ queryKey: ['projects'] }),
+        qc.invalidateQueries({ queryKey: ['qualification', id] }),
+        qc.invalidateQueries({ queryKey: ['workflow', id] }),
+        qc.invalidateQueries({ queryKey: ['preparation', id] }),
+      ])
       message.success('采购信息已保存，将用于检查投标资格、标书生成和审查')
-      nav(`/projects/${id}`)
+      if (continueToQualification) nav(href('qualify'))
     } catch (e) { message.error(errorMessage(e)) } finally { setSaving(false) }
   }
   const setPkg = (i: number, p: PackageTRM) => setTrm({ ...trm, packages: trm.packages.map((x, k) => k === i ? p : x) })
@@ -137,7 +161,7 @@ export default function TrmConfirmPage() {
       <Tabs items={[
         { key: 'kt', label: '关键投标要求', children: <KeyTermsForm kt={trm.key_terms} onChange={(k) => setTrm({ ...trm, key_terms: k })} /> },
         { key: 'pk', label: `采购包（${trm.packages.length}）`, children: (
-          <Tabs className="package-tabs" tabPosition="top" items={trm.packages.map((p, i) => ({
+          <Tabs className="package-tabs" tabPosition="top" activeKey={String(pkgIndex)} onChange={key => setPkgIndex(Number(key))} items={trm.packages.map((p, i) => ({
             key: String(i), label: `${p.sub_no} ${p.sub_name} ${p.pkg_no}`.trim() || `包 ${i + 1}`,
             children: <PackagePanel pkg={p} onChange={(np) => setPkg(i, np)} />,
           }))} />
@@ -169,8 +193,8 @@ export default function TrmConfirmPage() {
       ]} />
       <Card size="small" className="confirmation-actions">
         <Space wrap>
-          <Button type="primary" loading={saving} onClick={save}>确认采购信息并保存</Button>
-          <Button onClick={() => nav(`/projects/${id}`)}>返回</Button>
+          <Button type="primary" loading={saving} onClick={() => save(true)}>确认并检查投标资格</Button>
+          <Button disabled={saving} onClick={() => save()}>仅保存，留在本页</Button>
           <Text type="secondary">请对照采购原件核对；保存后的信息将用于检查投标资格、标书生成和审查</Text>
         </Space>
       </Card>

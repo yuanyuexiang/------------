@@ -13,6 +13,7 @@ import KbListPage from './pages/kb/KbListPage'
 import KbCompanyPage from './pages/kb/KbCompanyPage'
 import SettingsPage from './pages/settings/SettingsPage'
 import UsersPage from './pages/UsersPage'
+import ProjectWorkspace from './components/ProjectWorkspace'
 
 /** 旧链接 /profiles/:name → 知识库企业页。 */
 function ProfileRedirect() {
@@ -41,10 +42,12 @@ export default function App() {
           <AdminLayout>
             <Routes>
               <Route path="/" element={<ProjectsPage />} />
-              <Route path="/projects/:id" element={<ProjectDetailPage />} />
-              <Route path="/projects/:id/trm" element={<TrmConfirmPage />} />
-              <Route path="/projects/:id/qualify" element={<QualifyPage />} />
-              <Route path="/projects/:id/workbench" element={<WorkbenchPage />} />
+              <Route path="/projects/:id" element={<ProjectWorkspace />}>
+                <Route index element={<ProjectDetailPage />} />
+                <Route path="trm" element={<TrmConfirmPage />} />
+                <Route path="qualify" element={<QualifyPage />} />
+                <Route path="workbench" element={<WorkbenchPage />} />
+              </Route>
               <Route path="/kb" element={<KbListPage />} />
               <Route path="/kb/:name" element={<KbCompanyPage />} />
               <Route path="/profiles/:name" element={<ProfileRedirect />} />

@@ -11,6 +11,7 @@ import os
 import shutil
 import tempfile
 import uuid
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -83,6 +84,26 @@ def qualify_selected(p: Project, trm: TRM, profile: CompanyProfile, use_llm: boo
         qualify_package(pkg, selected_profile(p, i, profile), use_llm,
                         deadline=p.deadline or trm.key_terms.bid_deadline, trm=trm)
         for i, pkg in enumerate(trm.packages)])
+
+
+def save_qualification_report(p: Project, profile: str, report: dict, input_hash: str,
+                              confirmed: bool) -> None:
+    reports = dict((p.results or {}).get('qualification_reports', {}))
+    reports[profile] = {'report': report, 'input_hash': input_hash,
+                        'confirmed': confirmed, 'checked_on': date.today().isoformat()}
+    pm.set_result(p, 'qualification_reports', reports)
+
+
+def qualification_state(s, p: Project, profile: str) -> dict:
+    """按企业恢复检查结果；采购信息、选材或本次安排变化后只作为历史依据展示。"""
+    _, _, current_hash = inputs(s, p, profile)
+    saved = (p.results or {}).get('qualification_reports', {}).get(profile)
+    if not saved:
+        previous = (p.results or {}).get('qualify', {})
+        return {'report': None, 'stale': previous.get('profile') == profile}
+    return {'report': saved['report'], 'stale': saved.get('input_hash') != current_hash
+            or saved.get('confirmed') != (p.trm_confirmed is not None)
+            or saved.get('checked_on') != date.today().isoformat()}
 
 
 def save_selection(p: Project, pkg_index: int, profile: CompanyProfile, data: dict) -> None:

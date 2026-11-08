@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Card, Empty, Select, Space, Switch, Table, Tag, Typography, message } from 'antd'
-import { api, Check, FeasibilityReport } from '../api'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Alert, Button, Card, Empty, Space, Switch, Table, Tag, Typography, message } from 'antd'
+import { api, Check } from '../api'
+import { useProjectWorkspace } from '../components/ProjectWorkspace'
 import { errorMessage, checkStatusLabel } from '../uiLabels'
 
 const VERDICT: Record<string, string> = { 可投: 'green', 有风险: 'orange', 不可投: 'red' }
@@ -12,36 +13,45 @@ const STATUS: Record<string, string> = { 满足: 'green', 风险: 'orange', 不�
 export default function QualifyPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
-  const { data: profiles = [] } = useQuery({ queryKey: ['profiles'], queryFn: api.profiles })
-  const [profile, setProfile] = useState<string>()
+  const qc = useQueryClient()
+  const { project, profile, pkgIndex, href, setSelectionLocked } = useProjectWorkspace()
   const [llm, setLlm] = useState(true)
-  const [report, setReport] = useState<FeasibilityReport | null>(null)
   const [running, setRunning] = useState(false)
+  const { data: result, error, isFetching } = useQuery({ queryKey: ['qualification', id, profile],
+    queryFn: () => api.qualification(id, profile!), enabled: !!profile, staleTime: 0 })
+  const report = result?.report
+  const selected = report?.packages[pkgIndex]
 
   const run = async () => {
     if (!profile) return message.warning('请选择企业档案')
     setRunning(true)
-    try { setReport((await api.qualify(id, profile, llm)).report) } catch (e) { message.error(errorMessage(e)) } finally { setRunning(false) }
+    setSelectionLocked(true)
+    try {
+      await api.qualify(id, profile, llm)
+      await Promise.all([qc.invalidateQueries({ queryKey: ['qualification', id] }), qc.invalidateQueries({ queryKey: ['project-detail', id] }), qc.invalidateQueries({ queryKey: ['projects'] })])
+      message.success('资格检查已完成，请查看本包结论与风险')
+    } catch (e) { message.error(errorMessage(e)) } finally { setRunning(false); setSelectionLocked(false) }
   }
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       <Card size="small" title="选择检查资料" className="business-toolbar">
         <div className="qualification-inputs">
-          <div><label htmlFor="qualify-profile">本次投标企业</label><Select id="qualify-profile" placeholder="选择企业档案" value={profile} onChange={setProfile}
-            options={profiles.map((p) => ({ value: p.name, label: `${p.name}（${p.credit_code || '无信用代码'}）` }))} /></div>
           <div className="workbench-draft"><span>AI 辅助判断业绩是否相关<small>比较历史项目与采购要求是否相符</small></span><Switch aria-label="AI 辅助判断业绩是否相关" checked={llm} onChange={setLlm} /></div>
         </div>
         <div className="workbench-action-bar">
-          <Space wrap><Button type="primary" loading={running} onClick={run}>开始检查投标资格</Button>
-          {profile && <Button onClick={() => nav(`/kb/${encodeURIComponent(profile)}?tab=performances`)}>补全企业档案</Button>}</Space>
-          <Button onClick={() => nav(`/projects/${id}`)}>返回项目</Button>
+          <Space wrap><Button type="primary" disabled={!profile || isFetching} loading={running} onClick={run}>{report ? '重新检查投标资格' : '开始检查投标资格'}</Button>
+          {profile && <Button onClick={() => nav(`/kb/${encodeURIComponent(profile)}?tab=performances&returnTo=${encodeURIComponent(href('qualify'))}`)}>补全企业档案</Button>}
+          <Button disabled={!profile || running} onClick={() => nav(href('workbench', pkgIndex, 'prepare'))}>{selected?.verdict === '可投' && !result?.stale ? '下一步：准备本包文件' : '准备本包资料与处理风险'}</Button></Space>
         </div>
-        {profiles.length === 0 && <Alert style={{ marginTop: 8 }} type="info" message="暂无企业档案：请先到左侧「企业资料」新建企业并补齐资料，再检查投标资格。" />}
+        {!profile && <Alert style={{ marginTop: 8 }} type="info" message="请在项目顶部选择投标企业；尚无档案时，请先到企业资料中新建。" />}
+        {!project.confirmed && <Alert style={{ marginTop: 8 }} type="warning" message="当前为未确认采购信息下的初筛，确认或修改采购信息后需要重新检查。" action={<Button onClick={() => nav(href('trm'))}>核对采购信息</Button>} />}
       </Card>
-      {!report && <Card className="business-empty"><Empty description={<span>选择企业档案并开始检查<br /><small>检查结果将按分包展示，并列出依据与待补充材料</small></span>} /></Card>}
+      {error && <Alert type="error" message="无法恢复资格报告" description={errorMessage(error)} />}
+      {result?.stale && <Alert type="warning" showIcon message="采购信息或投标资料已变化，请重新检查资格" description="已有报告仅作历史参考，不代表本包当前资格结论。" />}
+      {!report && <Card className="business-empty"><Empty description={isFetching ? '正在恢复资格报告…' : <span>选择企业档案并开始检查<br /><small>检查覆盖各采购包，下方展示顶部所选采购包的结果</small></span>} /></Card>}
       {report && <div className="result-summary" aria-label="资格检查结果"><span>本次资格检查 · {report.packages.length} 个分包</span>{Object.entries(VERDICT).map(([verdict, color]) => <Tag key={verdict} color={color}>{verdict} {report.packages.filter((p) => p.verdict === verdict).length}</Tag>)}</div>}
-      {report && report.packages.map((p) => (
+      {selected && [selected].map((p) => (
         <Card key={p.pkg_no + p.sub_no} size="small"
           title={<Space><span>{p.sub_no} {p.sub_name} {p.pkg_no}</span><Tag color={VERDICT[p.verdict]}>{p.verdict}</Tag></Space>}
           extra={<Typography.Text type="secondary">{p.project_name}</Typography.Text>}>

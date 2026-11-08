@@ -7,6 +7,7 @@ import { api, FactSuggestions, PreparationState, BidMember, Person } from '../ap
 import CompanyFactsFields, { STAT_FIELDS } from './CompanyFactsFields'
 import RelationshipConfirmation from './RelationshipConfirmation'
 import './PreparationPanel.css'
+import { projectUrl } from '../projectNavigation'
 
 const LABELS: Record<string, string> = { ...Object.fromEntries(STAT_FIELDS), staff_as_of: '统计日期', staff_source: '统计依据', signed_date: '合同签约日期', shareholders: '股东出资明细' }
 export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSaved, onRepair }: {
@@ -48,9 +49,10 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     return () => { active = false; setSuggesting(false) }
   }, [editor, id, profile, pkgIndex, disabled])
   const snapshot = editor?.snapshot
-  const personLink = (person?: Person) => `/kb/${encodeURIComponent(profile)}?tab=personnel&item=${person?.id ?? 'new'}&returnTo=${encodeURIComponent(`/projects/${id}/workbench`)}`
+  const returnTo = projectUrl(id, 'workbench', { profile, pkgIndex }, 'prepare')
+  const personLink = (person?: Person) => `/kb/${encodeURIComponent(profile)}?tab=personnel&item=${person?.id ?? 'new'}&returnTo=${encodeURIComponent(returnTo)}`
   const refresh = async () => {
-    for (const key of [['profile', profile], ['profiles'], ['materials', id], ['workflow', id], ['preparation', id], ['relationship', id]]) await qc.invalidateQueries({ queryKey: key })
+    for (const key of [['profile', profile], ['profiles'], ['materials', id], ['workflow', id], ['preparation', id], ['relationship', id], ['qualification', id]]) await qc.invalidateQueries({ queryKey: key })
     await refetch(); onSaved()
   }
   const open = (kind: string) => {
@@ -214,14 +216,14 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
               {selectedPerformance && <Card size="small" title="现有材料与出处"><Typography.Paragraph>{selectedPerformance.source || '暂无文字出处'}</Typography.Paragraph>{attachmentsFor(selectedPerformance.attachments)}</Card>}
               <Form.Item name="signed_date" label="合同签约日期" rules={[{ required: true }]}><Input type="date" /></Form.Item>
               <Form.Item name="source" label="本次核对依据及页码" rules={[{ required: true }]}><Input.TextArea rows={3} placeholder="合同名称、第几页、签署日期记载；不得用发票开具日代替" /></Form.Item>
-              {selectedPerformance && <Link to={`/kb/${encodeURIComponent(profile)}?tab=performances&item=${selectedPerformance.id}&returnTo=${encodeURIComponent(`/projects/${id}/workbench`)}`}>补充该业绩附件</Link>}
+              {selectedPerformance && <Link to={`/kb/${encodeURIComponent(profile)}?tab=performances&item=${selectedPerformance.id}&returnTo=${encodeURIComponent(returnTo)}`}>补充该业绩附件</Link>}
             </>}
 
             {['system', 'other'].includes(editor.kind) && <Space direction="vertical" size="middle" style={{ width: '100%' }}>
               <Alert type="info" showIcon message={snapshot.generation_stale ? '这些是旧文件问题，先更新标书再复核' : '先由 AI 重新查找原文、修复引用并起草内容'} description="系统不会替您确认人员投入或编造企业事实。更新后仍未解决的项目保留具体位置和说明。" />
               <Table size="small" rowKey={r => r.file + r.message} pagination={{ pageSize: 5 }} dataSource={snapshot.tasks.find(t => t.id === editor.kind)?.items ?? []} columns={[
                 { title: '问题及位置', render: (_, r) => <><Typography.Paragraph>{r.message}</Typography.Paragraph><Typography.Text type="secondary">{r.file}</Typography.Text></> },
-                { title: '处理方式', width: '40%', render: (_, r) => /原文|规范正文|招标编号|分标名称/.test(r.message) ? <><Typography.Paragraph>核对采购原件中的这一项；若原件已提供，重新解析后更新标书。</Typography.Paragraph><Link to={`/projects/${id}/trm`}>核对采购信息</Link></> : <Typography.Paragraph>{/引用|来源|数值/.test(r.message) ? '系统重新匹配原文和证据，修复可验证的引用；无法证实的值继续保留提示。' : /起草|响应|方案|模型/.test(r.message) ? 'AI 根据本包原文重新起草并检查；失败时在生成结果中显示原因。' : '系统重新查找已选企业资料并填充；仍无法确定的内容会保留原问题，请按此项名称核对具体资料。'}</Typography.Paragraph> },
+                { title: '处理方式', width: '40%', render: (_, r) => /原文|规范正文|招标编号|分标名称/.test(r.message) ? <><Typography.Paragraph>核对采购原件中的这一项；若原件已提供，重新解析后更新标书。</Typography.Paragraph><Link to={projectUrl(id, 'trm', { profile, pkgIndex })}>核对采购信息</Link></> : <Typography.Paragraph>{/引用|来源|数值/.test(r.message) ? '系统重新匹配原文和证据，修复可验证的引用；无法证实的值继续保留提示。' : /起草|响应|方案|模型/.test(r.message) ? 'AI 根据本包原文重新起草并检查；失败时在生成结果中显示原因。' : '系统重新查找已选企业资料并填充；仍无法确定的内容会保留原问题，请按此项名称核对具体资料。'}</Typography.Paragraph> },
               ]} />
               <Button type="primary" disabled={disabled} onClick={() => { setEditor(undefined); onRepair() }}>AI 更新标书并检查</Button>
               <Typography.Text type="secondary">本次更新整个采购包的商务、技术文件，不只重试单个章节。旧版本保留，完成后审阅新版本。</Typography.Text>

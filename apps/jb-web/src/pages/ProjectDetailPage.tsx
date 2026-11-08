@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Col, Descriptions, Input, Popconfirm, Row, Select, Space, Spin, Steps, Table, Tag, Timeline, Typography, message } from 'antd'
+import { Alert, Button, Card, Col, Descriptions, Input, Popconfirm, Row, Select, Space, Spin, Table, Tag, Timeline, Typography, message } from 'antd'
 import { api, fmtUtc, ProjectEvent } from '../api'
 import { errorMessage, reviewLevelLabel, taskKindLabel, taskMessageLabel } from '../uiLabels'
 import { DaysLeft, OUTCOME_COLOR } from './ProjectsPage'
+import { useProjectWorkspace } from '../components/ProjectWorkspace'
 
-const STAGE_TITLE = ['读取采购文件', '核对采购信息', '检查投标资格', '生成标书', '检查投标文件', '提交投标文件']
 const VERDICT_COLOR: Record<string, string> = { 可投: 'green', 有风险: 'orange', 不可投: 'red' }
 const EVENT_COLOR: Record<string, string> = {
   parsed: 'blue', confirmed: 'cyan', qualified: 'geekblue', generated: 'purple', reviewed: 'gold', scored: 'purple',
@@ -22,6 +22,7 @@ const fmt = fmtUtc
 export default function ProjectDetailPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
+  const { href } = useProjectWorkspace()
   const qc = useQueryClient()
   const { data: p, isLoading } = useQuery({ queryKey: ['project-detail', id], queryFn: () => api.projectDetail(id), refetchInterval: (q) => (q.state.data?.tasks ?? []).some((t) => t.status === 'running' || t.status === 'queued') ? 3000 : false })
   const [deadline, setDeadline] = useState('')
@@ -37,10 +38,6 @@ export default function ProjectDetailPage() {
 
   const ready = ['parsed', 'confirmed'].includes(p.status)
   const r = p.results
-  // 各环节按实际结果逐项点亮（可以直接进入后续操作：未核对采购信息也能自检），而不是"到达最远阶段前全部算完成"
-  const done = [ready, p.confirmed, !!r.qualify, !!r.generate && Object.keys(r.generate).length > 0,
-    !!r.review && Object.keys(r.review).length > 0, ['submitted', 'won', 'lost'].includes(p.outcome)]
-  const current = Math.max(0, done.lastIndexOf(true))
   const timeDirty = deadline !== p.deadline || openTime !== p.open_time
 
   return (
@@ -49,14 +46,8 @@ export default function ProjectDetailPage() {
 
       <Card className="project-detail-overview" size="small" title={<Space wrap>{p.batch_name || p.filename}<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{p.batch_no}</Typography.Text><Tag color={OUTCOME_COLOR[p.outcome]}>{p.outcome_cn}</Tag></Space>}
         extra={<Space wrap>
-          <Button type="primary" disabled={!ready} onClick={() => nav(`/projects/${id}/trm`)}>{p.confirmed ? '查看采购信息' : '核对采购信息'}</Button>
-          <Button disabled={!ready} onClick={() => nav(`/projects/${id}/qualify`)}>检查投标资格</Button>
-          <Button disabled={!ready} onClick={() => nav(`/projects/${id}/workbench`)}>准备标书</Button>
           <Popconfirm title="删除项目及其生成的文件？" onConfirm={async () => { await api.deleteProject(id); nav('/') }}><Button danger>删除</Button></Popconfirm>
         </Space>}>
-        <div className="project-stage-panel"><div className="section-caption">投标准备进度<span>按各环节实际结果展示</span></div>
-        <Steps size="small" current={current} status={p.status === 'failed' ? 'error' : 'finish'}
-          items={STAGE_TITLE.map((t, i) => ({ title: t, status: p.status === 'failed' && i === 0 ? 'error' : done[i] ? 'finish' : 'wait' }))}  /></div>
         <Row gutter={[24, 20]}>
           <Col xs={24} xl={16}>
             <Descriptions size="small" column={2} bordered labelStyle={{ width: 96, whiteSpace: 'nowrap' }}>
@@ -104,6 +95,9 @@ export default function ProjectDetailPage() {
             { title: '生成', width: 150, render: (_, row) => { const g = r.generate?.[row.result_key]; return g ? <Tag color={g.export_blocked ? 'orange' : 'green'}>待补充 {g.todo_count}{g.with_draft ? ' · 含起草' : ''}</Tag> : '—' } },
             { title: '上次文件检查结果', width: 210, render: (_, row) => { const v = r.review?.[row.result_key]; return v ? <Tag>{v.blocked ? '有投标无效风险' : '未发现投标无效风险'} {Object.entries(v.counts).map(([k, n]) => `${reviewLevelLabel(k)}${n}`).join(' ')}</Tag> : '—' } },
             { title: '预估评分', width: 190, render: (_, row) => { const v = r.score?.[row.result_key]; return v ? <span>技术 {v.tech_total ?? '—'}/{v.tech_max} · 商务 {v.biz_total ?? '—'}/{v.biz_max}{v.weighted !== null ? ` · 按权重折算 ${v.weighted}` : ''}</span> : '—' } },
+            { title: '继续办理', width: 140, fixed: 'right', render: (_, row, index) => <Button size="small" disabled={!ready}
+              onClick={() => nav(href(!p.confirmed ? 'trm' : r.generate?.[row.result_key] ? 'workbench' : 'qualify', index,
+                r.generate?.[row.result_key] ? 'review' : undefined))}>{!p.confirmed ? '核对信息' : r.generate?.[row.result_key] ? '审阅本包标书' : '检查本包资格'}</Button> },
           ]} />
       </Card>
 

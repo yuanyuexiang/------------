@@ -327,4 +327,6 @@ export const api = {
   qualify: (id: string, profile: string, llm: boolean) =>
     req<{ report: FeasibilityReport; markdown: string }>(
       `/api/projects/${id}/qualify?profile=${encodeURIComponent(profile)}&llm=${llm}`, { method: 'POST' }),
+  qualification: (id: string, profile: string) => req<{ report: FeasibilityReport | null; stale: boolean }>(
+    `/api/projects/${id}/qualify?profile=${encodeURIComponent(profile)}`),
 }

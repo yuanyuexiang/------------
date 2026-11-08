@@ -162,7 +162,7 @@ export default function KbCompanyPage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      {params.get('returnTo')?.match(/^\/projects\/[a-z0-9]+\/workbench$/) && <Link to={params.get('returnTo')!}>返回本次标书准备页</Link>}
+      {params.get('returnTo')?.match(/^\/projects\/[a-z0-9]+\/(?:workbench|qualify)(?:\?[^#]*)?$/) && <Link to={params.get('returnTo')!}>返回本次投标</Link>}
       <Breadcrumb items={[{ title: <Link to="/kb">企业资料</Link> }, { title: profile.name }]} />
       <Card size="small" title={<Space>{profile.name}<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{profile.credit_code}</Typography.Text></Space>}>
         <Tabs activeKey={tab} onChange={(k) => { const next = new URLSearchParams(params); next.set('tab', k); next.delete('item'); setParams(next) }} destroyInactiveTabPane

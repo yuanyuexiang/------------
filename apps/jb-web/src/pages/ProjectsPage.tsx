@@ -5,6 +5,7 @@ import { Button, Card, Dropdown, Input, Popconfirm, Progress, Segmented, Space, 
 import { ClockCircleOutlined, FileSearchOutlined, InboxOutlined, MoreOutlined, SearchOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { api, Project } from '../api'
 import { errorMessage, projectStageLabel, taskMessageLabel } from '../uiLabels'
+import { nextProjectAction, projectUrl } from '../projectNavigation'
 
 export const STAGE_COLOR: Record<string, string> = {
   '': 'default', parsed: 'blue', confirmed: 'cyan', qualified: 'geekblue', generated: 'purple', reviewed: 'gold', submitted: 'green',
@@ -35,7 +36,7 @@ export default function ProjectsPage() {
 
   const upload = async (file: File) => {
     try {
-      const { task_id } = await api.upload(file)
+      const { task_id, id } = await api.upload(file)
       setTask({ id: task_id, progress: 0, message: '已提交', status: 'queued' })
       timer.current = window.setInterval(async () => {
         const t = await api.task(task_id)
@@ -43,7 +44,8 @@ export default function ProjectsPage() {
         if (t.status === 'done' || t.status === 'failed') {
           if (timer.current) window.clearInterval(timer.current)
           qc.invalidateQueries({ queryKey: ['projects'] })
-          t.status === 'done' ? message.success('解析完成') : message.error(t.message)
+          if (t.status === 'done') { message.success('采购文件已读取，请核对采购信息'); nav(projectUrl(id, 'trm')) }
+          else message.error(t.message)
         }
       }, 1500)
     } catch (e) {
@@ -95,8 +97,8 @@ export default function ProjectsPage() {
             { title: '结果', dataIndex: 'outcome', width: 80, render: (o: string, r) => <Tag color={OUTCOME_COLOR[o]}>{r.outcome_cn}</Tag> },
             { title: '操作', width: 220, render: (_, r) => (
               <Space size="small">
-                <Button size="small" type="primary" onClick={() => nav(`/projects/${r.id}`)}>详情</Button>
-                <Button size="small" type="link" disabled={!ready(r)} onClick={() => nav(`/projects/${r.id}/workbench`)}>准备标书</Button>
+                <Button size="small" type="primary" onClick={() => { const next = nextProjectAction(r); nav(projectUrl(r.id, next.route, {}, next.view)) }}>{nextProjectAction(r).label}</Button>
+                <Button size="small" type="link" onClick={() => nav(`/projects/${r.id}`)}>概览</Button>
                 <Dropdown trigger={['click']} menu={{ items: [
                   { key: 'trm', label: r.confirmed ? '查看采购信息' : '核对采购信息', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/trm`) },
                   { key: 'qualify', label: '检查投标资格', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/qualify`) },

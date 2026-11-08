@@ -70,7 +70,7 @@ def _project_out(p: Project) -> dict:
             "days_left": pm.days_left(p.deadline), "stage": p.stage, "stage_cn": pm.STAGE_CN.get(p.stage, p.stage),
             "outcome": p.outcome, "outcome_cn": pm.OUTCOME_CN.get(p.outcome, p.outcome), "active": pm.is_active(p),
             "notes": p.notes, "pkg_nos": [k.get("pkg_no", "") for k in pkgs], "packages": len(pkgs),
-            "results": p.results or {}}
+            "results": {k: v for k, v in (p.results or {}).items() if k != 'qualification_reports'}}
 
 
 def _get_project(s, project_id: str) -> Project:
@@ -262,10 +262,25 @@ def get_task(task_id: str):
 
 # ---------- 资格自检（企业档案路由见 kb.py） ----------
 
+@app.get("/api/projects/{project_id}/qualify")
+def qualification_report(project_id: str, profile: str):
+    with session() as s:
+        try:
+            return workflow.qualification_state(s, _get_project(s, project_id), profile)
+        except workflow.WorkflowError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+
 @app.post("/api/projects/{project_id}/qualify")
 def qualify_project(project_id: str, profile: str, llm: bool = False):
     """资格自检：优先用人工确认版 TRM。"""
-    trm, cp = _load_trm_profile(project_id, profile)
+    with session() as s:
+        try:
+            p = _get_project(s, project_id)
+            trm, cp, input_hash = workflow.inputs(s, p, profile)
+            confirmed = p.trm_confirmed is not None
+        except workflow.WorkflowError as exc:
+            raise HTTPException(409, str(exc)) from exc
     if llm:
         from jb_parser.llm_fallback import enrich
         enrich(trm)
@@ -273,6 +288,7 @@ def qualify_project(project_id: str, profile: str, llm: bool = False):
         rep = workflow.qualify_selected(_get_project(s, project_id), trm, cp, llm)
     with session() as s:
         p = _get_project(s, project_id)
+        workflow.save_qualification_report(p, profile, rep.model_dump(), input_hash, confirmed)
         verdicts = {trm.package_key(i): pk.verdict for i, pk in enumerate(rep.packages)}
         pm.set_result(p, "qualify", {"profile": profile, "verdicts": verdicts, "llm": llm})
         pm.advance(p, "qualified")

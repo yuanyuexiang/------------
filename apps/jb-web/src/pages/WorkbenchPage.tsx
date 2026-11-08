@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Collapse, Empty, Modal, Progress, Select, Space, Steps, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Collapse, Empty, Modal, Progress, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
 import { errorMessage, purchaseWarningLabel, reviewLevelLabel, scoreKindLabel, scoreMethodLabel, taskMessageLabel } from '../uiLabels'
 import MaterialPicker from '../components/MaterialPicker'
 import PreparationPanel from '../components/PreparationPanel'
+import { useProjectWorkspace } from '../components/ProjectWorkspace'
 
 const LEVEL: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
 const VERDICT: Record<string, string> = { satisfied: 'green', deviation: 'red', unknown: 'orange', missing: 'default' }
@@ -15,11 +16,10 @@ const VERDICT_CN: Record<string, string> = { satisfied: '满足', deviation: '�
 export default function WorkbenchPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
+  const { profile, pkgIndex, href, setSelectionLocked } = useProjectWorkspace()
+  const [searchParams, setSearchParams] = useSearchParams()
   const qc = useQueryClient()
   const { data: trm } = useQuery({ queryKey: ['trm', id], queryFn: () => api.trm(id, true) })
-  const { data: profiles = [] } = useQuery({ queryKey: ['profiles'], queryFn: api.profiles })
-  const [profile, setProfile] = useState<string>()
-  const [pkgIndex, setPkgIndex] = useState(0)
   const [withDraft, setWithDraft] = useState(true)
   const [taskId, setTaskId] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -32,7 +32,13 @@ export default function WorkbenchPage() {
     queryKey: ['task', effectiveTaskId], queryFn: () => api.task(effectiveTaskId!), enabled: !!effectiveTaskId,
     refetchInterval: (q) => ['done', 'failed'].includes(q.state.data?.status ?? '') ? false : 2000,
   })
-  const [step, setStep] = useState(0)
+  const view = searchParams.get('view')
+  const step = view === 'review' ? 2 : view === 'generate' ? 1 : 0
+  const setStep = (value: number) => setSearchParams(current => {
+    const next = new URLSearchParams(current)
+    next.set('view', value === 2 ? 'review' : value === 1 ? 'generate' : 'prepare')
+    return next
+  }, { replace: true })
   const preparationAnchor = useRef<HTMLDivElement>(null)
   const { data: preparation, error: preparationError, isFetching: preparationLoading } = useQuery({
     queryKey: ['preparation', id, profile, pkgIndex],
@@ -50,8 +56,8 @@ export default function WorkbenchPage() {
   const running = busy || (!!effectiveTaskId && !['done', 'failed'].includes(task?.status ?? ''))
   const [score, setScore] = useState<{ items: ItemScore[]; tech_total: number | null; tech_max: number; biz_total: number | null; biz_max: number; weighted: number | null } | null>(null)
   const [matrix, setMatrix] = useState<{ section: string; seq: string; item: string; channels: string[]; port: string; status: string }[]>([])
-  useEffect(() => { if (!profile && flow?.profile) setProfile(flow.profile) }, [profile, flow?.profile])
-  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]); setStep(0) }, [id, profile, pkgIndex])
+  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]) }, [id, profile, pkgIndex])
+  useEffect(() => { setSelectionLocked(running); return () => setSelectionLocked(false) }, [running, setSelectionLocked])
   useEffect(() => {
     if (task?.kind === 'generate' && ['queued', 'running'].includes(task.status)) setStep(1)
     if (task?.status === 'done' || task?.status === 'failed') {
@@ -116,26 +122,20 @@ export default function WorkbenchPage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Card size="small" title="本次投标" className="workbench-controls">
+      {step !== 2 && <Card size="small" title="标书生成选项" className="workbench-controls">
         <div className="workbench-inputs">
-          <div><label htmlFor="workbench-profile">企业档案</label><Select id="workbench-profile" placeholder="请选择企业档案" disabled={running} value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} /></div>
-          <div><label htmlFor="workbench-package">本次分包</label><Select id="workbench-package" placeholder="请选择分包" disabled={running} value={pkgIndex} onChange={setPkgIndex}
-            options={(trm?.packages ?? []).map((p, i) => ({ value: i, label: `${p.pkg_no} ${p.project_name || p.sub_name || "分包信息待解析"}`.trim() }))} /></div>
           <div className="workbench-draft"><span>技术方案起草<small>AI 先写方案，人工核对事实与承诺</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
         </div>
         <Space style={{ marginTop: 16 }}>
-          <Button onClick={() => nav(`/projects/${id}/trm`)}>核对采购信息</Button>
           <Button disabled={running} onClick={async () => {
             setBusy(true)
             try { const result = await api.reparse(id); setTaskId(result.task_id); await refreshFlow() }
             catch (e) { message.error(errorMessage(e)) } finally { setBusy(false) }
           }}>重新解析原文件</Button>
-          <Button onClick={() => nav(`/projects/${id}`)}>返回项目</Button>
         </Space>
-      </Card>
-      <Steps current={step} onChange={value => { if (value === 1) goToGeneration(); else setStep(value) }}
-        items={[{ title: '准备资料' }, { title: '生成标书', disabled: running && step !== 1 },
-          { title: '审阅与导出', disabled: !gen }]} />
+      </Card>}
+      {step !== 2 && <Segmented value={step} onChange={value => value === 1 ? goToGeneration() : setStep(0)}
+        options={[{ value: 0, label: '准备资料' }, { value: 1, label: '生成标书', disabled: running && step !== 1 }]} />}
       {flowError && <Alert type="error" message="无法读取当前审查状态" description={errorMessage(flowError)} />}
       {preparationError && <Alert type="error" message="无法读取准备状态，请刷新重试" description={errorMessage(preparationError)} />}
       {step === 0 && <>
@@ -149,7 +149,7 @@ export default function WorkbenchPage() {
       <div ref={preparationAnchor}>
       {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onRepair={repair} onSaved={() => { setScore(null); void refreshFlow() }} />}
       </div>
-      {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }) }} />}
+      {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }); void qc.invalidateQueries({ queryKey: ['qualification', id] }) }} />}
 
       <Card size="small" title="准备检查">
         {!profile ? <Empty description="请先选择企业档案与采购包" /> : !readiness ? <Typography.Text>正在检查准备状态…</Typography.Text> : <Space direction="vertical" style={{ width: '100%' }}>
@@ -161,7 +161,7 @@ export default function WorkbenchPage() {
           {!!readiness.warnings.length && <Collapse items={[{ key: 'warnings', label: '资料与原文提醒（不强制阻止生成草稿）', children: <ul>{readiness.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul> }]} />}
         </Space>}
         <Space style={{ marginTop: 16 }}>
-          <Button type="primary" disabled={running || !readiness || !!preparationError || preparationLoading} onClick={() => readiness?.ready ? setStep(1) : readiness?.blockers.length ? nav(`/projects/${id}/trm`) : preparationAnchor.current?.scrollIntoView({ behavior: 'smooth' })}>
+          <Button type="primary" disabled={running || !readiness || !!preparationError || preparationLoading} onClick={() => readiness?.ready ? setStep(1) : readiness?.blockers.length ? nav(href('trm')) : preparationAnchor.current?.scrollIntoView({ behavior: 'smooth' })}>
             {readiness?.ready ? '下一步：生成标书' : readiness?.blockers.length ? '核对采购信息' : '继续完善资料'}
           </Button>
           <Button disabled={running || !readiness || !!readiness.blockers.length || !!preparationError || preparationLoading} onClick={draft}>生成待完善草稿</Button>
@@ -179,7 +179,7 @@ export default function WorkbenchPage() {
         </Space>
       </Card>}
       <div hidden={step !== 2}>
-      {!gen && <Empty description="尚未生成标书，请先完成准备资料" />}
+      {!gen && <Empty description="尚未生成标书，请先完成准备资料"><Button type="primary" onClick={() => setStep(0)}>前往准备资料</Button></Empty>}
       {gen && <Space style={{ marginBottom: 16 }}>
         <Button onClick={() => setStep(0)}>返回准备资料</Button>
         <Button type="primary" onClick={doReview} disabled={!profile || running || flow?.stale}>检查投标文件 / 复查</Button>
@@ -193,8 +193,8 @@ export default function WorkbenchPage() {
           message={flow.blockers.length ? '还有问题需要处理，暂时无法导出正式文件' : '当前文件已完成检查，可以导出正式文件'}
           description={flow.blockers.length ? <ul>{flow.blockers.map((reason) => <li key={reason}>{reason}</li>)}</ul> : '导出前仍会重新核对资料、规则和文件版本。'} />
         <Space wrap style={{ marginTop: 12 }}>
-          <Button onClick={() => nav(`/projects/${id}/trm`)}>1. 核对采购信息</Button>
-          <Button disabled={!profile} onClick={() => nav(`/kb/${encodeURIComponent(profile ?? '')}`)}>2. 补齐企业资料</Button>
+          <Button onClick={() => nav(href('trm'))}>1. 核对采购信息</Button>
+          <Button disabled={!profile} onClick={() => nav(`/kb/${encodeURIComponent(profile ?? '')}?returnTo=${encodeURIComponent(href('workbench', pkgIndex, 'prepare'))}`)}>2. 补齐企业资料</Button>
           <Button disabled={running || !profile} onClick={goToGeneration}>3. 前往{generationLabel}</Button>
           <Button disabled={running || !gen || !profile} onClick={doReview}>4. 复查本版本</Button>
         </Space>
