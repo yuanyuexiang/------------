@@ -185,6 +185,8 @@ export interface RequirementsState {
 export interface ItemScore { element: string; kind: string; score_min: number; score_max: number; predicted: number | null; method: string; basis: string; missing: string[] }
 export interface ScoreReport { pkg_no: string; items: ItemScore[]; tech_total: number | null; biz_total: number | null; tech_max: number; biz_max: number; weighted: number | null; notes: string[] }
 export interface GenResult {
+  version?: number
+  generated_at?: string
   generation_mode?: 'prepared' | 'incomplete_draft'
   preparation_snapshot?: PreparationReadiness
   llm_connection?: { name: string; model: string }

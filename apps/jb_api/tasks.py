@@ -97,6 +97,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                  with_draft: bool, product_model: str = "") -> None:
     """生成商务/技术文件；with_draft=True 时先由写作 Agent 起草技术方案（LLM，分钟级）。"""
     from jb_docgen import generate
+    from jb_docgen.versions import document_name, reserve
     from jb_docgen.workflow import (
         file_hash,
         inputs,
@@ -118,6 +119,13 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
         if not p or cp is None or not (p.trm_confirmed or p.trm):
             _update(task_id, status="failed", message="项目、企业档案或采购文件解析结果不存在")
             return
+        task_record = s.get(Task, task_id)
+        metadata = dict(task_record.result or {})
+        if not metadata.get('version'):
+            from sqlalchemy import select
+            p = s.execute(select(Project).where(Project.id == project_id).with_for_update()).scalar_one()
+            metadata.update(reserve(s, p, pkg_index))
+            task_record.result = metadata
         trm, cp, input_hash = inputs(s, p, profile_name)
         full_profile = cp.model_copy(deep=True)
         cp = selected_profile(p, pkg_index, cp)
@@ -196,20 +204,22 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                 res.notes.extend(d.warnings)
             if master_note:
                 res.notes.append(master_note)
-            for field in ("commercial_path", "technical_path"):
+            renamed = {}
+            for field, kind in (("commercial_path", "商务文件"), ("technical_path", "技术文件")):
                 old = getattr(res, field)
-                name = f"{task_id}_{os.path.basename(old)}"
+                name = document_name(metadata, kind)
+                renamed[os.path.basename(old)] = name
                 dest = os.path.join(out_dir, name)
                 os.replace(old, dest)
                 setattr(res, field, dest)
-            res.docx_todos = {f"{task_id}_{name}": todos for name, todos in res.docx_todos.items()}
+            res.docx_todos = {renamed[name]: todos for name, todos in res.docx_todos.items()}
     except Exception as exc:
         _update(task_id, status="failed", message=f"生成失败: {exc}"[:2000])
         return
     with session() as s:
         p = s.get(Project, project_id)
         summary = res.summary()
-        save_artifact(p, {"id": task_id, "created_at": s.get(Task, task_id).created_at.isoformat(),
+        save_artifact(p, {"version": metadata["version"], "generated_at": metadata["generated_at"], "id": task_id, "created_at": s.get(Task, task_id).created_at.isoformat(),
                           "pkg_index": pkg_index, "pkg_no": pkg.pkg_no, "profile": profile_name,
                           "product_model": product_model, "input_hash": input_hash,
                           "files": {os.path.basename(path): file_hash(path)
@@ -227,7 +237,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
     from jb_agents.draft_report import confirmation_items
 
     _update(task_id, status="done", progress=1.0, message="生成完成",
-            result={"summary": res.summary(), "todos": res.docx_todos,
+            result={**metadata, "summary": res.summary(), "todos": res.docx_todos,
                     "files": [os.path.basename(res.commercial_path), os.path.basename(res.technical_path)],
                     "draft_markdown": draft_md,
                     "draft_response_plans": d.response_plans if d else {},

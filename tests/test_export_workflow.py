@@ -411,3 +411,69 @@ def test_preparation_gate_and_explicit_draft_do_not_bypass_export(bid):
     exported = export(bid, result['files'][0])
     assert exported['ok'] is False
     assert any('被授权人' in value for value in exported['blocked_by'])
+
+
+def test_readable_generation_versions_and_formal_provenance(bid):
+    import re
+
+    first = generate(bid)
+    flow = state(bid)
+    generation = flow['generation']
+    assert generation['version'] == 1
+    assert generation['generated_at'].endswith('+08:00')
+    assert re.search(r'_A_包1_V001_\d{8}-\d{6}_商务文件\.docx$', first)
+    business, technical = generation['files']
+    assert business.replace('_商务文件.docx', '') == technical.replace('_技术文件.docx', '')
+    assert set(generation['todos']) == set(generation['files'])
+    original = (bid['folder'] / 'out' / first).read_bytes()
+    assert review(bid).status_code == 200
+    formal = export(bid, first)['docx']
+    assert '_V001_' in formal and first.removesuffix('.docx') in formal
+    assert state(bid)['generation']['version'] == 1
+    assert bid['client'].get(bid['url'] + '/files/' + first).status_code == 200
+    second = generate(bid, index=1)
+    assert '_V002_' in second and second != first
+    assert (bid['folder'] / 'out' / first).read_bytes() == original
+    assert state(bid, 0)['generation']['version'] == 1
+    assert state(bid, 1)['generation']['version'] == 2
+
+
+def test_failed_generation_does_not_reuse_version(bid, monkeypatch):
+    import jb_docgen
+    normal = jb_docgen.generate
+    generate(bid)
+
+    def fail(*args, **kwargs):
+        raise ValueError('synthetic failure')
+
+    monkeypatch.setattr(jb_docgen, 'generate', fail)
+    response = bid['client'].post(bid['url'] + '/generate', params={'profile': '测试企业'})
+    task = bid['client'].get('/api/tasks/' + response.json()['task_id']).json()
+    assert task['status'] == 'failed' and task['result']['version'] == 2
+    monkeypatch.setattr(jb_docgen, 'generate', normal)
+    assert '_V003_' in generate(bid)
+
+
+def test_active_generation_rejection_does_not_allocate_version(bid):
+    with session() as s:
+        s.add(Task(project_id=bid['id'], kind='generate', status='queued'))
+    response = bid['client'].post(bid['url'] + '/generate', params={'profile': '测试企业'})
+    assert response.status_code == 409
+    with session() as s:
+        assert not (s.get(Project, bid['id']).results or {}).get('generation_counter')
+
+
+def test_filename_sanitization_and_explicit_china_time(bid):
+    from datetime import datetime, timezone
+
+    from jb_docgen.versions import document_name, reserve
+    with session() as s:
+        p = s.get(Project, bid['id'])
+        trm = dict(p.trm_confirmed)
+        trm['packages'][0]['project_name'] = '../服务/项目:*?' + '长' * 80
+        p.trm_confirmed = trm
+        metadata = reserve(s, p, 0, now=datetime(2026, 11, 8, 10, 30, tzinfo=timezone.utc))
+        name = document_name(metadata, '技术文件')
+        assert '20261108-183000' in name
+        assert all(c not in name for c in '/\\:*?')
+        assert len(name.encode('utf-8')) < 255

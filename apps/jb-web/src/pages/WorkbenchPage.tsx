@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Collapse, Empty, Modal, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
-import { api, Finding, ItemScore } from '../api'
+import { api, fmtUtc, Finding, ItemScore } from '../api'
 import { errorMessage, purchaseWarningLabel, reviewLevelLabel, scoreKindLabel, scoreMethodLabel, taskMessageLabel } from '../uiLabels'
 import MaterialPicker from '../components/MaterialPicker'
 import PreparationPanel from '../components/PreparationPanel'
@@ -134,7 +134,7 @@ export default function WorkbenchPage() {
       {preparationError && <Alert type="error" message="无法读取准备状态，请刷新重试" description={errorMessage(preparationError)} />}
       {step === 0 && <>
       {!profile && <Alert type="info" showIcon message="请先选择本次投标企业" />}
-      <Card size="small" title="本包投标文件" extra={<Space wrap>
+      <Card size="small" title={<Space wrap><span>本包投标文件</span>{gen?.version && <Typography.Text type="secondary" style={{ fontSize: 13 }}>第 {gen.version} 版 · {fmtUtc(gen.generated_at)}</Typography.Text>}</Space>} extra={<Space wrap>
         {gen && <Button disabled={running} onClick={() => setStep(2)}>查看已有文件</Button>}
         <Button type="primary" loading={running} disabled={selectionLocked || running || !profile || !readiness || !!preparationError || preparationLoading}
           onClick={() => readiness?.ready ? void run() : readiness?.blockers.length ? nav(href('trm')) : preparationAnchor.current?.scrollIntoView({ behavior: 'smooth' })}>
@@ -179,7 +179,7 @@ export default function WorkbenchPage() {
       <div hidden={step !== 2}>
       {!gen && <Empty description="尚未生成标书，请先完成准备资料"><Button type="primary" onClick={() => setStep(0)}>前往准备资料</Button></Empty>}
       {gen && <>
-        <Card size="small" title="本包投标文件" extra={<Button disabled={running} onClick={() => setStep(0)}>修改资料并更新</Button>}>
+        <Card size="small" title={<Space wrap><span>本包投标文件</span>{gen?.version && <Typography.Text type="secondary" style={{ fontSize: 13 }}>第 {gen.version} 版 · {fmtUtc(gen.generated_at)}</Typography.Text>}</Space>} extra={<Button disabled={running} onClick={() => setStep(0)}>修改资料并更新</Button>}>
           <div className="bid-file-grid">{gen.files.map((f) => <div className="bid-file-summary" key={f}>
             <Typography.Text strong>{/商务/.test(f) ? '商务文件' : /技术/.test(f) ? '技术文件' : f}</Typography.Text>
             <Typography.Paragraph type="secondary" ellipsis={{ tooltip: f }}>{f}</Typography.Paragraph>

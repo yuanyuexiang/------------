@@ -320,7 +320,8 @@ def formal_export(s, p: Project, filename: str, out_dir: str, want_pdf: bool, fo
     if not reasons:
         # 在副本上清理元数据，不改变已审查草稿的指纹；正式文件采用独立名称。
         with tempfile.TemporaryDirectory(dir=Path(out_dir).parent) as tmp:
-            name = f"正式_{uuid.uuid4().hex[:12]}_{filename}"
+            name = (f"正式_{Path(filename).stem}_导出{uuid.uuid4().hex[:8]}.docx"
+                    if a.get("version") else f"正式_{uuid.uuid4().hex[:12]}_{filename}")
             copy = Path(tmp) / name
             shutil.copyfile(Path(out_dir) / filename, copy)
             res = export(str(copy), want_pdf=want_pdf)

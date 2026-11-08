@@ -341,7 +341,10 @@ def generate_docs(project_id: str, profile: str, background: BackgroundTasks, pk
                                                Task.status.in_(["queued", "running"])).limit(1))
         if active:
             raise HTTPException(409, "项目已有解析或生成任务，请等待任务完成")
+        from jb_docgen.versions import reserve
+        version = reserve(s, p, pkg_index)
         t = Task(project_id=project_id, kind="generate", actor=au.current_actor(), result={
+            **version,
             'generation_mode': 'incomplete_draft' if allow_incomplete else 'prepared',
             'preparation_snapshot': prepared})
         s.add(t)
