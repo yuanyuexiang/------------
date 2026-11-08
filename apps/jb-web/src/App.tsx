@@ -5,15 +5,13 @@ import AdminLayout from './layout/AdminLayout'
 import { useAuth } from './auth'
 import LoginPage from './pages/LoginPage'
 import ProjectsPage from './pages/ProjectsPage'
-import ProjectDetailPage from './pages/ProjectDetailPage'
 import TrmConfirmPage from './pages/TrmConfirmPage'
-import QualifyPage from './pages/QualifyPage'
 import WorkbenchPage from './pages/WorkbenchPage'
 import KbListPage from './pages/kb/KbListPage'
 import KbCompanyPage from './pages/kb/KbCompanyPage'
 import SettingsPage from './pages/settings/SettingsPage'
 import UsersPage from './pages/UsersPage'
-import ProjectWorkspace from './components/ProjectWorkspace'
+import ProjectWorkspace, { ProjectEntry, QualificationRedirect } from './components/ProjectWorkspace'
 
 /** 旧链接 /profiles/:name → 知识库企业页。 */
 function ProfileRedirect() {
@@ -43,9 +41,9 @@ export default function App() {
             <Routes>
               <Route path="/" element={<ProjectsPage />} />
               <Route path="/projects/:id" element={<ProjectWorkspace />}>
-                <Route index element={<ProjectDetailPage />} />
+                <Route index element={<ProjectEntry />} />
                 <Route path="trm" element={<TrmConfirmPage />} />
-                <Route path="qualify" element={<QualifyPage />} />
+                <Route path="qualify" element={<QualificationRedirect />} />
                 <Route path="workbench" element={<WorkbenchPage />} />
               </Route>
               <Route path="/kb" element={<KbListPage />} />

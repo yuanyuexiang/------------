@@ -10,7 +10,7 @@ const base = { id: 'one', status: 'parsed', confirmed: false, outcome: '', resul
 
 test('primary action follows actual results instead of the furthest historical stage', () => {
   assert.equal(nextProjectAction({ ...base, stage: 'reviewed' }).route, 'trm')
-  assert.equal(nextProjectAction({ ...base, confirmed: true }).route, 'qualify')
+  assert.equal(nextProjectAction({ ...base, confirmed: true }).route, 'workbench')
   assert.equal(nextProjectAction({ ...base, status: 'parsing' }).route, '')
   assert.equal(nextProjectAction({ ...base, outcome: 'won' }).route, '')
 })
@@ -19,7 +19,7 @@ test('another package or company cannot supply the selected package progress', (
   const project = { ...base, confirmed: true, results: { qualify: { profile: '甲' }, generate: { A: { profile: '甲' } } } }
   assert.equal(nextProjectAction(project, { resultKey: 'A', profile: '甲' }).view, 'review')
   assert.equal(nextProjectAction(project, { resultKey: 'B', profile: '甲' }).view, 'prepare')
-  assert.equal(nextProjectAction(project, { resultKey: 'A', profile: '乙' }).route, 'qualify')
+  assert.equal(nextProjectAction(project, { resultKey: 'A', profile: '乙' }).view, 'prepare')
 })
 
 test('navigation preserves encoded company, package and review location', () => {

@@ -57,8 +57,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const isAdmin = user?.role === 'admin'
   const section = selected === '/kb' ? '企业资料' : selected === '/settings' ? '系统设置' : selected === '/users' ? '用户与权限' : '投标项目'
   const page = pathname.endsWith('/workbench') ? new URLSearchParams(search).get('view') === 'review'
-    ? { title: '审阅与导出', description: '检查当前版本，处理问题，并导出正式投标文件。' }
-    : { title: '准备与生成', description: '准备本包资料与安排，生成商务和技术文件。' }
+    ? { title: '检查并导出', description: '检查当前版本，处理问题，并导出正式投标文件。' }
+    : { title: '准备投标文件', description: '准备本包资料与安排，生成商务和技术文件。' }
     : pathname.endsWith('/qualify') ? { title: '检查投标资格', description: '对照招标要求，逐项核查企业资格与证明材料。' }
     : pathname.endsWith('/trm') ? { title: '核对采购信息', description: '对照采购原件，核对项目、包号、关键条款和人员、业绩要求。' }
     : pathname.startsWith('/projects/') ? { title: '项目概览', description: '掌握项目进度、关键日期和生成的文件。' }

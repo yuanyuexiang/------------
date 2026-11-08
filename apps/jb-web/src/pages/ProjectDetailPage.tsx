@@ -6,7 +6,6 @@ import { api, fmtUtc, ProjectEvent } from '../api'
 import { errorMessage, reviewLevelLabel, taskKindLabel, taskMessageLabel } from '../uiLabels'
 import { DaysLeft, OUTCOME_COLOR } from './ProjectsPage'
 import { useProjectWorkspace } from '../components/ProjectWorkspace'
-import ProjectTasks from '../components/ProjectTasks'
 
 const VERDICT_COLOR: Record<string, string> = { 可投: 'green', 有风险: 'orange', 不可投: 'red' }
 const EVENT_COLOR: Record<string, string> = {
@@ -45,7 +44,6 @@ export default function ProjectDetailPage() {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       {p.status === 'failed' && <Alert type="error" showIcon message="解析失败" description={p.error} />}
-      <ProjectTasks />
 
       <Card className="project-detail-overview" size="small" title={<Space>项目时间与备注<Tag color={OUTCOME_COLOR[p.outcome]}>{p.outcome_cn}</Tag></Space>}
         extra={<Space wrap>
@@ -99,8 +97,8 @@ export default function ProjectDetailPage() {
             { title: '上次文件检查结果', width: 210, render: (_, row) => { const v = r.review?.[row.result_key]; return v ? <Tag>{v.blocked ? '有投标无效风险' : '未发现投标无效风险'} {Object.entries(v.counts).map(([k, n]) => `${reviewLevelLabel(k)}${n}`).join(' ')}</Tag> : '—' } },
             { title: '预估评分', width: 190, render: (_, row) => { const v = r.score?.[row.result_key]; return v ? <span>技术 {v.tech_total ?? '—'}/{v.tech_max} · 商务 {v.biz_total ?? '—'}/{v.biz_max}{v.weighted !== null ? ` · 按权重折算 ${v.weighted}` : ''}</span> : '—' } },
             { title: '继续办理', width: 140, fixed: 'right', render: (_, row, index) => <Button size="small" disabled={!ready}
-              onClick={() => nav(href(!p.confirmed ? 'trm' : r.generate?.[row.result_key] ? 'workbench' : 'qualify', index,
-                r.generate?.[row.result_key] ? 'review' : undefined))}>{!p.confirmed ? '核对信息' : r.generate?.[row.result_key] ? '审阅本包标书' : '检查本包资格'}</Button> },
+              onClick={() => nav(href(!p.confirmed ? 'trm' : 'workbench', index,
+                r.generate?.[row.result_key] ? 'review' : undefined))}>{!p.confirmed ? '核对信息' : r.generate?.[row.result_key] ? '审阅本包标书' : '准备本包文件'}</Button> },
           ]} />
       </Card>
 

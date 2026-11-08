@@ -98,10 +98,10 @@ export default function ProjectsPage() {
             { title: '操作', width: 220, render: (_, r) => (
               <Space size="small">
                 <Button size="small" type="primary" onClick={() => { const next = nextProjectAction(r); nav(projectUrl(r.id, next.route, {}, next.view)) }}>{nextProjectAction(r).label}</Button>
-                <Button size="small" type="link" onClick={() => nav(`/projects/${r.id}`)}>概览</Button>
+                <Button size="small" type="link" onClick={() => nav(`/projects/${r.id}`)}>进入项目</Button>
                 <Dropdown trigger={['click']} menu={{ items: [
                   { key: 'trm', label: r.confirmed ? '查看采购信息' : '核对采购信息', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/trm`) },
-                  { key: 'qualify', label: '检查投标资格', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/qualify`) },
+                  { key: 'prepare', label: '准备投标文件', disabled: !ready(r), onClick: () => nav(`/projects/${r.id}/workbench?view=prepare`) },
                 ] }}><Button size="small" type="text" aria-label="更多项目操作" icon={<MoreOutlined />} /></Dropdown>
                 <Popconfirm title="删除项目及其生成的文件？" onConfirm={async () => { await api.deleteProject(r.id); qc.invalidateQueries({ queryKey: ['projects'] }) }}>
                   <Button size="small" danger type="link">删除</Button>

@@ -18,8 +18,7 @@ export function nextProjectAction(project: Project, selection?: { resultKey: str
   const generated = selection ? project.results.generate?.[selection.resultKey]
     : Object.values(project.results.generate ?? {})[0]
   if (generated && (!selection || generated.profile === selection.profile)) return { label: '继续审阅标书', route: 'workbench', view: 'review' as const }
-  if (project.results.qualify && (!selection || project.results.qualify.profile === selection.profile)) return { label: '继续准备资料', route: 'workbench', view: 'prepare' as const }
-  return { label: '检查投标资格', route: 'qualify' }
+  return { label: '准备投标文件', route: 'workbench', view: 'prepare' as const }
 }
 
 export function packageIndex(raw: string | number | undefined | null, count: number) {

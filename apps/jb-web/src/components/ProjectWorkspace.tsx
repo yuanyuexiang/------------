@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Navigate, Outlet, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Card, Select, Space, Spin, Tabs, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Drawer, Select, Space, Spin, Tabs, Typography } from 'antd'
 import { api, ProjectDetail } from '../api'
+import ProjectDetailPage from '../pages/ProjectDetailPage'
 import { useAuth } from '../auth'
 import { errorMessage } from '../uiLabels'
 import { packageIndex, ProjectSelection, ProjectView, projectUrl } from '../projectNavigation'
@@ -42,6 +43,7 @@ function WorkspaceContent({ id }: { id: string }) {
   const [params, setParams] = useSearchParams()
   const { pathname } = useLocation()
   const nav = useNavigate()
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const [selectionLocked, setSelectionLocked] = useState(false)
   const { data: project, error, isLoading } = useQuery({
     queryKey: ['project-detail', id], queryFn: () => api.projectDetail(id), refetchInterval: 5000,
@@ -52,9 +54,6 @@ function WorkspaceContent({ id }: { id: string }) {
   const requestedProfile = params.get('profile') ?? saved.profile ?? project?.results.generate?.[selectedKey ?? '']?.profile ?? project?.results.qualify?.profile
   const profile = profiles.some(p => p.name === requestedProfile) ? requestedProfile
     : requestedProfile ? undefined : profiles.length === 1 ? profiles[0].name : undefined
-  const { data: qualification } = useQuery({ queryKey: ['qualification', id, profile, pkgIndex],
-    queryFn: () => api.qualification(id, profile!, pkgIndex),
-    enabled: !!profile && !!project && ['parsed', 'confirmed'].includes(project.status), refetchInterval: 15000 })
   const href = (route = '', index = pkgIndex, view?: ProjectView) => projectUrl(id, route, { profile, pkgIndex: index }, view)
   const select = (selection: ProjectSelection) => {
     setParams(current => {
@@ -86,7 +85,7 @@ function WorkspaceContent({ id }: { id: string }) {
   if (error) return <Alert type="error" showIcon message="无法读取项目" description={errorMessage(error)} />
   if (isLoading || !project) return <Spin />
   const ready = ['parsed', 'confirmed'].includes(project.status)
-  const active = pathname.endsWith('/trm') ? 'trm' : pathname.endsWith('/qualify') ? 'qualify'
+  const active = pathname.endsWith('/trm') ? 'trm' : pathname.endsWith('/qualify') ? 'workbench'
     : pathname.endsWith('/workbench') ? params.get('view') === 'review' ? 'review' : 'workbench' : 'overview'
   const value = { project, profile, pkgIndex, setProfile: (v: string) => select({ profile: v }),
     setPkgIndex: (v: number) => select({ pkgIndex: v }), href, selectionLocked, setSelectionLocked }
@@ -96,7 +95,7 @@ function WorkspaceContent({ id }: { id: string }) {
         <div><Typography.Text type="secondary">{project.batch_no || '读取中'} · 截止 {project.deadline || '待核对'}</Typography.Text>
           <Typography.Title level={1}>{project.batch_name || project.filename}</Typography.Title></div>
         <Space wrap><Button onClick={() => nav('/')}>全部投标项目</Button>
-          {qualification?.stale && <Tag color="orange">本包资格需复核</Tag>}</Space>
+          <Button onClick={() => setDetailsOpen(true)}>项目信息</Button></Space>
       </div>
       <div className="project-workspace-selection">
         <div><label htmlFor="project-company">本次投标企业</label><Select id="project-company" placeholder="选择企业档案" value={profile}
@@ -104,16 +103,29 @@ function WorkspaceContent({ id }: { id: string }) {
         <div><label htmlFor="project-package">当前采购包</label><Select id="project-package" value={project.package_list.length ? pkgIndex : undefined}
           disabled={selectionLocked || !ready} onChange={value.setPkgIndex} placeholder="采购包尚未读取"
           options={project.package_list.map((p, i) => ({ value: i, label: `${p.sub_no} ${p.pkg_no} · ${p.project_name || p.sub_name || '采购包'}` }))} /></div>
-        <Tag color={project.confirmed ? 'green' : 'orange'}>{project.confirmed ? '采购信息已确认' : '采购信息待确认'}</Tag>
       </div>
       {profileError && <Alert type="error" message="无法读取企业档案" description={errorMessage(profileError)} />}
       {!profileError && requestedProfile && !profile && profiles.length > 0 && <Alert type="warning" message="原选择的企业已不可用，请重新选择" />}
-      <Tabs activeKey={active} onChange={key => nav(href(key === 'overview' ? '' : key === 'review' ? 'workbench' : key,
-        pkgIndex, key === 'review' ? 'review' : key === 'workbench' ? 'prepare' : undefined))}
-        items={[{ key: 'overview', label: '项目概览' }, { key: 'trm', label: '核对采购信息', disabled: !ready },
-          { key: 'qualify', label: '检查投标资格', disabled: !ready }, { key: 'workbench', label: '准备与生成', disabled: !ready },
-          { key: 'review', label: '审阅与导出', disabled: !ready }]} />
     </Card>
-    <Outlet />
+    <section className="project-workspace-panel">
+      <Tabs className="project-workspace-nav" activeKey={active} onChange={key => nav(href(key === 'overview' ? '' : key === 'review' ? 'workbench' : key,
+        pkgIndex, key === 'review' ? 'review' : key === 'workbench' ? 'prepare' : undefined))}
+        items={[{ key: 'trm', label: '1. 核对采购信息', disabled: !ready },
+          { key: 'workbench', label: '2. 准备投标文件', disabled: !ready },
+          { key: 'review', label: '3. 检查并导出', disabled: !ready }]} />
+      <div className="project-workspace-content"><Outlet /></div>
+    </section>
+    <Drawer title="项目信息" width="min(1100px, 96vw)" open={detailsOpen} onClose={() => setDetailsOpen(false)} destroyOnClose><ProjectDetailPage /></Drawer>
   </Context.Provider>
+}
+
+export function ProjectEntry() {
+  const { project, href, pkgIndex } = useProjectWorkspace()
+  if (!['parsed', 'confirmed'].includes(project.status) || ['won', 'lost', 'abandoned'].includes(project.outcome)) return <ProjectDetailPage />
+  return <Navigate replace to={href(project.confirmed ? 'workbench' : 'trm', pkgIndex, project.confirmed ? 'prepare' : undefined)} />
+}
+
+export function QualificationRedirect() {
+  const { href, pkgIndex } = useProjectWorkspace()
+  return <Navigate replace to={href('workbench', pkgIndex, 'prepare')} />
 }

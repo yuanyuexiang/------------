@@ -4,7 +4,7 @@ import { useBeforeUnload, useBlocker, useNavigate, useParams } from 'react-route
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useProjectWorkspace } from '../components/ProjectWorkspace'
 import {
-  Alert, Button, Card, Collapse, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tabs, Tag, Typography, message,
+  Alert, Button, Card, Collapse, Drawer, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tabs, Tag, Typography, message,
 } from 'antd'
 import { api, KeyTerms, PackageTRM, TRM } from '../api'
 import SourceDocument from '../components/DocumentReader'
@@ -45,7 +45,7 @@ function KeyTermsForm({ kt, onChange }: { kt: KeyTerms; onChange: (k: KeyTerms) 
 function PackagePanel({ pkg, onChange }: { pkg: PackageTRM; onChange: (p: PackageTRM) => void }) {
   const sr = pkg.scoring_ref
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+    <Space className="workspace-page" direction="vertical" style={{ width: '100%' }} size="middle">
       <Descriptions size="small" bordered column={3}>
         <Descriptions.Item label="项目名称" span={3}><Missing v={pkg.project_name} /></Descriptions.Item>
         <Descriptions.Item label="项目单位"><Missing v={pkg.project_unit} /></Descriptions.Item>
@@ -107,6 +107,7 @@ export default function TrmConfirmPage() {
   const nav = useNavigate()
   const qc = useQueryClient()
   const { href, pkgIndex, setPkgIndex } = useProjectWorkspace()
+  const [sourceOpen, setSourceOpen] = useState(false)
   const [source, setSource] = useState('main')
   useEffect(() => { setSource('main') }, [pkgIndex])
   const { data, isLoading, error } = useQuery({ queryKey: ['trm', id], queryFn: () => api.trm(id, true) })
@@ -143,26 +144,16 @@ export default function TrmConfirmPage() {
         qc.invalidateQueries({ queryKey: ['preparation', id] }),
       ])
       message.success('采购信息已保存，将用于检查投标资格、标书生成和审查')
-      if (continueToQualification) nav(href('qualify'))
+      if (continueToQualification) nav(href('workbench', pkgIndex, 'prepare'))
     } catch (e) { message.error(errorMessage(e)) } finally { setSaving(false) }
   }
   const setPkg = (i: number, p: PackageTRM) => setTrm({ ...trm, packages: trm.packages.map((x, k) => k === i ? p : x) })
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Card size="small">
-        <Space wrap>
-          <Text strong>{trm.batch_name || trm.source_zip}</Text>
-          <Tag>{trm.batch_no || '批次号未识别'}</Tag>
-          <Text type="secondary">采购重要事项 {trm.prenotice.length} 条 · 投标无效情形 {trm.rejection_rules.length} 条 · 文件提交要求 {trm.submission_table.length} 项 · 采购包 {trm.packages.length} · 评分标准 {trm.scoring_templates.length} 套</Text>
-        </Space>
-        {trm.warnings.length > 0 && <>
-          <Alert style={{ marginTop: 8 }} type="warning" showIcon message="请核对以下采购信息"
-            description={<ul>{trm.warnings.map((warning, i) => <li key={i}>{purchaseWarningLabel(warning)}</li>)}</ul>} />
-          <Collapse size="small" style={{ marginTop: 8 }} items={[{ key: 'warnings', label: '查看文件名及详细原因', children: trm.warnings.map((warning, i) => <Typography.Paragraph key={i} style={{ overflowWrap: 'anywhere' }}>{warning}</Typography.Paragraph>) }]} />
-        </>}
-      </Card>
-      <div className="procurement-review"><div><Tabs items={[
+      <Space wrap style={{ justifyContent: 'space-between', width: '100%' }}><Text type="secondary">核对系统提取的信息，确认后开始准备文件。</Text><Button onClick={() => setSourceOpen(true)}>查看采购原文</Button></Space>
+      {trm.warnings.length > 0 && <Collapse items={[{ key: 'warnings', label: `有 ${trm.warnings.length} 条提取提醒，展开核对`, children: <ul>{trm.warnings.map((warning, i) => <li key={i}>{purchaseWarningLabel(warning)}</li>)}</ul> }]} />}
+      <div><Tabs items={[
         { key: 'kt', label: '关键投标要求', children: <KeyTermsForm kt={trm.key_terms} onChange={(k) => setTrm({ ...trm, key_terms: k })} /> },
         { key: 'pk', label: `采购包（${trm.packages.length}）`, children: (
           <Tabs className="package-tabs" tabPosition="top" activeKey={String(pkgIndex)} onChange={key => setPkgIndex(Number(key))} items={trm.packages.map((p, i) => ({
@@ -194,14 +185,14 @@ export default function TrmConfirmPage() {
               columns={[{ title: '条款编号', dataIndex: 'clause_no', width: 100 }, { title: '事项', dataIndex: 'name', width: 200 }, { title: '具体要求', dataIndex: 'content' }]} />
           </Space>
         ) },
-      ]} /></div><aside><Card size="small" title="对照本包采购原件">
+      ]} /></div><Drawer title="采购原文" width="min(900px, 96vw)" open={sourceOpen} onClose={() => setSourceOpen(false)}>
         <Select aria-label="选择采购原件" style={{ width: '100%', marginBottom: 16 }} value={source} onChange={setSource}
           options={[{ value: 'main', label: '采购主文件' }, ...(trm.packages[pkgIndex]?.spec_docs ?? []).map((spec, index) => ({ value: `spec:${index}`, label: spec.title || spec.spec_id || spec.source }))]} />
         <SourceDocument id={id} pkgIndex={pkgIndex} source={source} />
-      </Card></aside></div>
+      </Drawer>
       <Card size="small" className="confirmation-actions workflow-footer">
         <Space wrap>
-          <Button type="primary" loading={saving} onClick={() => save(true)}>确认并检查投标资格</Button>
+          <Button type="primary" loading={saving} onClick={() => save(true)}>确认并准备投标文件</Button>
           <Button disabled={saving} onClick={() => save()}>仅保存，留在本页</Button>
           <Text type="secondary">请对照采购原件核对；保存后的信息将用于检查投标资格、标书生成和审查</Text>
         </Space>

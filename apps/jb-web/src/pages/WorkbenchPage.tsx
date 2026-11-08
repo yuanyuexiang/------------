@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Collapse, Empty, Modal, Progress, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Collapse, Empty, Modal, Progress, Select, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { api, Finding, ItemScore } from '../api'
 import { errorMessage, purchaseWarningLabel, reviewLevelLabel, scoreKindLabel, scoreMethodLabel, taskMessageLabel } from '../uiLabels'
 import MaterialPicker from '../components/MaterialPicker'
 import PreparationPanel from '../components/PreparationPanel'
 import { useProjectWorkspace } from '../components/ProjectWorkspace'
 import RequirementsPanel from '../components/RequirementsPanel'
+import QualificationPanel from '../components/QualificationPanel'
 import OutputPreview from '../components/OutputPreview'
 
 const LEVEL: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
@@ -18,13 +19,14 @@ const VERDICT_CN: Record<string, string> = { satisfied: '满足', deviation: '�
 export default function WorkbenchPage() {
   const { id = '' } = useParams()
   const nav = useNavigate()
-  const { profile, pkgIndex, href, setSelectionLocked } = useProjectWorkspace()
+  const { profile, pkgIndex, href, selectionLocked, setSelectionLocked } = useProjectWorkspace()
   const [searchParams, setSearchParams] = useSearchParams()
   const qc = useQueryClient()
   const { data: trm } = useQuery({ queryKey: ['trm', id], queryFn: () => api.trm(id, true) })
   const [withDraft, setWithDraft] = useState(true)
   const [taskId, setTaskId] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [requirementsOpen, setRequirementsOpen] = useState(false)
   const [preview, setPreview] = useState<{ filename?: string; finding?: Finding }>()
   const { data: flow, refetch: refreshFlow, error: flowError } = useQuery({
     queryKey: ['workflow', id, profile, pkgIndex],
@@ -43,6 +45,8 @@ export default function WorkbenchPage() {
     return next
   }, { replace: true })
   const preparationAnchor = useRef<HTMLDivElement>(null)
+  const requirementsAnchor = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (requirementsOpen) requirementsAnchor.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [requirementsOpen])
   const { data: preparation, error: preparationError, isFetching: preparationLoading } = useQuery({
     queryKey: ['preparation', id, profile, pkgIndex],
     queryFn: () => api.preparation(id, profile!, pkgIndex), enabled: !!profile,
@@ -51,7 +55,7 @@ export default function WorkbenchPage() {
   const gen = flow?.generation
   const generationLabel = gen ? '更新标书' : '生成标书'
   const goToGeneration = () => {
-    setStep(readiness?.ready ? 1 : 0)
+    setStep(0)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   const [issueCategory, setIssueCategory] = useState<string>()
@@ -59,7 +63,7 @@ export default function WorkbenchPage() {
   const running = busy || (!!effectiveTaskId && !['done', 'failed'].includes(task?.status ?? ''))
   const [score, setScore] = useState<{ items: ItemScore[]; tech_total: number | null; tech_max: number; biz_total: number | null; biz_max: number; weighted: number | null } | null>(null)
   const [matrix, setMatrix] = useState<{ section: string; seq: string; item: string; channels: string[]; port: string; status: string }[]>([])
-  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]); setPreview(undefined) }, [id, profile, pkgIndex])
+  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]); setPreview(undefined); setRequirementsOpen(false) }, [id, profile, pkgIndex])
   useEffect(() => { setSelectionLocked(running); return () => setSelectionLocked(false) }, [running, setSelectionLocked])
   useEffect(() => {
     if (task?.kind === 'generate' && ['queued', 'running'].includes(task.status)) setStep(1)
@@ -73,6 +77,7 @@ export default function WorkbenchPage() {
   }, [task?.status, task?.kind, refreshFlow, qc, id])
 
   const run = async (allowIncomplete = false, draftEnabled = withDraft) => {
+    if (selectionLocked || running) return
     if (!profile) return message.warning('请选择企业档案')
     setBusy(true)
     setScore(null)
@@ -124,53 +129,42 @@ export default function WorkbenchPage() {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      {step === 1 && <Card size="small" title="标书生成选项" className="workbench-controls">
-        <div className="workbench-inputs">
-          <div className="workbench-draft"><span>技术方案起草<small>AI 先写方案，人工核对事实与承诺</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
-        </div>
-        <Space style={{ marginTop: 16 }}>
-          <Button disabled={running} onClick={async () => {
-            setBusy(true)
-            try { const result = await api.reparse(id); setTaskId(result.task_id); await refreshFlow() }
-            catch (e) { message.error(errorMessage(e)) } finally { setBusy(false) }
-          }}>重新解析原文件</Button>
-        </Space>
-      </Card>}
-      {step !== 2 && <Segmented value={step} onChange={value => value === 1 ? goToGeneration() : setStep(0)}
-        options={[{ value: 0, label: '准备资料' }, { value: 1, label: '生成标书', disabled: running && step !== 1 }]} />}
+    <Space className="workspace-page" direction="vertical" style={{ width: '100%' }} size="middle">
       {flowError && <Alert type="error" message="无法读取当前审查状态" description={errorMessage(flowError)} />}
       {preparationError && <Alert type="error" message="无法读取准备状态，请刷新重试" description={errorMessage(preparationError)} />}
       {step === 0 && <>
-      <RequirementsPanel key={`requirements:${id}:${profile}:${pkgIndex}`} />
-      {!!flow?.preflight?.length && <Alert showIcon type={flow.preflight.some(x => x.blocking) ? 'error' : 'warning'}
-        message="生成前检查" description={<>
-          <ul>{flow.preflight.map((x, i) => <li key={i}>{purchaseWarningLabel(x.message)}{purchaseWarningLabel(x.message) === x.message && <> — {x.action}</>}</li>)}</ul>
-          <Collapse size="small" items={[{ key: 'details', label: '查看文件名及详细原因', children: flow.preflight.map((x, i) => <Typography.Paragraph key={i} style={{ overflowWrap: 'anywhere' }}>{x.message} — {x.action}</Typography.Paragraph>) }]} />
-        </>} />}
+      {!profile && <Alert type="info" showIcon message="请先选择本次投标企业" />}
+      <Card size="small" title="本包投标文件" extra={<Space wrap>
+        {gen && <Button disabled={running} onClick={() => setStep(2)}>查看已有文件</Button>}
+        <Button type="primary" loading={running} disabled={selectionLocked || running || !profile || !readiness || !!preparationError || preparationLoading}
+          onClick={() => readiness?.ready ? void run() : readiness?.blockers.length ? nav(href('trm')) : preparationAnchor.current?.scrollIntoView({ behavior: 'smooth' })}>
+          {readiness?.ready ? generationLabel : readiness?.blockers.length ? '核对采购信息' : '补充资料'}
+        </Button></Space>}>
+        <div className="bid-file-grid">{['商务文件', '技术文件'].map((name, i) => <div className="bid-file-summary" key={name}>
+          <Typography.Text strong>{name}</Typography.Text>
+          <Typography.Paragraph type="secondary">{i === 0 ? '企业信息、授权与证明材料' : '技术响应、实施方案与人员安排'}</Typography.Paragraph>
+          <Tag>{gen?.files.some(f => f.includes(i === 0 ? '商务' : '技术')) ? '已有生成文件' : '待生成'}</Tag>
+        </div>)}</div>
+        {!!readiness?.blockers.length && <Alert style={{ marginTop: 12 }} type="error" message="请先核对采购信息" description={<ul>{readiness.blockers.map((x, i) => <li key={i}>{x}</li>)}</ul>} />}
+        {!!readiness?.confirmations.length && <Typography.Paragraph style={{ marginTop: 12 }}>待确认：{readiness.confirmations.map(x => x.title).join('、')}。</Typography.Paragraph>}
+        {!readiness?.ready && <Button type="link" disabled={running || !profile || !readiness || !!readiness.blockers.length || !!preparationError || preparationLoading} onClick={draft}>先生成待完善草稿</Button>}
+      </Card>
+      {profile && <QualificationPanel key={`qualification:${id}:${profile}:${pkgIndex}`} disabled={running} />}
+      {!!flow?.preflight?.length && <Alert showIcon type={flow.preflight.some(x => x.blocking) ? 'error' : 'warning'} message="采购文件有事项需要核对"
+        action={<Button onClick={() => nav(href('trm'))}>前往核对</Button>} description={<Collapse ghost size="small" items={[{ key: 'details', label: '查看原因', children: <ul>{flow.preflight.map((x, i) => <li key={i}>{purchaseWarningLabel(x.message)}</li>)}</ul> }]} />} />}
       {flow?.stale && <Alert showIcon type="warning" message={running ? "正在处理，请等待标书更新完成" : "资料已更新，标书尚未更新"}
-        description={running ? "处理完成后将刷新文件状态；下方旧文件仅供查看历史记录。" : "可继续处理其他资料，完成后进入“生成标书”步骤。下方旧文件及其问题仅供查看历史记录，不代表当前仍缺少资料。"} />}
+        description={running ? "处理完成后将刷新文件状态。" : "补齐资料后，点击上方“更新标书”。"} />}
       <div ref={preparationAnchor}>
       {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onRepair={repair} onSaved={() => { setScore(null); void refreshFlow() }} />}
       </div>
       {profile && <Collapse items={[{ key: 'materials', label: '选择本包使用的证明材料', children: <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }); void qc.invalidateQueries({ queryKey: ['qualification', id] }); void qc.invalidateQueries({ queryKey: ['requirements', id] }) }} /> }]} />}
 
-      <Card size="small" title="准备检查" className="workflow-footer">
-        {!profile ? <Empty description="请先选择企业档案与采购包" /> : !readiness ? <Typography.Text>正在检查准备状态…</Typography.Text> : <Space direction="vertical" style={{ width: '100%' }}>
-          <Alert showIcon type={readiness.blockers.length ? 'error' : readiness.confirmations.length ? 'warning' : 'success'}
-            message={readiness.blockers.length ? '请先解决招标文件问题' : readiness.confirmations.length ? `还有 ${readiness.confirmations.length} 项本次安排需要确认` : '本次安排已确认，可以生成标书'}
-            description={<><ul>{readiness.blockers.map((x, i) => <li key={i}>{x}</li>)}
-              {readiness.confirmations.map(x => <li key={x.task}>{x.title}：{taskMessageLabel(x.message)}</li>)}</ul>
-              <span>资料准备完成不代表已符合投标资格；证明材料和生成内容仍需审阅。</span></>} />
-          {!!readiness.warnings.length && <Collapse items={[{ key: 'warnings', label: '资料与原文提醒（不强制阻止生成草稿）', children: <ul>{readiness.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul> }]} />}
-        </Space>}
-        <Space style={{ marginTop: 16 }}>
-          <Button type="primary" disabled={running || !readiness || !!preparationError || preparationLoading} onClick={() => readiness?.ready ? setStep(1) : readiness?.blockers.length ? nav(href('trm')) : preparationAnchor.current?.scrollIntoView({ behavior: 'smooth' })}>
-            {readiness?.ready ? '下一步：生成标书' : readiness?.blockers.length ? '核对采购信息' : '继续完善资料'}
-          </Button>
-          <Button disabled={running || !readiness || !!readiness.blockers.length || !!preparationError || preparationLoading} onClick={draft}>生成待完善草稿</Button>
-        </Space>
-      </Card>
+      <Collapse items={[{ key: 'options', label: '生成设置与详细依据', children: <Space direction="vertical" style={{ width: '100%' }}>
+        <Space>AI 起草技术方案<Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></Space>
+        {!!readiness?.warnings.length && <ul>{readiness.warnings.map((x, i) => <li key={i}>{x}</li>)}</ul>}
+        <Button onClick={() => setRequirementsOpen(true)}>查看采购要求与证据</Button>
+        <Button disabled={running} onClick={async () => { setBusy(true); try { const result = await api.reparse(id); setTaskId(result.task_id); await refreshFlow() } catch (e) { message.error(errorMessage(e)) } finally { setBusy(false) } }}>重新解析原文件</Button>
+      </Space> }]} />
       </>}
       {step === 1 && <Card title="生成标书">
         <Typography.Paragraph>使用本包已保存的资料生成商务、技术文件。已有版本会保留，生成后进入审阅。</Typography.Paragraph>
@@ -183,32 +177,26 @@ export default function WorkbenchPage() {
         </Space>
       </Card>}
       <div hidden={step !== 2}>
-      {step === 2 && <RequirementsPanel key={`review-requirements:${id}:${profile}:${pkgIndex}`} />}
       {!gen && <Empty description="尚未生成标书，请先完成准备资料"><Button type="primary" onClick={() => setStep(0)}>前往准备资料</Button></Empty>}
-      {gen && <Space style={{ marginBottom: 16 }}>
-        <Button onClick={() => setStep(0)}>返回准备资料</Button>
-        <Button type="primary" onClick={doReview} disabled={!profile || running || flow?.stale}>检查投标文件 / 复查</Button>
-        <Button onClick={doScore} disabled={!profile || running || flow?.stale}>预估评分</Button>
-        <Button onClick={doMatrix}>查看怎么提交</Button>
-      </Space>}
-      {flow?.stale && <Alert type="warning" showIcon message="资料已变化，以下旧版本仅供查看历史记录" description="请返回准备资料处理受影响事项，再更新标书。" />}
-      {gen?.generation_mode === 'incomplete_draft' && <Alert type="info" showIcon message="本版本为提前生成的待完善草稿" description="请核对准备事项和待补充内容，补齐后更新标书并重新审查。" />}
-      {flow && <Card size="small" title="处理问题并导出正式文件">
-        <Alert showIcon type={flow.blockers.length ? 'warning' : 'success'}
-          message={flow.blockers.length ? '还有问题需要处理，暂时无法导出正式文件' : '当前文件已完成检查，可以导出正式文件'}
-          description={flow.blockers.length ? <ul>{flow.blockers.map((reason) => <li key={reason}>{reason}</li>)}</ul> : '导出前仍会重新核对资料、规则和文件版本。'} />
-        <Space wrap style={{ marginTop: 12 }}>
-          <Button onClick={() => nav(href('trm'))}>1. 核对采购信息</Button>
-          <Button disabled={!profile} onClick={() => nav(`/kb/${encodeURIComponent(profile ?? '')}?returnTo=${encodeURIComponent(href('workbench', pkgIndex, 'prepare'))}`)}>2. 补齐企业资料</Button>
-          <Button disabled={running || !profile} onClick={goToGeneration}>3. 前往{generationLabel}</Button>
-          <Button disabled={running || !gen || !profile} onClick={doReview}>4. 复查本版本</Button>
-        </Space>
-        {flow.exports.map((item) => <div key={item.docx} style={{ marginTop: 8 }}>
-          <Space><a href={api.fileUrl(id, item.docx)}>下载正式 Word</a>
-            {item.pdf && <a href={api.fileUrl(id, item.pdf)}>下载正式 PDF</a>}</Space>
-        </div>)}
-      </Card>}
-
+      {gen && <>
+        <Card size="small" title="本包投标文件" extra={<Button disabled={running} onClick={() => setStep(0)}>修改资料并更新</Button>}>
+          <div className="bid-file-grid">{gen.files.map((f) => <div className="bid-file-summary" key={f}>
+            <Typography.Text strong>{/商务/.test(f) ? '商务文件' : /技术/.test(f) ? '技术文件' : f}</Typography.Text>
+            <Typography.Paragraph type="secondary" ellipsis={{ tooltip: f }}>{f}</Typography.Paragraph>
+            <Space wrap><Button onClick={() => setPreview({ filename: f })}>查看文件</Button><a href={api.fileUrl(id, f)}>下载草稿</a>
+              <Button disabled={running || !!flowError || !flow || flow.blockers.length > 0} onClick={() => doExport(f)}>导出正式文件</Button></Space>
+          </div>)}</div>
+          {!!flow?.exports.length && <Space direction="vertical" style={{ marginTop: 16 }}>{flow.exports.map(item => <Space wrap key={item.docx}><a href={api.fileUrl(id, item.docx)}>下载正式 Word：{item.docx}</a>{item.pdf && <a href={api.fileUrl(id, item.pdf)}>下载正式 PDF</a>}</Space>)}</Space>}
+        </Card>
+        <Card size="small" style={{ marginTop: 16 }} title="文件检查" extra={<Button type="primary" onClick={doReview} loading={running} disabled={!profile || running || flow?.stale}>检查文件{review ? ' / 复查' : ''}</Button>}>
+          {flow?.stale ? <Alert type="warning" message="资料已变化，请先更新标书" action={<Button onClick={goToGeneration}>更新标书</Button>} />
+            : !review ? <Typography.Text type="secondary">检查当前文件的缺项和投标风险，通过后可导出正式文件。</Typography.Text>
+            : <Alert showIcon type={flow?.blockers.length ? 'warning' : 'success'} message={flow?.blockers.length ? '仍有问题需要处理' : '检查已完成，可以导出正式文件'} description={flow?.blockers.length ? <ul>{flow.blockers.map(reason => <li key={reason}>{reason}</li>)}</ul> : undefined} />}
+          {gen.generation_mode === 'incomplete_draft' && <Typography.Paragraph type="secondary">本版本为待完善草稿，补齐资料后请更新。</Typography.Paragraph>}
+        </Card>
+      </>}
+      <Collapse style={{ marginTop: 16 }} items={[{ key: 'details', label: '详细核对、评分与提交要求', children: <>
+      <Space wrap style={{ marginBottom: 16 }}><Button onClick={() => setRequirementsOpen(true)}>采购要求与证据</Button><Button onClick={doScore} disabled={!profile || running || flow?.stale}>预估评分</Button><Button onClick={doMatrix}>查看提交要求</Button></Space>
       {gen?.llm_connection && <Typography.Text type="secondary">本次使用的 AI 服务：{gen.llm_connection.name} · 模型：{gen.llm_connection.model}</Typography.Text>}
       {gen && (
         <Tabs items={[
@@ -281,18 +269,6 @@ export default function WorkbenchPage() {
         ]} />
       )}
 
-      {review && (
-        <Card size="small" title={<Space><span>检查投标文件</span><Tag color={review.blocked ? 'red' : 'green'}>{review.blocked ? '有投标无效风险' : '未发现投标无效风险'}</Tag><Typography.Text type="secondary">文件版本编号：{review.generation_id}</Typography.Text>{Object.entries(review.counts).map(([k, v]) => <Tag key={k} color={LEVEL[k]}>{reviewLevelLabel(k)} {v}</Tag>)}</Space>}>
-          <Table<Finding> size="small" rowKey={(_, i) => String(i)} pagination={{ pageSize: 15 }} dataSource={review.findings}
-            columns={[
-              { title: '级别', dataIndex: 'level', width: 110, render: (v: string) => <Tag color={LEVEL[v]}>{reviewLevelLabel(v)}</Tag> },
-              { title: '规则', dataIndex: 'rule_id', width: 90 }, { title: '问题', dataIndex: 'title', width: 220 },
-              { title: '说明', dataIndex: 'message' }, { title: '位置', dataIndex: 'location', width: 160 }, { title: '依据', dataIndex: 'source', width: 150 },
-              { title: '核查', width: 100, render: (_, finding) => <Button size="small" onClick={() => setPreview({ finding, filename: gen?.files.find(file => finding.location.includes(file)) })}>对照文件</Button> },
-            ]} />
-        </Card>
-      )}
-
       {score && (
         <Card size="small" title={`预估评分：技术 ${score.tech_total ?? '?'}/${score.tech_max}　商务 ${score.biz_total ?? '?'}/${score.biz_max}　按权重折算（不含价格分）${score.weighted ?? '?'}`}>
           <Table<ItemScore> size="small" rowKey="element" pagination={false} dataSource={score.items}
@@ -317,7 +293,25 @@ export default function WorkbenchPage() {
             ]} />
         </Card>
       )}
+      </> }]} />
+      {review && review.findings.length > 0 && (
+        <Card size="small" title={<Space><span>{flow?.stale ? '上次文件问题（历史参考）' : '需要核对的问题'}</span><Tag color={review.blocked ? 'red' : 'green'}>{review.blocked ? '有投标无效风险' : '未发现投标无效风险'}</Tag><Typography.Text type="secondary"></Typography.Text>{Object.entries(review.counts).map(([k, v]) => <Tag key={k} color={LEVEL[k]}>{reviewLevelLabel(k)} {v}</Tag>)}</Space>}>
+          <Table<Finding> size="small" rowKey={(_, i) => String(i)} pagination={{ pageSize: 15 }} dataSource={review.findings}
+            columns={[
+              { title: '级别', dataIndex: 'level', width: 110, render: (v: string) => <Tag color={LEVEL[v]}>{reviewLevelLabel(v)}</Tag> },
+              { title: '问题', dataIndex: 'title', width: 220 },
+              { title: '说明', dataIndex: 'message' }, { title: '位置', dataIndex: 'location', width: 160 },
+              { title: '核查', width: 100, render: (_, finding) => <Button size="small" onClick={() => setPreview({ finding, filename: gen?.files.find(file => finding.location.includes(file)) })}>对照文件</Button> },
+            ]} />
+        </Card>
+      )}
+
       </div>
+      {(requirementsOpen || searchParams.has('requirement')) && <div ref={requirementsAnchor}>
+        <Button style={{ marginBottom: 8 }} onClick={() => { setRequirementsOpen(false); setSearchParams(current => { const next = new URLSearchParams(current); next.delete('requirement'); return next }, { replace: true }) }}>收起详细要求</Button>
+        <RequirementsPanel key={`requirements:${id}:${profile}:${pkgIndex}`} />
+      </div>}
+
       {preview && profile && gen && <OutputPreview key={`${flow?.generation_id}:${preview.filename}:${preview.finding?.rule_id}`} id={id} profile={profile} pkgIndex={pkgIndex} files={gen.files} filename={preview.filename} finding={preview.finding} onClose={() => setPreview(undefined)} />}
     </Space>
   )
