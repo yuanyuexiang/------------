@@ -114,7 +114,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           )}
         </Header>
         <Content className="admin-content">
-          <div className="admin-page-heading"><div><h1>{page.title}</h1><p>{page.description}</p></div><span className="admin-workspace-label">{COMPANY_NAME}</span></div>
+          {!pathname.startsWith('/projects/') && <div className="admin-page-heading"><div><h1>{page.title}</h1><p>{page.description}</p></div><span className="admin-workspace-label">{COMPANY_NAME}</span></div>}
           {isAdmin && devSecret && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="系统正在使用默认安全密钥，存在账号冒用风险。请联系系统维护人员设置专用安全密钥（JB_SECRET_KEY）。" />}
           {user?.must_change_password ? <Alert type="info" message="请先完成初始密码修改，再使用系统。" /> : children}
         </Content>

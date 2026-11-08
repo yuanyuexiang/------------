@@ -26,7 +26,7 @@ from sqlalchemy import select
 
 from . import auth as auth_api
 from . import config as config_api
-from . import kb, tasks
+from . import kb, tasks, workspace
 from . import preparation as preparation_api
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.getcwd(), "uploads"))
@@ -57,6 +57,7 @@ app.middleware("http")(auth_api.auth_middleware)   # 除 health/login 外全部�
 app.include_router(auth_api.router)     # 登录 / 用户管理：/api/auth/*、/api/users/*
 app.include_router(kb.router)   # 企业知识库：/api/profiles/*、/api/attachments/*
 app.include_router(preparation_api.router)
+app.include_router(workspace.router)
 app.include_router(config_api.router)   # 配置中心：/api/config/*
 
 
@@ -70,7 +71,8 @@ def _project_out(p: Project) -> dict:
             "days_left": pm.days_left(p.deadline), "stage": p.stage, "stage_cn": pm.STAGE_CN.get(p.stage, p.stage),
             "outcome": p.outcome, "outcome_cn": pm.OUTCOME_CN.get(p.outcome, p.outcome), "active": pm.is_active(p),
             "notes": p.notes, "pkg_nos": [k.get("pkg_no", "") for k in pkgs], "packages": len(pkgs),
-            "results": {k: v for k, v in (p.results or {}).items() if k != 'qualification_reports'}}
+            "results": {k: v for k, v in (p.results or {}).items()
+                        if k not in ('qualification_reports', 'requirement_links')}}
 
 
 def _get_project(s, project_id: str) -> Project:
@@ -263,10 +265,10 @@ def get_task(task_id: str):
 # ---------- 资格自检（企业档案路由见 kb.py） ----------
 
 @app.get("/api/projects/{project_id}/qualify")
-def qualification_report(project_id: str, profile: str):
+def qualification_report(project_id: str, profile: str, pkg_index: Optional[int] = None):
     with session() as s:
         try:
-            return workflow.qualification_state(s, _get_project(s, project_id), profile)
+            return workflow.qualification_state(s, _get_project(s, project_id), profile, pkg_index)
         except workflow.WorkflowError as exc:
             raise HTTPException(409, str(exc)) from exc
 
@@ -279,6 +281,7 @@ def qualify_project(project_id: str, profile: str, llm: bool = False):
             p = _get_project(s, project_id)
             trm, cp, input_hash = workflow.inputs(s, p, profile)
             confirmed = p.trm_confirmed is not None
+            package_bases = workflow.qualification_bases(s, p, cp)
         except workflow.WorkflowError as exc:
             raise HTTPException(409, str(exc)) from exc
     if llm:
@@ -288,7 +291,7 @@ def qualify_project(project_id: str, profile: str, llm: bool = False):
         rep = workflow.qualify_selected(_get_project(s, project_id), trm, cp, llm)
     with session() as s:
         p = _get_project(s, project_id)
-        workflow.save_qualification_report(p, profile, rep.model_dump(), input_hash, confirmed)
+        workflow.save_qualification_report(p, profile, rep.model_dump(), input_hash, confirmed, package_bases)
         verdicts = {trm.package_key(i): pk.verdict for i, pk in enumerate(rep.packages)}
         pm.set_result(p, "qualify", {"profile": profile, "verdicts": verdicts, "llm": llm})
         pm.advance(p, "qualified")

@@ -28,6 +28,9 @@ def test_reports_restore_per_company_and_expire_when_inputs_change(client):
     assert client.get(url, params={'profile': '企业甲'}).json()['report'] == first
     assert 'qualification_reports' not in client.get(f'/api/projects/{pid}').json()['results']
     client.put('/api/profiles/企业甲', json={'name': '企业甲', 'phone': '12345'})
+    assert client.get(url, params={'profile': '企业甲'}).json()['stale'] is False
+    client.put('/api/profiles/企业甲', json={'name': '企业甲', 'phone': '12345',
+        'certificates': [{'id': 'new-cert', 'name': '更新的资格证明'}]})
     assert client.get(url, params={'profile': '企业甲'}).json()['stale'] is True
     assert client.get(url, params={'profile': '企业乙'}).json()['stale'] is False
 
@@ -44,6 +47,20 @@ def test_preliminary_report_requires_recheck_after_confirmation(client):
     client.put(f'/api/projects/{pid}/trm', json=trm)
     assert client.get(url, params={'profile': '企业甲'}).json()['stale'] is True
     assert client.get('/api/projects/missing/qualify', params={'profile': '企业甲'}).status_code == 404
+
+
+def test_package_selection_changes_only_expire_affected_package(client):
+    pid, _ = project(client)
+    client.put('/api/profiles/企业甲', json={'name': '企业甲', 'performances': [
+        {'id': 'one', 'project': '相关服务合同', 'signed_date': '2025-01-01'}]})
+    url = f'/api/projects/{pid}'
+    client.post(url + '/qualify', params={'profile': '企业甲'})
+    before = client.get(url + '/qualify', params={'profile': '企业甲', 'pkg_index': 1}).json()
+    assert before['stale'] is False and before['package_report']['sub_no'] == 'B'
+    response = client.put(url + '/materials', params={'profile': '企业甲', 'pkg_index': 0}, json={'performances': []})
+    assert response.status_code == 200
+    assert client.get(url + '/qualify', params={'profile': '企业甲', 'pkg_index': 0}).json()['stale'] is True
+    assert client.get(url + '/qualify', params={'profile': '企业甲', 'pkg_index': 1}).json()['stale'] is False
 
 
 def test_reports_from_previous_day_need_recheck_for_expiring_evidence(client):

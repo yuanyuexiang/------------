@@ -1,14 +1,15 @@
-.project-workspace { margin-bottom: 20px; }
+.project-workspace { margin-bottom: 16px; position: sticky; top: 0; z-index: 9; box-shadow: 0 3px 12px #17366c0a !important; }
 .project-workspace-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.project-workspace-heading h4 { margin: 6px 0 0 !important; }
-.project-workspace-selection { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; margin-top: 20px; }
+.project-workspace-heading h1 { margin: 4px 0 0 !important; font-size: 20px; }
+.project-workspace-selection { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .project-workspace-selection > div { flex: 1; min-width: 220px; }
 .project-workspace-selection label { display: block; margin-bottom: 6px; color: #63748d; }
 .project-workspace-selection .ant-select { width: 100%; }
 .project-workspace-selection > .ant-tag { margin-bottom: 8px; }
-.project-workspace .ant-tabs { margin-top: 16px; }
+.project-workspace .ant-tabs { margin-top: 8px; }
 .project-workspace .ant-tabs-nav { margin-bottom: 0; }
 @media (max-width: 900px) {
+  .project-workspace { position: static; }
   .project-workspace-heading { align-items: flex-start; flex-direction: column; }
   .project-workspace-selection > div { min-width: 100%; }
 }

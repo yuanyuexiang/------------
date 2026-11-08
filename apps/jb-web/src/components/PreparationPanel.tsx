@@ -1,6 +1,6 @@
 import { errorMessage, taskMessageLabel } from '../uiLabels'
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Checkbox, Collapse, Drawer, Form, Input, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { api, FactSuggestions, PreparationState, BidMember, Person } from '../api'
@@ -14,6 +14,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
   id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void; onRepair: () => void
 }) {
   const qc = useQueryClient()
+  const [params, setParams] = useSearchParams()
   const { data, error, refetch } = useQuery({ queryKey: ['preparation', id, profile, pkgIndex], queryFn: () => api.preparation(id, profile, pkgIndex), refetchInterval: 15000 })
   const [editor, setEditor] = useState<{ kind: string; snapshot: PreparationState }>()
   const [saving, setSaving] = useState(false)
@@ -52,7 +53,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
   const returnTo = projectUrl(id, 'workbench', { profile, pkgIndex }, 'prepare')
   const personLink = (person?: Person) => `/kb/${encodeURIComponent(profile)}?tab=personnel&item=${person?.id ?? 'new'}&returnTo=${encodeURIComponent(returnTo)}`
   const refresh = async () => {
-    for (const key of [['profile', profile], ['profiles'], ['materials', id], ['workflow', id], ['preparation', id], ['relationship', id], ['qualification', id]]) await qc.invalidateQueries({ queryKey: key })
+    for (const key of [['profile', profile], ['profiles'], ['materials', id], ['workflow', id], ['preparation', id], ['relationship', id], ['qualification', id], ['requirements', id]]) await qc.invalidateQueries({ queryKey: key })
     await refetch(); onSaved()
   }
   const open = (kind: string) => {
@@ -64,6 +65,12 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     if (kind === 'authorization' || kind === 'team') form.setFieldsValue(data.facts[kind]?.confirmation?.data ?? (kind === 'team' ? { members: [], arrival_commitment: false } : {}))
     if (kind === 'team' && !data.facts.team?.confirmation?.data.members?.length) form.setFieldValue('arrival_commitment', false)
   }
+  useEffect(() => {
+    const target = params.get('task')
+    if (!data || !target || !data.tasks.some(t => t.id === target)) return
+    open(target)
+    setParams(current => { const next = new URLSearchParams(current); next.delete('task'); return next }, { replace: true })
+  }, [data, params, setParams])
   const selectPerformance = (value: string) => {
     setItemId(value); setSuggestionTask(undefined)
     const item = snapshot?.profile.performances.find(x => x.id === value)
@@ -116,7 +123,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     {data?.generation_stale && <Alert type="info" showIcon message="当前任务根据现有资料核对；旧文件标记仅保留在各任务的历史提示中，不计作新增资料。" style={{ marginBottom: 12 }} />}
     <Typography.Title level={5}>需要您确认的事项</Typography.Title>
     <div className="preparation-task-grid">
-      {data?.tasks.filter(t => !t.complete && !['system', 'other'].includes(t.id)).map(t => <Card key={t.id} size="small" title={t.title}>
+      {data?.tasks.filter(t => t.required && !t.complete && !['system', 'other'].includes(t.id)).map(t => <Card key={t.id} size="small" title={t.title}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Tag color="orange">{t.status}</Tag>
           {t.current_notes?.map((note, i) => <Typography.Text key={i} type="secondary">{taskMessageLabel(note)}</Typography.Text>)}
@@ -124,8 +131,9 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
         </Space>
       </Card>)}
     </div>
-    {data && !data.tasks.some(t => !t.complete && !['system', 'other'].includes(t.id)) && <Alert type="success" showIcon message="当前准备事项已处理，可进入生成标书。生成内容仍需审阅。" />}
-    <Card size="small" style={{ marginTop: 16 }} title="AI 协助更新和检查标书" extra={<Button type="primary" loading={disabled} disabled={disabled} onClick={onRepair}>{disabled ? '正在处理' : 'AI 更新标书并检查'}</Button>}>
+    {data && !data.tasks.some(t => t.required && !t.complete && !['system', 'other'].includes(t.id)) && <Alert type="success" showIcon message="当前已识别的准备事项已处理，生成前仍需核对采购要求及文件完整性。" />}
+    {!!data?.tasks.some(t => !t.required && !t.complete && !['system', 'other'].includes(t.id)) && <Collapse style={{ marginTop: 16 }} items={[{ key: 'optional', label: '其他企业资料与安排（按本包实际要求完善）', children: <Space direction="vertical">{data.tasks.filter(t => !t.required && !t.complete && !['system', 'other'].includes(t.id)).map(t => <Space key={t.id}><Typography.Text>{t.title}</Typography.Text><Button disabled={disabled} onClick={() => open(t.id)}>查看 / 完善</Button></Space>)}</Space> }]} />}
+    <Card size="small" style={{ marginTop: 16 }} title="AI 协助更新和检查标书" extra={<Button loading={disabled} disabled={disabled} onClick={onRepair}>{disabled ? '正在处理' : 'AI 更新标书并检查'}</Button>}>
       <Typography.Paragraph>{data?.generation_stale ? '资料已更新。以下为旧文件问题，更新标书后再核对，不计入当前待补资料。' : '引用与起草问题交给系统处理。更新将生成本包商务、技术文件的新版本，保留旧版；结果会显示在审阅步骤。'}</Typography.Paragraph>
       {data?.tasks.filter(t => ['system', 'other'].includes(t.id)).map(t => <div key={t.id} style={{ marginBottom: 12 }}><Space wrap><Typography.Text strong>{t.title}</Typography.Text><Tag>{data.generation_stale ? '待更新后复核' : `${t.items.length} 项待检查`}</Tag><Button type="link" onClick={() => open(t.id)}>查看问题与处理动作</Button></Space></div>)}
       {!data?.tasks.some(t => ['system', 'other'].includes(t.id)) && <Typography.Text type="secondary">尚无已生成文件的系统问题记录；不代表标书已通过审查。</Typography.Text>}

@@ -6,6 +6,7 @@ import { api, fmtUtc, ProjectEvent } from '../api'
 import { errorMessage, reviewLevelLabel, taskKindLabel, taskMessageLabel } from '../uiLabels'
 import { DaysLeft, OUTCOME_COLOR } from './ProjectsPage'
 import { useProjectWorkspace } from '../components/ProjectWorkspace'
+import ProjectTasks from '../components/ProjectTasks'
 
 const VERDICT_COLOR: Record<string, string> = { 可投: 'green', 有风险: 'orange', 不可投: 'red' }
 const EVENT_COLOR: Record<string, string> = {
@@ -28,7 +29,8 @@ export default function ProjectDetailPage() {
   const [deadline, setDeadline] = useState('')
   const [openTime, setOpenTime] = useState('')
   const [notes, setNotes] = useState('')
-  useEffect(() => { if (p) { setDeadline(p.deadline); setOpenTime(p.open_time); setNotes(p.notes) } }, [p])
+  useEffect(() => { if (p) { setDeadline(p.deadline); setOpenTime(p.open_time) } }, [p?.deadline, p?.open_time])
+  useEffect(() => { if (p) setNotes(p.notes) }, [p?.notes])
   const patch = useMutation({
     mutationFn: (fields: Parameters<typeof api.patchProject>[1]) => api.patchProject(id, fields),
     onSuccess: () => { message.success('已保存'); qc.invalidateQueries({ queryKey: ['project-detail', id] }); qc.invalidateQueries({ queryKey: ['projects'] }) },
@@ -43,8 +45,9 @@ export default function ProjectDetailPage() {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       {p.status === 'failed' && <Alert type="error" showIcon message="解析失败" description={p.error} />}
+      <ProjectTasks />
 
-      <Card className="project-detail-overview" size="small" title={<Space wrap>{p.batch_name || p.filename}<Typography.Text type="secondary" style={{ fontWeight: 400 }}>{p.batch_no}</Typography.Text><Tag color={OUTCOME_COLOR[p.outcome]}>{p.outcome_cn}</Tag></Space>}
+      <Card className="project-detail-overview" size="small" title={<Space>项目时间与备注<Tag color={OUTCOME_COLOR[p.outcome]}>{p.outcome_cn}</Tag></Space>}
         extra={<Space wrap>
           <Popconfirm title="删除项目及其生成的文件？" onConfirm={async () => { await api.deleteProject(id); nav('/') }}><Button danger>删除</Button></Popconfirm>
         </Space>}>
@@ -62,7 +65,7 @@ export default function ProjectDetailPage() {
                 <Space wrap>
                   <Input size="small" style={{ width: 170 }} value={openTime} onChange={(e) => setOpenTime(e.target.value)} placeholder="YYYY-MM-DD HH:MM" />
                   {p.key_terms.bid_open_note && <Typography.Text type="secondary">公告：{p.key_terms.bid_open_note}</Typography.Text>}
-                  {timeDirty && <Button size="small" type="primary" loading={patch.isPending} onClick={() => patch.mutate({ deadline, open_time: openTime })}>保存时间</Button>}
+                  {timeDirty && <Button size="small" loading={patch.isPending} onClick={() => patch.mutate({ deadline, open_time: openTime })}>保存时间</Button>}
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label="结果">

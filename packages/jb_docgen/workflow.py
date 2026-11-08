@@ -86,24 +86,59 @@ def qualify_selected(p: Project, trm: TRM, profile: CompanyProfile, use_llm: boo
         for i, pkg in enumerate(trm.packages)])
 
 
+def qualification_bases(s, p: Project, cp: CompanyProfile) -> dict:
+    """逐包只追踪资格判断所用资料，联系方式不影响资格，另一个包的选材不串扰。"""
+    trm = TRM.model_validate(p.trm_confirmed or p.trm)
+    shared = trm.model_dump(exclude={'packages', 'scoring_templates', 'warnings', 'source_zip'})
+    files = {a.id: a.sha256 for a in s.scalars(select(KbAttachment).where(KbAttachment.company == cp.name))}
+    bases = {}
+    for index, pkg in enumerate(trm.packages):
+        selected = selected_profile(p, index, cp)
+        records = {kind: [x.model_dump() for x in getattr(selected, kind)]
+                   for kind in ('certificates', 'personnel', 'performances', 'test_reports')}
+        ids = {aid for values in records.values() for item in values for aid in item.get('attachments', [])}
+        bases[trm.package_key(index)] = fingerprint({'company': cp.name, 'shared': shared,
+            'package': pkg.model_dump(exclude={'scoring_ref', 'spec_docs', 'materials'}),
+            'records': records, 'attachments': {aid: files.get(aid) for aid in ids}, 'deadline': p.deadline})
+    return bases
+
+
 def save_qualification_report(p: Project, profile: str, report: dict, input_hash: str,
-                              confirmed: bool) -> None:
+                              confirmed: bool, package_bases: Optional[dict] = None) -> None:
     reports = dict((p.results or {}).get('qualification_reports', {}))
     reports[profile] = {'report': report, 'input_hash': input_hash,
-                        'confirmed': confirmed, 'checked_on': date.today().isoformat()}
+                        'confirmed': confirmed, 'checked_on': date.today().isoformat(),
+                        'package_bases': package_bases, 'package_keys': list(package_bases or {})}
     pm.set_result(p, 'qualification_reports', reports)
 
 
-def qualification_state(s, p: Project, profile: str) -> dict:
+def qualification_state(s, p: Project, profile: str, pkg_index: Optional[int] = None) -> dict:
     """按企业恢复检查结果；采购信息、选材或本次安排变化后只作为历史依据展示。"""
-    _, _, current_hash = inputs(s, p, profile)
+    trm, cp, current_hash = inputs(s, p, profile)
+    if pkg_index is not None and not 0 <= pkg_index < len(trm.packages):
+        raise WorkflowError('采购包不存在')
     saved = (p.results or {}).get('qualification_reports', {}).get(profile)
     if not saved:
         previous = (p.results or {}).get('qualify', {})
         return {'report': None, 'stale': previous.get('profile') == profile}
-    return {'report': saved['report'], 'stale': saved.get('input_hash') != current_hash
-            or saved.get('confirmed') != (p.trm_confirmed is not None)
-            or saved.get('checked_on') != date.today().isoformat()}
+    bases = qualification_bases(s, p, cp)
+    keys = [trm.package_key(pkg_index)] if pkg_index is not None else list(bases)
+    old = saved.get('package_bases')
+    changed = any(old.get(key) != bases[key] for key in keys) if old else saved.get('input_hash') != current_hash
+    result = {'report': saved['report'], 'stale': changed
+              or saved.get('confirmed') != (p.trm_confirmed is not None)
+              or saved.get('checked_on') != date.today().isoformat()}
+    if pkg_index is not None:
+        old_keys = saved.get('package_keys') or list(old or {})
+        old_index = old_keys.index(keys[0]) if keys[0] in old_keys else None
+        packages = saved['report'].get('packages', [])
+        result['package_report'] = packages[old_index] if old_index is not None and old_index < len(packages) else None
+        if not old_keys:
+            pkg = trm.packages[pkg_index]
+            matches = [item for item in packages if (item.get('sub_no'), item.get('pkg_no')) == (pkg.sub_no, pkg.pkg_no)]
+            if len(matches) == 1:
+                result['package_report'] = matches[0]
+    return result
 
 
 def save_selection(p: Project, pkg_index: int, profile: CompanyProfile, data: dict) -> None:

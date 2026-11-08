@@ -321,9 +321,26 @@ def state(s, p, index, cp):
                for word in (*REGISTRATION, '股东', '出资比例'))]
     active_suggestion = s.scalar(select(Task.id).where(Task.project_id == p.id,
                                 Task.kind == 'suggest', Task.status.in_(['queued', 'running'])))
+    ready = readiness(p, index, cp)
+    required = {item['task'] for item in ready['confirmations']}
+    formats = '\n'.join(block.title + '\n' + '\n'.join(block.paragraphs) for block in trm.format_blocks)
+    if re.search('授权委托书|授权书|委托代理人', formats):
+        required.add('authorization')
+    if relationship['options'] or '与国家电网公司系统人员关系说明' in formats:
+        required.add('relationship')
+    if roles or re.search('拟委任|主要人员|项目团队', formats):
+        required.add('team')
+    if re.search('员工总|技术人员数|人员统计|高级工程师|助理工程师', formats):
+        required.add('statistics')
+    if registration_requirements:
+        required.add('registration')
+    if any(q.performance_req for q in trm.packages[index].qualification):
+        required.add('performance')
+    for kind, group in groups.items():
+        group['required'] = kind in required or bool(group['items'])
     return {'active_suggestion': active_suggestion,
             'registration_requirements': registration_requirements,
-            'readiness': readiness(p, index, cp), 'revision': revision, 'profile': cp.model_dump(), 'facts': facts,
+            'readiness': ready, 'revision': revision, 'profile': cp.model_dump(), 'facts': facts,
             'tasks': [v for k, v in groups.items() if k not in ('other', 'system') or v['items']],
             'generation_stale': bool(artifact and artifact['input_hash'] != revision),
             'generation_id': artifact['id'] if task else None,

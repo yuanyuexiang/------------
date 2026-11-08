@@ -4,9 +4,10 @@ import { useBeforeUnload, useBlocker, useNavigate, useParams } from 'react-route
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useProjectWorkspace } from '../components/ProjectWorkspace'
 import {
-  Alert, Button, Card, Collapse, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin, Switch, Table, Tabs, Tag, Typography, message,
+  Alert, Button, Card, Collapse, Descriptions, Form, Input, InputNumber, Modal, Select, Space, Spin, Table, Tabs, Tag, Typography, message,
 } from 'antd'
 import { api, KeyTerms, PackageTRM, TRM } from '../api'
+import SourceDocument from '../components/DocumentReader'
 
 const { Text } = Typography
 
@@ -29,9 +30,10 @@ function KeyTermsForm({ kt, onChange }: { kt: KeyTerms; onChange: (k: KeyTerms) 
           options={['none', '诚信担保', '年度保证金', '按包保证金'].map((v) => ({ value: v, label: v === 'none' ? '不要求保证金' : v }))} />
       </Form.Item>
       <Space size="large" wrap className="key-terms-switches">
-        <Form.Item label="整份文件统一电子签章"><Switch checked={!!kt.sign_whole_doc} onChange={(v) => set('sign_whole_doc', v)} /></Form.Item>
-        <Form.Item label="仅提交电子文件（不接收纸质文件）"><Switch checked={!!kt.paperless} onChange={(v) => set('paperless', v)} /></Form.Item>
-        <Form.Item label="通过电子平台投标"><Switch checked={!!kt.electronic} onChange={(v) => set('electronic', v)} /></Form.Item>
+        {([['sign_whole_doc', '整份文件统一电子签章'], ['paperless', '仅提交电子文件（不接收纸质文件）'], ['electronic', '通过电子平台投标']] as const).map(([key, label]) =>
+          <Form.Item key={key} label={label}><Select style={{ width: 170 }} value={kt[key] === null ? 'unknown' : String(kt[key])}
+            onChange={value => set(key, value === 'unknown' ? null : value === 'true')}
+            options={[{ value: 'unknown', label: '未识别，请核对' }, { value: 'true', label: '是' }, { value: 'false', label: '否' }]} /></Form.Item>)}
       </Space>
       <Form.Item label="采购问题澄清截止时间"><Input value={kt.clarify_deadline ?? ''} onChange={(e) => set('clarify_deadline', e.target.value || null)} /></Form.Item>
       <Form.Item label={`最高限价说明（条款 ${kt.max_price_clause || '-'}）`}><Input.TextArea value={kt.max_price_note} onChange={(e) => set('max_price_note', e.target.value)} autoSize /></Form.Item>
@@ -105,6 +107,8 @@ export default function TrmConfirmPage() {
   const nav = useNavigate()
   const qc = useQueryClient()
   const { href, pkgIndex, setPkgIndex } = useProjectWorkspace()
+  const [source, setSource] = useState('main')
+  useEffect(() => { setSource('main') }, [pkgIndex])
   const { data, isLoading, error } = useQuery({ queryKey: ['trm', id], queryFn: () => api.trm(id, true) })
   const [trm, setTrm] = useState<TRM | null>(null)
   const [saving, setSaving] = useState(false)
@@ -158,7 +162,7 @@ export default function TrmConfirmPage() {
           <Collapse size="small" style={{ marginTop: 8 }} items={[{ key: 'warnings', label: '查看文件名及详细原因', children: trm.warnings.map((warning, i) => <Typography.Paragraph key={i} style={{ overflowWrap: 'anywhere' }}>{warning}</Typography.Paragraph>) }]} />
         </>}
       </Card>
-      <Tabs items={[
+      <div className="procurement-review"><div><Tabs items={[
         { key: 'kt', label: '关键投标要求', children: <KeyTermsForm kt={trm.key_terms} onChange={(k) => setTrm({ ...trm, key_terms: k })} /> },
         { key: 'pk', label: `采购包（${trm.packages.length}）`, children: (
           <Tabs className="package-tabs" tabPosition="top" activeKey={String(pkgIndex)} onChange={key => setPkgIndex(Number(key))} items={trm.packages.map((p, i) => ({
@@ -190,8 +194,12 @@ export default function TrmConfirmPage() {
               columns={[{ title: '条款编号', dataIndex: 'clause_no', width: 100 }, { title: '事项', dataIndex: 'name', width: 200 }, { title: '具体要求', dataIndex: 'content' }]} />
           </Space>
         ) },
-      ]} />
-      <Card size="small" className="confirmation-actions">
+      ]} /></div><aside><Card size="small" title="对照本包采购原件">
+        <Select aria-label="选择采购原件" style={{ width: '100%', marginBottom: 16 }} value={source} onChange={setSource}
+          options={[{ value: 'main', label: '采购主文件' }, ...(trm.packages[pkgIndex]?.spec_docs ?? []).map((spec, index) => ({ value: `spec:${index}`, label: spec.title || spec.spec_id || spec.source }))]} />
+        <SourceDocument id={id} pkgIndex={pkgIndex} source={source} />
+      </Card></aside></div>
+      <Card size="small" className="confirmation-actions workflow-footer">
         <Space wrap>
           <Button type="primary" loading={saving} onClick={() => save(true)}>确认并检查投标资格</Button>
           <Button disabled={saving} onClick={() => save()}>仅保存，留在本页</Button>

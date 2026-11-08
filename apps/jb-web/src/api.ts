@@ -133,7 +133,7 @@ export interface ProfileSummary { name: string; credit_code: string; updated_at:
 export interface ExpiryItem { kind: string; id: string; name: string; number: string; valid_until: string; days_left: number | null; level: 'expired' | 'd30' | 'd60' | 'd90' | 'ok' | 'unknown' }
 export interface ExpiryReport { items: ExpiryItem[]; summary: Record<string, number> }
 
-export interface PreparationTask { complete?: boolean; id: string; title: string; occurrences: number; items: { message: string; file: string }[]; status?: string; current_notes?: string[] }
+export interface PreparationTask { required?: boolean; complete?: boolean; id: string; title: string; occurrences: number; items: { message: string; file: string }[]; status?: string; current_notes?: string[] }
 export interface BidMember { person_id: string; role: string; available: boolean }
 export interface BidFactState { stale: boolean; confirmation: { data: { person_id?: string; title?: string; members?: BidMember[]; arrival_commitment?: boolean }; confirmed_by: string; confirmed_at: string } | null }
 export interface PreparationReadiness {
@@ -167,6 +167,20 @@ export interface WorkflowState {
   review: ReviewResult | null
   blockers: string[]
   exports: { docx: string; pdf: string | null }[]
+}
+
+export interface DocumentBlock { id: string; kind: 'paragraph' | 'table'; text: string; heading: string; rows: string[][]; images: number }
+export interface DocumentPreview { filename: string; generation_id?: string; blocks: DocumentBlock[] }
+export interface RequirementEvidence { id: string; kind: string; title: string; attachments: { id: string; filename: string }[] }
+export interface RequirementResponse { filename: string; generation_id: string; block_id: string }
+export interface RequirementRow {
+  id: string; group: string; title: string; text: string; source: string; document: string; evidence_kinds: string[]; link_revision: string
+  status: 'unlinked' | 'linked' | 'confirmed' | 'stale'
+  link: { evidence_ids?: string[]; response?: RequirementResponse | null; note?: string; confirmed?: boolean; actor?: string; updated_at?: string }
+}
+export interface RequirementsState {
+  revision: string; requirements: RequirementRow[]; evidence: RequirementEvidence[]; files: string[]
+  generation_id: string | null; generation_stale: boolean; review_stale: boolean; review: ReviewResult | null; blockers: string[]; groups: Record<string, string>
 }
 export interface ItemScore { element: string; kind: string; score_min: number; score_max: number; predicted: number | null; method: string; basis: string; missing: string[] }
 export interface ScoreReport { pkg_no: string; items: ItemScore[]; tech_total: number | null; biz_total: number | null; tech_max: number; biz_max: number; weighted: number | null; notes: string[] }
@@ -223,6 +237,11 @@ export interface AccountAudit {
 }
 
 export const api = {
+  requirements: (id: string, profile: string, pkgIndex: number) => req<RequirementsState>(`/api/projects/${id}/requirements?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`),
+  saveRequirement: (id: string, profile: string, pkgIndex: number, requirementId: string, data: { revision: string; link_revision: string; evidence_ids: string[]; response: RequirementResponse | null; note: string; confirmed: boolean }) => req<{ ok: boolean }>(`/api/projects/${id}/requirements/${requirementId}?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}`, json(data)),
+  sourceDocument: (id: string, pkgIndex: number, source = 'main') => req<DocumentPreview>(`/api/projects/${id}/source-document?pkg_index=${pkgIndex}&source=${encodeURIComponent(source)}`),
+  sourceArchiveUrl: (id: string) => withToken(`/api/projects/${id}/source-archive`),
+  documentPreview: (id: string, profile: string, pkgIndex: number, filename: string) => req<DocumentPreview>(`/api/projects/${id}/document-preview?profile=${encodeURIComponent(profile)}&pkg_index=${pkgIndex}&filename=${encodeURIComponent(filename)}`),
   login: (username: string, password: string) => req<{ token: string; user: User; dev_secret: boolean }>('/api/auth/login', json({ username, password }, 'POST')),
   me: () => req<{ user: User; dev_secret: boolean }>('/api/auth/me'),
   changePassword: async (old_password: string, new_password: string) => {
@@ -327,6 +346,6 @@ export const api = {
   qualify: (id: string, profile: string, llm: boolean) =>
     req<{ report: FeasibilityReport; markdown: string }>(
       `/api/projects/${id}/qualify?profile=${encodeURIComponent(profile)}&llm=${llm}`, { method: 'POST' }),
-  qualification: (id: string, profile: string) => req<{ report: FeasibilityReport | null; stale: boolean }>(
-    `/api/projects/${id}/qualify?profile=${encodeURIComponent(profile)}`),
+  qualification: (id: string, profile: string, pkgIndex?: number) => req<{ report: FeasibilityReport | null; stale: boolean; package_report?: FeasibilityReport['packages'][number] | null }>(
+    `/api/projects/${id}/qualify?profile=${encodeURIComponent(profile)}${pkgIndex === undefined ? '' : `&pkg_index=${pkgIndex}`}`),
 }

@@ -5,7 +5,7 @@ import { Alert, Button, Card, Select, Space, Spin, Tabs, Tag, Typography } from 
 import { api, ProjectDetail } from '../api'
 import { useAuth } from '../auth'
 import { errorMessage } from '../uiLabels'
-import { nextProjectAction, packageIndex, ProjectSelection, ProjectView, projectUrl } from '../projectNavigation'
+import { packageIndex, ProjectSelection, ProjectView, projectUrl } from '../projectNavigation'
 import './ProjectWorkspace.css'
 
 interface Workspace {
@@ -52,8 +52,8 @@ function WorkspaceContent({ id }: { id: string }) {
   const requestedProfile = params.get('profile') ?? saved.profile ?? project?.results.generate?.[selectedKey ?? '']?.profile ?? project?.results.qualify?.profile
   const profile = profiles.some(p => p.name === requestedProfile) ? requestedProfile
     : requestedProfile ? undefined : profiles.length === 1 ? profiles[0].name : undefined
-  const { data: qualification } = useQuery({ queryKey: ['qualification', id, profile],
-    queryFn: () => api.qualification(id, profile!),
+  const { data: qualification } = useQuery({ queryKey: ['qualification', id, profile, pkgIndex],
+    queryFn: () => api.qualification(id, profile!, pkgIndex),
     enabled: !!profile && !!project && ['parsed', 'confirmed'].includes(project.status), refetchInterval: 15000 })
   const href = (route = '', index = pkgIndex, view?: ProjectView) => projectUrl(id, route, { profile, pkgIndex: index }, view)
   const select = (selection: ProjectSelection) => {
@@ -62,6 +62,8 @@ function WorkspaceContent({ id }: { id: string }) {
       if (selection.profile !== undefined) next.set('profile', selection.profile)
       if (selection.pkgIndex !== undefined) next.set('pkg', String(selection.pkgIndex))
       next.delete('view') // 新企业或新包从资料准备开始，避免沿用其他包的审阅位置。
+      next.delete('requirement')
+      next.delete('task')
       return next
     }, { replace: true })
   }
@@ -86,18 +88,15 @@ function WorkspaceContent({ id }: { id: string }) {
   const ready = ['parsed', 'confirmed'].includes(project.status)
   const active = pathname.endsWith('/trm') ? 'trm' : pathname.endsWith('/qualify') ? 'qualify'
     : pathname.endsWith('/workbench') ? params.get('view') === 'review' ? 'review' : 'workbench' : 'overview'
-  const next = qualification?.stale && project.confirmed && !['won', 'lost', 'abandoned'].includes(project.outcome)
-    ? { label: '重新检查投标资格', route: 'qualify' }
-    : nextProjectAction(project, { resultKey: selectedKey ?? '', profile })
   const value = { project, profile, pkgIndex, setProfile: (v: string) => select({ profile: v }),
     setPkgIndex: (v: number) => select({ pkgIndex: v }), href, selectionLocked, setSelectionLocked }
   return <Context.Provider value={value}>
     <Card size="small" className="project-workspace">
       <div className="project-workspace-heading">
-        <div><Typography.Text type="secondary">当前投标项目 · {project.batch_no || '读取中'}</Typography.Text>
-          <Typography.Title level={4}>{project.batch_name || project.filename}</Typography.Title></div>
+        <div><Typography.Text type="secondary">{project.batch_no || '读取中'} · 截止 {project.deadline || '待核对'}</Typography.Text>
+          <Typography.Title level={1}>{project.batch_name || project.filename}</Typography.Title></div>
         <Space wrap><Button onClick={() => nav('/')}>全部投标项目</Button>
-          <Button type="primary" onClick={() => nav(href(next.route, pkgIndex, next.view))}>{next.label}</Button></Space>
+          {qualification?.stale && <Tag color="orange">本包资格需复核</Tag>}</Space>
       </div>
       <div className="project-workspace-selection">
         <div><label htmlFor="project-company">本次投标企业</label><Select id="project-company" placeholder="选择企业档案" value={profile}

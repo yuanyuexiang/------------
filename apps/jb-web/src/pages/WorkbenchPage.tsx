@@ -7,6 +7,8 @@ import { errorMessage, purchaseWarningLabel, reviewLevelLabel, scoreKindLabel, s
 import MaterialPicker from '../components/MaterialPicker'
 import PreparationPanel from '../components/PreparationPanel'
 import { useProjectWorkspace } from '../components/ProjectWorkspace'
+import RequirementsPanel from '../components/RequirementsPanel'
+import OutputPreview from '../components/OutputPreview'
 
 const LEVEL: Record<string, string> = { 否决: 'red', 扣分: 'orange', 建议: 'blue', 需人工: 'purple' }
 const VERDICT: Record<string, string> = { satisfied: 'green', deviation: 'red', unknown: 'orange', missing: 'default' }
@@ -23,6 +25,7 @@ export default function WorkbenchPage() {
   const [withDraft, setWithDraft] = useState(true)
   const [taskId, setTaskId] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState<{ filename?: string; finding?: Finding }>()
   const { data: flow, refetch: refreshFlow, error: flowError } = useQuery({
     queryKey: ['workflow', id, profile, pkgIndex],
     queryFn: () => api.workflow(id, profile ?? '', pkgIndex), refetchInterval: 5000,
@@ -56,7 +59,7 @@ export default function WorkbenchPage() {
   const running = busy || (!!effectiveTaskId && !['done', 'failed'].includes(task?.status ?? ''))
   const [score, setScore] = useState<{ items: ItemScore[]; tech_total: number | null; tech_max: number; biz_total: number | null; biz_max: number; weighted: number | null } | null>(null)
   const [matrix, setMatrix] = useState<{ section: string; seq: string; item: string; channels: string[]; port: string; status: string }[]>([])
-  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]) }, [id, profile, pkgIndex])
+  useEffect(() => { setTaskId(undefined); setScore(null); setMatrix([]); setPreview(undefined) }, [id, profile, pkgIndex])
   useEffect(() => { setSelectionLocked(running); return () => setSelectionLocked(false) }, [running, setSelectionLocked])
   useEffect(() => {
     if (task?.kind === 'generate' && ['queued', 'running'].includes(task.status)) setStep(1)
@@ -122,7 +125,7 @@ export default function WorkbenchPage() {
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      {step !== 2 && <Card size="small" title="标书生成选项" className="workbench-controls">
+      {step === 1 && <Card size="small" title="标书生成选项" className="workbench-controls">
         <div className="workbench-inputs">
           <div className="workbench-draft"><span>技术方案起草<small>AI 先写方案，人工核对事实与承诺</small></span><Switch aria-label="技术方案起草" disabled={running} checked={withDraft} onChange={setWithDraft} /></div>
         </div>
@@ -139,6 +142,7 @@ export default function WorkbenchPage() {
       {flowError && <Alert type="error" message="无法读取当前审查状态" description={errorMessage(flowError)} />}
       {preparationError && <Alert type="error" message="无法读取准备状态，请刷新重试" description={errorMessage(preparationError)} />}
       {step === 0 && <>
+      <RequirementsPanel key={`requirements:${id}:${profile}:${pkgIndex}`} />
       {!!flow?.preflight?.length && <Alert showIcon type={flow.preflight.some(x => x.blocking) ? 'error' : 'warning'}
         message="生成前检查" description={<>
           <ul>{flow.preflight.map((x, i) => <li key={i}>{purchaseWarningLabel(x.message)}{purchaseWarningLabel(x.message) === x.message && <> — {x.action}</>}</li>)}</ul>
@@ -149,9 +153,9 @@ export default function WorkbenchPage() {
       <div ref={preparationAnchor}>
       {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onRepair={repair} onSaved={() => { setScore(null); void refreshFlow() }} />}
       </div>
-      {profile && <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }); void qc.invalidateQueries({ queryKey: ['qualification', id] }) }} />}
+      {profile && <Collapse items={[{ key: 'materials', label: '选择本包使用的证明材料', children: <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }); void qc.invalidateQueries({ queryKey: ['qualification', id] }); void qc.invalidateQueries({ queryKey: ['requirements', id] }) }} /> }]} />}
 
-      <Card size="small" title="准备检查">
+      <Card size="small" title="准备检查" className="workflow-footer">
         {!profile ? <Empty description="请先选择企业档案与采购包" /> : !readiness ? <Typography.Text>正在检查准备状态…</Typography.Text> : <Space direction="vertical" style={{ width: '100%' }}>
           <Alert showIcon type={readiness.blockers.length ? 'error' : readiness.confirmations.length ? 'warning' : 'success'}
             message={readiness.blockers.length ? '请先解决招标文件问题' : readiness.confirmations.length ? `还有 ${readiness.confirmations.length} 项本次安排需要确认` : '本次安排已确认，可以生成标书'}
@@ -179,6 +183,7 @@ export default function WorkbenchPage() {
         </Space>
       </Card>}
       <div hidden={step !== 2}>
+      {step === 2 && <RequirementsPanel key={`review-requirements:${id}:${profile}:${pkgIndex}`} />}
       {!gen && <Empty description="尚未生成标书，请先完成准备资料"><Button type="primary" onClick={() => setStep(0)}>前往准备资料</Button></Empty>}
       {gen && <Space style={{ marginBottom: 16 }}>
         <Button onClick={() => setStep(0)}>返回准备资料</Button>
@@ -236,6 +241,7 @@ export default function WorkbenchPage() {
               {gen.files.map((f) => (
                 <Space key={f}>
                   <a href={api.fileUrl(id, f)} target="_blank" rel="noreferrer">下载草稿：{f}</a>
+                  <Button size="small" onClick={() => setPreview({ filename: f })}>预览内容</Button>
                   <Button size="small" disabled={running || !!flowError || !flow || flow.blockers.length > 0} onClick={() => doExport(f)}>正式导出（Word / PDF）</Button>
                   <Typography.Text type="secondary">待补充 {(gen.todos[f] ?? []).length} 处</Typography.Text>
                 </Space>
@@ -282,6 +288,7 @@ export default function WorkbenchPage() {
               { title: '级别', dataIndex: 'level', width: 110, render: (v: string) => <Tag color={LEVEL[v]}>{reviewLevelLabel(v)}</Tag> },
               { title: '规则', dataIndex: 'rule_id', width: 90 }, { title: '问题', dataIndex: 'title', width: 220 },
               { title: '说明', dataIndex: 'message' }, { title: '位置', dataIndex: 'location', width: 160 }, { title: '依据', dataIndex: 'source', width: 150 },
+              { title: '核查', width: 100, render: (_, finding) => <Button size="small" onClick={() => setPreview({ finding, filename: gen?.files.find(file => finding.location.includes(file)) })}>对照文件</Button> },
             ]} />
         </Card>
       )}
@@ -311,6 +318,7 @@ export default function WorkbenchPage() {
         </Card>
       )}
       </div>
+      {preview && profile && gen && <OutputPreview key={`${flow?.generation_id}:${preview.filename}:${preview.finding?.rule_id}`} id={id} profile={profile} pkgIndex={pkgIndex} files={gen.files} filename={preview.filename} finding={preview.finding} onClose={() => setPreview(undefined)} />}
     </Space>
   )
 }
