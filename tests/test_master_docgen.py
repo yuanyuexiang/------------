@@ -151,10 +151,12 @@ def test_generate_from_master(tmp_path):
     # 切片 + 指引行删除 + 封面
     assert "投标函" not in text.split("商务文件")[1][:50] and "上传投标工具路径" not in text
     assert d.paragraphs[0].text == "投标文件"
-    # 跨 run 填空且保留首 run 字号
+    # 跨 run 填空保留原有 run 边界与字号，不再整段合并
     p = next(p for p in d.paragraphs if "（投标人名称）为中华人民共和国" in p.text)
     assert p.text == "测试企业（投标人名称）为中华人民共和国合法企业，法定地址：南京市。"
-    assert len(p.runs) == 1 and p.runs[0].font.size == Pt(14)
+    assert len(p.runs) == 2 and p.runs[0].font.size == Pt(14)
+    assert p.runs[0].text == "测试企业（投标人名称）为中华人民共和国合法企业，法定地址：南京市"
+    assert p.runs[1].text == "。"
     assert "特授权李四" in text and "T-2026-01（招标编号）" in text and "职务：经理" in text
     # 标签行：空的补值，已有内容不动
     assert "投标人名称：测试企业" in text and "地址：南京市" in text and "投标人：（盖章）" in text

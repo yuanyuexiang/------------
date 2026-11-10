@@ -5,7 +5,7 @@
 "一、价格文件"、"三、技术文件" 几种写法；段内每个格式块 = 编号标题 + 原文/表格，表格表头四省一致。
 投标文件成品就是把对应段落原样复制后填空（见 docs/国网真实招标文件结构分析.md §6）。
 
-本模块只做 docx 机械操作（切片、合并 run 后正则填空、表格模板行填充、按锚点插入），
+本模块只做 docx 机械操作（切片、保留 run 格式的正则填空、表格模板行填充、按锚点插入），
 不含任何业务字段映射——映射在 master_builder。
 """
 from __future__ import annotations
@@ -14,6 +14,7 @@ import copy
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Callable, Optional, Union
 
 import docx
@@ -118,6 +119,11 @@ def strip_orphan_rels(doc) -> int:
 
 def prepare_composition(doc) -> None:
     """补齐真正的标题样式，移除不适用于新正文的母版嵌入字形子集。"""
+    # 采购母版可能只允许批注；投标输出是新的可编辑副本，不能继承此限制。
+    # 只操作内存中的生成副本，原采购文件不保存、不修改。
+    for tag in ('documentProtection', 'writeProtection'):
+        for protection in list(doc.settings.element.findall(qn('w:' + tag))):
+            doc.settings.element.remove(protection)
     for level, size in enumerate((16, 15, 14, 12), 1):
         name = f"Heading {level}"
         if _style_or_none(doc, name) is not None:
@@ -210,18 +216,49 @@ def merge_runs(p: Paragraph):
 
 
 def fill_paragraph(p: Paragraph, subs: list[Sub]) -> bool:
-    """按整段文本做正则替换；有变化才合并 run 并回写。"""
-    text = p.text
-    new = text
-    for pat, rep in subs:
-        new = pat.sub(rep, new)
-    if new == text:
+    """跨 run 定位填空，只改命中的文本；替换值继承占位符首字符的格式。"""
+    if p._p.xpath('.//w:drawing | .//w:pict | .//w:fldChar | .//w:fldSimple | '
+                  './/w:hyperlink | .//w:sdt | .//w:sym | .//w:br[@w:type="page"]'):
         return False
-    run = merge_runs(p)
-    if run is None:
-        return False
-    run.text = new
-    return True
+    changed = False
+    for pattern, replacement in subs:
+        runs = p.runs
+        values = [r.text for r in runs]
+        text = ''.join(values)
+        offsets = []
+        offset = 0
+        for value in values:
+            offsets.append((offset, offset + len(value)))
+            offset += len(value)
+        edits = []
+        for match in pattern.finditer(text):
+            value = replacement(match) if callable(replacement) else match.expand(replacement)
+            # 规则常用整段捕获组保留标签和句尾，只有实际变化的字符才应继承填空格式。
+            for kind, lo, hi, start, end in SequenceMatcher(
+                    None, match.group(), value, autojunk=False).get_opcodes():
+                if kind != 'equal':
+                    edits.append((match.start() + lo, match.start() + hi, value[start:end]))
+        for begin, finish, value in reversed(edits):
+            if begin == finish:
+                # 零宽标签末尾补值，优先沿用标签最后一个字符的格式。
+                index = next((i for i, (lo, hi) in enumerate(offsets)
+                              if lo < begin <= hi), 0)
+                if not runs:
+                    continue
+                at = begin - offsets[index][0]
+                runs[index].text = runs[index].text[:at] + value + runs[index].text[at:]
+            else:
+                placed = False
+                for i, (lo, hi) in enumerate(offsets):
+                    start, end = max(lo, begin), min(hi, finish)
+                    if start >= end:
+                        continue
+                    current = runs[i].text
+                    runs[i].text = (current[:start - lo] + (value if not placed else '')
+                                    + current[end - lo:])
+                    placed = True
+            changed = True
+    return changed
 
 
 def fill_all(doc, subs: list[Sub]) -> int:

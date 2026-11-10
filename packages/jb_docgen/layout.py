@@ -51,9 +51,47 @@ def _trim_evidence_spacers(doc) -> int:
     return removed
 
 
+def _trim_empty_terminal_section(doc) -> int:
+    """仅合并没有任何正文、页形相同的最后空分节；保留签章段落及其留白。"""
+    body = list(doc.element.body)
+    if not body or body[-1].tag != qn('w:sectPr'):
+        return 0
+    carrier = next((i for i in range(len(body) - 2, -1, -1)
+                    if body[i].tag == qn('w:p') and body[i].xpath('./w:pPr/w:sectPr')), None)
+    if carrier is None:
+        return 0
+    for element in body[carrier + 1:-1]:
+        if (element.tag != qn('w:p') or ''.join(element.itertext()).strip()
+                or element.xpath('.//w:drawing | .//w:pict | .//w:fldChar | .//w:fldSimple | .//w:sdt | .//w:br')):
+            return 0
+    previous = body[carrier].xpath('./w:pPr/w:sectPr')[0]
+    final = body[-1]
+    for tag in ('pgSz', 'pgMar', 'cols'):
+        left, right = previous.find(qn('w:' + tag)), final.find(qn('w:' + tag))
+        if (dict(left.attrib) if left is not None else {}) != (dict(right.attrib) if right is not None else {}):
+            return 0
+    kind = final.find(qn('w:type'))
+    if kind is not None and kind.get(qn('w:val')) in ('continuous', 'oddPage', 'evenPage'):
+        return 0
+    if kind is None:
+        kind = OxmlElement('w:type')
+        final.append(kind)
+    kind.set(qn('w:val'), 'continuous')
+    for element in body[carrier + 1:-1]:
+        element.getparent().remove(element)
+    paragraph = Paragraph(body[carrier], doc._body)
+    if not paragraph.text.strip() and not body[carrier].xpath('.//w:drawing | .//w:pict'):
+        paragraph.paragraph_format.line_spacing = Pt(1)
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.keep_with_next = False
+    return 1
+
+
 def fit_tables(path: str) -> int:
     doc = Document(path)
     removed_spacers = _trim_evidence_spacers(doc)
+    removed_sections = _trim_empty_terminal_section(doc)
     adjusted = 0
     for table in doc.tables:
         section = doc.sections[-1]
@@ -90,6 +128,6 @@ def fit_tables(path: str) -> int:
         width.set(qn('w:w'), str(available))
         table.autofit = False
         adjusted += 1
-    if adjusted or removed_spacers:
+    if adjusted or removed_spacers or removed_sections:
         doc.save(path)
     return adjusted

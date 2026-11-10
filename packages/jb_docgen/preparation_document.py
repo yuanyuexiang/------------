@@ -4,6 +4,7 @@ import re
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Twips
 
 
 def append_team_document(path, profile):
@@ -37,9 +38,17 @@ def append_team_document(path, profile):
     from .placeholders import todo
     doc = Document(path)
     doc.add_heading('本次项目团队与到岗安排', level=2)
-    doc.add_paragraph('以下安排经本次投标负责人确认；人员资格及工作经历以所附证明为准。')
+    doc.add_paragraph('本包人员安排如下；人员资格及工作经历以个人简历和相关证明为准。')
     table = doc.add_table(rows=1, cols=4)
-    for cell, value in zip(table.rows[0].cells, ('姓名', '本次岗位', '可投入状态', '资格与经历依据')):
+    table.autofit = False
+    section = doc.sections[-1]
+    available = int((section.page_width - section.left_margin - section.right_margin) / 635)
+    widths = [int(available * ratio) for ratio in (0.14, 0.24, 0.24)]
+    widths.append(available - sum(widths))
+    for column, width in zip(table.columns, widths):
+        column.width = Twips(width)
+    table.rows[0]._tr.get_or_add_trPr().append(OxmlElement('w:tblHeader'))
+    for cell, value in zip(table.rows[0].cells, ('姓名', '本次岗位', '可投入状态', '证明材料')):
         cell.text = value
     people = {x.id: x for x in profile.personnel}
     for member in team['members']:
@@ -49,8 +58,14 @@ def append_team_document(path, profile):
         cells = table.add_row().cells
         cells[0].text, cells[1].text = person.name, member['role']
         cells[2].text = '本包已确认可投入' if member['available'] else todo(person.name + '本包可投入状态')
-        cells[3].text = '；'.join(x for x in [person.education, person.major, person.title,
-                                             person.experience_source, person.source] if x)
+        # 内部来源说明可包含很长的路径与核对意见，不装入正式表格；原记录留在企业资料。
+        cells[3].text = '见人员简历及证明材料'
+    for row in table.rows:
+        row._tr.get_or_add_trPr().append(OxmlElement('w:cantSplit'))
+        for cell, width in zip(row.cells, widths):
+            cell.width = Twips(width)
+            for paragraph in cell.paragraphs:
+                paragraph.paragraph_format.keep_with_next = False
     if team['arrival_commitment'] and all(x['available'] for x in team['members']) and team['members']:
         doc.add_heading('本次人员到岗承诺', level=3)
         doc.add_paragraph(f'{profile.name}承诺按本次确认的岗位安排组织上述人员到岗，'

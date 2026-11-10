@@ -1,0 +1,6 @@
+# 固定已验证的转换基础镜像；升级时重新做 WPS/PDF 对照。
+FROM gotenberg/gotenberg:8-libreoffice@sha256:8ffc9951a9e2a8a2f85fb51e64b6c47b720adb7c3d70e44e77e8b73f9e76b27b
+USER root
+COPY deploy/fonts/ /usr/local/share/fonts/jinbang/
+RUN fc-cache -f
+USER gotenberg

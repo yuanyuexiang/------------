@@ -17,12 +17,62 @@ def _field(paragraph, instruction: str) -> None:
     paragraph._p.append(field)
 
 
+def _toc_field(entries) -> None:
+    """用原生 TOC 复杂域包裹缓存目录，WPS 可执行“更新整个目录”。"""
+    run = OxmlElement('w:r')
+    begin = OxmlElement('w:fldChar')
+    begin.set(qn('w:fldCharType'), 'begin')
+    begin.set(qn('w:dirty'), 'true')
+    run.append(begin)
+    instruction = OxmlElement('w:instrText')
+    instruction.set(qn('xml:space'), 'preserve')
+    instruction.text = ' TOC \\o "1-3" \\h \\z \\u '
+    code = OxmlElement('w:r')
+    code.append(instruction)
+    separator = OxmlElement('w:r')
+    separate = OxmlElement('w:fldChar')
+    separate.set(qn('w:fldCharType'), 'separate')
+    separator.append(separate)
+    first = entries[0]._p
+    index = 1 if first.pPr is not None else 0
+    for node in (run, code, separator):
+        first.insert(index, node)
+        index += 1
+    end_run = OxmlElement('w:r')
+    end = OxmlElement('w:fldChar')
+    end.set(qn('w:fldCharType'), 'end')
+    end_run.append(end)
+    entries[-1]._p.append(end_run)
+
+
+def _update_fields(doc) -> None:
+    settings = doc.settings.element
+    update = settings.find(qn('w:updateFields'))
+    if update is None:
+        update = OxmlElement('w:updateFields')
+        settings.append(update)
+    update.set(qn('w:val'), 'true')
+
+
 def add_navigation(path: str) -> bool:
     """封面分页后插入目录；保留已有目录，页码由 Word/转换器计算，绝不猜页码。"""
     doc = Document(path)
-    if any(p.text.strip() == "目录" for p in doc.paragraphs):
+    if doc.element.xpath('.//w:instrText[contains(., "TOC ")] | .//w:fldSimple[contains(@w:instr, "TOC ")]'):
         return False
-    if doc.element.xpath('.//w:instrText[contains(., "TOC ")]'):
+    title = next((p for p in doc.paragraphs if p.text.strip() == '目录'), None)
+    if title is not None:
+        # 仅升级系统旧目录；采购原件中的其他目录不擅自重建。
+        entries = []
+        following = title._p.getnext()
+        while following is not None and following.xpath('.//w:hyperlink[starts-with(@w:anchor,"jb_section_")]'):
+            from docx.text.paragraph import Paragraph
+            entries.append(Paragraph(following, doc._body))
+            following = following.getnext()
+        if entries:
+            _toc_field(entries)
+            _update_fields(doc)
+            doc.save(path)
+            return True
         return False
     boundary = next((p for p in doc.paragraphs
                      if p._p.xpath('.//w:br[@w:type="page"]')), None)
@@ -58,6 +108,7 @@ def add_navigation(path: str) -> bool:
     title = insert("目录")
     title.runs[0].bold = True
     title.runs[0].font.size = Pt(16)
+    entries = []
     for paragraph, level in headings:
         while f"jb_section_{next_id}" in existing:
             next_id += 1
@@ -71,6 +122,7 @@ def add_navigation(path: str) -> bool:
         paragraph._p.append(end)
         next_id += 1
         entry = insert()
+        entries.append(entry)
         entry.paragraph_format.left_indent = Cm((level - 1) * 0.5)
         entry.paragraph_format.first_line_indent = 0
         entry.paragraph_format.space_after = Pt(3)
@@ -93,12 +145,8 @@ def add_navigation(path: str) -> bool:
         _field(entry, f" PAGEREF {name} \\h ")
     # 将分页放在正文首段，避免分页专用空段落溢出后制造整张空白页。
     body_start.paragraph_format.page_break_before = True
-    settings = doc.settings.element
-    update = settings.find(qn("w:updateFields"))
-    if update is None:
-        update = OxmlElement("w:updateFields")
-        settings.append(update)
-    update.set(qn("w:val"), "true")
+    _toc_field(entries)
+    _update_fields(doc)
     for level in range(1, 5):
         try:
             style = doc.styles[f"Heading {level}"]

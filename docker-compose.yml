@@ -83,7 +83,7 @@ services:
 
   # ---- 文档转换：默认启动，避免本地正式导出缺少 PDF ----
   gotenberg:
-    image: gotenberg/gotenberg:8-libreoffice
+    build: { context: ., dockerfile: deploy/Dockerfile.gotenberg }
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:3000/health"]
       interval: 10s
