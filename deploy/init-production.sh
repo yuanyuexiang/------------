@@ -14,7 +14,6 @@ except FileExistsError:
     print('Existing /opt/jinbang/.env preserved')
 else:
     with os.fdopen(fd, 'w') as f:
-        f.write('DEPLOY_DOMAIN=jinbang.matrix-net.tech\n')
         for name in ('POSTGRES_PASSWORD', 'JB_SECRET_KEY', 'JB_ADMIN_PASSWORD'):
             f.write(f'{name}={secrets.token_hex(32)}\n')
         f.write('LLM_BASE_URL=\nLLM_API_KEY=\nLLM_MODEL=\n')

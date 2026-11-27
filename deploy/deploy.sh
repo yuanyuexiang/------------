@@ -9,7 +9,6 @@ test -s "$root/.env"
 test -s "$release/release.env"
 exec 9>"$root/deploy.lock"
 flock -n 9 || { echo 'Another deployment is running' >&2; exit 1; }
-docker network inspect matrix-network >/dev/null
 previous=$(readlink -f "$root/current" || true)
 phase=prepare
 step=prepare
@@ -66,21 +65,17 @@ compose run --rm --no-deps jb-api alembic -c deploy/alembic.ini upgrade head
 phase=app
 step=container-startup
 compose up -d --no-build --pull never --wait --wait-timeout 360
-domain=$(sed -n 's/^DEPLOY_DOMAIN=//p' "$root/.env")
-domain=${domain:-jinbang.matrix-net.tech}
-check_https() {
-  local url=$1
+check_web() {
+  local url="http://127.0.0.1:80$1"
   echo "Checking $step: $url"
-  # Both endpoints can see transient TLS/network failures during first issuance.
-  # Keep certificate verification enabled and bound the retry budget.
-  curl --fail --silent --show-error --retry 24 --retry-all-errors --retry-delay 10 \
+  curl --noproxy '*' --fail --silent --show-error --retry 24 --retry-all-errors --retry-delay 10 \
     --retry-max-time 300 --connect-timeout 5 --max-time 15 --output /dev/null "$url"
   echo "Passed $step"
 }
-step=https-api
-check_https "https://$domain/api/health"
-step=https-homepage
-check_https "https://$domain/"
+step=api-health
+check_web /api/health
+step=homepage
+check_web /
 step=activate-release
 if [[ -n "$previous" && -d "$previous" ]]; then
   ln -sfn "$previous" "$root/previous"

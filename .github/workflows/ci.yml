@@ -100,7 +100,7 @@ jobs:
       contents: read
     environment:
       name: production
-      url: https://jinbang.matrix-net.tech
+      url: ${{ vars.DEPLOY_WEB_URL }}
     concurrency:
       group: jinbang-production
       cancel-in-progress: false
@@ -110,6 +110,7 @@ jobs:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_WEB_URL: ${{ vars.DEPLOY_WEB_URL }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -124,6 +125,7 @@ jobs:
         run: |
           : "${DEPLOY_HOST:?Missing production secret DEPLOY_HOST}"
           : "${DEPLOY_USER:?Missing production secret DEPLOY_USER}"
+          : "${DEPLOY_WEB_URL:?Missing repository variable DEPLOY_WEB_URL}"
           : "${SSH_KEY:?Missing production secret DEPLOY_SSH_KEY}"
           : "${REGISTRY_USERNAME:?Missing production secret REGISTRY_USERNAME}"
           : "${REGISTRY_PASSWORD:?Missing production secret REGISTRY_PASSWORD}"
@@ -142,7 +144,7 @@ jobs:
           }
           printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
           ssh -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            'docker compose version && docker network inspect matrix-network >/dev/null && command -v python3 && command -v flock && command -v curl'
+            'docker compose version && command -v python3 && command -v flock && command -v curl'
       - name: Initialize production environment (preserve existing configuration)
         run: |
           ssh -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
@@ -181,6 +183,13 @@ jobs:
           ' bash "$REGISTRY" "$REGISTRY_USERNAME" "$release"
           printf '%s' "$REGISTRY_PASSWORD" | ssh -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "$DEPLOY_USER@$DEPLOY_HOST" "$remote_deploy"
+      - name: Verify public website and API
+        run: |
+          site_url="${DEPLOY_WEB_URL%/}"
+          for path in /api/health /; do
+            curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 \
+              --retry-max-time 90 --connect-timeout 5 --max-time 10 --output /dev/null "$site_url$path"
+          done
       - name: Remove runner credentials
         if: always()
         run: |

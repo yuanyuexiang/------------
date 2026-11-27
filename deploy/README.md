@@ -1,14 +1,14 @@
 # 生产部署
 
-部署使用 `root@112.2.90.246:40022`，网站为 `https://jinbang.matrix-net.tech`，部署目录为 `/opt/jinbang`。
-现有 Traefik 使用外部网络 `matrix-network`、入口 `websecure`、证书解析器 `aliyunresolver`。
-生产使用独立的 `compose.prod.yml`，不与开发 Compose 叠加。只有网页容器接入共享网络，
-所有服务均不绑定主机端口。生产核心服务为网页、API、worker、PostgreSQL 和 Redis；
+部署使用 `root@112.2.90.246:40022`，网站为 `http://112.2.90.246:40080`，部署目录为 `/opt/jinbang`。
+网关将公网 `40022` 转发到主机 `22`，将公网 `40080` 转发到主机 `80`。
+生产使用独立的 `compose.prod.yml`，网页容器将容器端口 `80` 发布到主机 `80`。
+API、worker、PostgreSQL 和 Redis 使用 Compose 内部网络；
 当前附件使用共享 uploads 卷，未使用的 MinIO、PDF 转换和 LLM 网关不在本次部署中启动。
 
 ## 首次配置
 
-1. 确保目标主机已安装 Docker Compose、Python 3、flock 和 curl，且上述 Traefik 网络与域名已配置。
+1. 确保目标主机已安装 Docker Compose 插件、Python 3、flock 和 curl，且主机 `80` 可供金榜使用。
    CD 会自动执行 `init-production.sh`，也可在目标主机以 root 手动执行。
    它创建 `/opt/jinbang/.env`，生成随机数据库密码、令牌密钥和管理员初始密码，权限为 600；
    已存在的文件保持不变。变量说明见 `production.env.example`。
@@ -29,7 +29,8 @@
    | `REGISTRY_USERNAME` | ACR 控制台「访问凭证」中的登录用户名 |
    | `REGISTRY_PASSWORD` | ACR「访问凭证」中设置的镜像仓库登录密码 |
 
-   在 `production` 环境的 Variables 中设置 `DEPLOY_PORT` 为 `40022`。未配置时使用 `22`。
+   在 `production` 环境的 Variables 中设置 `DEPLOY_PORT` 为 `40022`。SSH 未配置端口时使用 `22`。
+   在仓库级 Actions Variables 中设置 `DEPLOY_WEB_URL` 为 `http://112.2.90.246:40080`。
 
    镜像推送和部署拉取均使用上述 ACR 凭据。`REGISTRY_PASSWORD` 是独立设置的仓库密码，
    不是阿里云控制台账号登录密码；无需 GitHub Packages 写入权限。
@@ -45,7 +46,8 @@
 
 CI 完整通过 → 在 GitHub Linux runner 构建 amd64 镜像 → 以完整提交 SHA 为标签推送阿里云 ACR →
 SSH 上传本次 Compose 和镜像引用 → 拉取镜像 → 停止 API/worker → 备份数据库 → 执行 Alembic →
-启动并等待容器健康 → 检查 HTTPS 首页及 `/api/health` → 更新 `current` 和 `previous` 链接。
+启动并等待容器健康 → 从主机端口 `80` 检查首页及 `/api/health` → 更新 `current` 和 `previous` 链接 →
+由 GitHub Actions 通过公网地址复查首页及 `/api/health`。
 
 应用发布期间会有短暂不可用。主分支发布串行执行，服务器另用 flock 防止并发部署。
 worker 默认并发为 1，可通过服务器 `.env` 中的 `JB_WORKER_CONCURRENCY` 调整。
@@ -60,10 +62,11 @@ Secrets 不写入镜像或发布文件；业务环境变量始终从目标主机
 
 - 镜像拉取失败：不停止现有应用。
 - 备份或迁移失败：应用保持停止，发布返回失败；先检查迁移状态和备份，再决定恢复。
-- 容器或 HTTPS 检查失败：有旧版本时自动恢复旧应用镜像，工作流仍返回失败；首次发布则停止应用。
+- 容器或主机 HTTP 检查失败：有旧版本时自动恢复旧应用镜像，工作流仍返回失败；首次发布则停止应用。
+- GitHub Actions 的公网检查失败时，工作流报错，主机上已通过本地检查的版本继续运行。
 - 失败时先输出容器状态、OOM 标志和健康检查历史，再执行恢复或停止。
-  同时输出失败步骤（容器启动、HTTPS API、HTTPS 首页）、退出码、主机内存和 memory/I/O pressure。
-  API 和首页都执行有限重试（各自重试时间预算 300 秒，单次请求最多 15 秒），始终验证 TLS 证书。
+  同时输出失败步骤（容器启动、API、首页）、退出码、主机内存和 memory/I/O pressure。
+  主机上的 API 和首页探测各有 300 秒重试预算，单次请求最多 15 秒。
   若 worker 已打印 `ready` 但探针启动超时，检查主机可用内存、CPU 和 I/O；
   共享主机资源耗尽仍可能导致发布失败，延长等待时间不能替代容量调整。
 - 自动恢复**不回退数据库结构**。迁移必须保持上一版本应用兼容；破坏性迁移需要单独维护窗口。
@@ -79,11 +82,11 @@ docker compose --env-file .env --env-file current/release.env -f current/compose
 ```
 
 若新版本发布成功后需要回退，确认数据库兼容后，使用 `previous` 的 Compose 和 release.env
-执行 `up -d --no-build --pull never --wait`，验证 HTTPS 后再调整 current 链接。
+执行 `up -d --no-build --pull never --wait`，验证首页和 API 后再调整 current 链接。
 若发生迁移失败或备份恢复，先停 API/worker，并由维护者确认对应备份及数据损失范围；
 不要直接运行 `down -v`，也不要盲目降级数据库。
 
-配置依据：[Traefik Docker 路由](https://doc.traefik.io/traefik/reference/routing-configuration/other-providers/docker/)、
+配置依据：[Compose 端口映射](https://docs.docker.com/reference/compose-file/services/#ports)、
 [Compose 健康等待](https://docs.docker.com/reference/cli/docker/compose/up/)。
 
 镜像认证依据：[阿里云 ACR 访问凭证](https://www.alibabacloud.com/help/en/acr/user-guide/configure-access-credentials)。

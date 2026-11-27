@@ -21,7 +21,7 @@ def test_deploy_failure_boundaries(tmp_path, failure):
         directory.mkdir(parents=True)
         (directory / "release.env").write_text("JB_API_IMAGE=example:test\n")
         (directory / "compose.prod.yml").write_text("name: jinbang\n")
-    (root / ".env").write_text("DEPLOY_DOMAIN=example.test\n")
+    (root / ".env").write_text("DEPLOY_DOMAIN=old.example.test\n")
     if failure not in ("first-health", "startup", "homepage"):
         (root / "current").symlink_to(previous)
     bindir = tmp_path / "bin"
@@ -44,7 +44,7 @@ exit 0
 printf 'curl %s\\n' "$*" >> "$COMMAND_LOG"
 case "$FAILURE" in health|first-health) exit 22 ;; esac
 case "$*" in
-  *"https://example.test/" ) test "$FAILURE" != homepage || exit 28 ;;
+  *"http://127.0.0.1:80/" ) test "$FAILURE" != homepage || exit 28 ;;
 esac
 exit 0
 ''',
@@ -66,13 +66,16 @@ exit 0
         assert commands.index("pg_dump") < commands.index("upgrade head")
         assert commands.index("upgrade head") < commands.index("curl")
         probes = [line for line in commands.splitlines() if line.startswith("curl ")]
-        assert len(probes) == 2
+        assert [probe.split()[-1] for probe in probes] == [
+            "http://127.0.0.1:80/api/health",
+            "http://127.0.0.1:80/",
+        ]
         for probe in probes:
             assert "--retry-all-errors" in probe
             assert "--retry-max-time 300" in probe
             assert "--insecure" not in probe
-        assert "Passed https-api" in result.stdout
-        assert "Passed https-homepage" in result.stdout
+        assert "Passed api-health" in result.stdout
+        assert "Passed homepage" in result.stdout
     elif failure in ("first-health", "startup", "homepage"):
         assert not (root / "current").exists()
         assert "stop jb-web jb-worker jb-api" in commands
@@ -81,9 +84,9 @@ exit 0
         if failure == "startup":
             assert "curl" not in commands
         elif failure == "homepage":
-            assert "Passed https-api" in result.stdout
-            assert "Passed https-homepage" not in result.stdout
-            assert "step=https-homepage, exit=28" in result.stderr
+            assert "Passed api-health" in result.stdout
+            assert "Passed homepage" not in result.stdout
+            assert "step=homepage, exit=28" in result.stderr
     else:
         assert (root / "current").resolve() == previous
         if failure == "pull":

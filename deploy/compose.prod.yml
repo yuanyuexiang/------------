@@ -13,18 +13,10 @@ services:
   jb-web:
     image: ${JB_WEB_IMAGE:?Set JB_WEB_IMAGE}
     restart: unless-stopped
-    networks: [default, matrix-network]
+    ports:
+      - "80:80"  # The gateway forwards public TCP 40080 to host TCP 80.
     depends_on:
       jb-api: { condition: service_healthy }
-    labels:
-      traefik.enable: 'true'
-      traefik.docker.network: matrix-network
-      traefik.http.routers.jinbang.rule: Host(`${DEPLOY_DOMAIN:-jinbang.matrix-net.tech}`)
-      traefik.http.routers.jinbang.entrypoints: websecure
-      traefik.http.routers.jinbang.tls: 'true'
-      traefik.http.routers.jinbang.tls.certresolver: aliyunresolver
-      traefik.http.routers.jinbang.service: jinbang
-      traefik.http.services.jinbang.loadbalancer.server.port: '80'
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1/api/health']
       interval: 10s
@@ -88,10 +80,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-
-networks:
-  matrix-network:
-    external: true
 
 volumes:
   uploads:
