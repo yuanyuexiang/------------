@@ -1,6 +1,6 @@
 # 生产部署
 
-目标：`root@36.151.147.66`，网站 `https://jinbang.matrix-net.tech`，部署目录 `/opt/jinbang`。
+部署使用 `root@112.2.90.246:40022`，网站为 `https://jinbang.matrix-net.tech`，部署目录为 `/opt/jinbang`。
 现有 Traefik 使用外部网络 `matrix-network`、入口 `websecure`、证书解析器 `aliyunresolver`。
 生产使用独立的 `compose.prod.yml`，不与开发 Compose 叠加。只有网页容器接入共享网络，
 所有服务均不绑定主机端口。生产核心服务为网页、API、worker、PostgreSQL 和 Redis；
@@ -23,16 +23,19 @@
 
    | Secret | 内容 |
    | --- | --- |
-   | `DEPLOY_HOST` | 目标服务器 IP：`36.151.147.66` |
+   | `DEPLOY_HOST` | 目标服务器 IP：`112.2.90.246` |
    | `DEPLOY_USER` | SSH 用户：`root` |
    | `DEPLOY_SSH_KEY` | 可登录目标主机 root 的完整 SSH 私钥 |
    | `REGISTRY_USERNAME` | ACR 控制台「访问凭证」中的登录用户名 |
    | `REGISTRY_PASSWORD` | ACR「访问凭证」中设置的镜像仓库登录密码 |
 
+   在 `production` 环境的 Variables 中设置 `DEPLOY_PORT` 为 `40022`。未配置时使用 `22`。
+
    镜像推送和部署拉取均使用上述 ACR 凭据。`REGISTRY_PASSWORD` 是独立设置的仓库密码，
    不是阿里云控制台账号登录密码；无需 GitHub Packages 写入权限。
 
-   `deploy/known_hosts` 固定当前目标主机的 SSH 公钥，主机重装后需核对并更新。
+   `deploy/known_hosts` 固定目标主机的 SSH 公钥，非默认端口使用 `[主机地址]:端口` 格式。
+   主机重装后需核对并更新公钥。
    本地 `ci-cd.md` 含私钥，已加入 Git 忽略；Docker 构建上下文使用白名单，排除凭据和客户样本。
 4. 将工作流及配套部署文件推送至 `main`。首次 CI 通过后自动部署；也可在 Actions → CI/CD 手动运行 main。
    其他分支和 PR 只执行检查，不部署。CI 同时校验部署脚本语法、生产 Compose 和主机公钥记录。
