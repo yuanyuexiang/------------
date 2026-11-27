@@ -57,7 +57,7 @@ services:
       start_period: 60s
 
   db:
-    image: pgvector/pgvector:pg15
+    image: ${JB_POSTGRES_IMAGE:-pgvector/pgvector:pg15}
     restart: unless-stopped
     environment:
       POSTGRES_USER: jinbang
@@ -71,7 +71,7 @@ services:
       retries: 20
 
   redis:
-    image: redis:7-alpine
+    image: ${JB_REDIS_IMAGE:-redis:7-alpine}
     restart: unless-stopped
     command: [redis-server, --appendonly, 'yes']
     volumes: [redisdata:/data]

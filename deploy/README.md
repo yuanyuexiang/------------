@@ -18,7 +18,8 @@ API、worker、PostgreSQL 和 Redis 使用 Compose 内部网络；
    以 ACR 控制台提供的公网登录地址为准；若与默认值不同，在 GitHub `production` 环境
    Variables 中设置 `REGISTRY`（仅主机名，不含协议），命名空间可用 `REGISTRY_NAMESPACE` 覆盖。
    新版个人实例地址通常为 `crpi-xxx.cn-<region>.personal.cr.aliyuncs.com`。
-   确保 runner 和部署机能访问该仓库，部署机能拉取 `pgvector/pgvector:pg15` 和 `redis:7-alpine`。
+   确保 runner 和部署机能访问该仓库。runner 从 Docker Hub 拉取 `pgvector/pgvector:pg15`
+   和 `redis:7-alpine`，以镜像 ID 生成标签并同步至 `jinbang-api` 仓库，部署机统一从 ACR 拉取。
 3. 在 GitHub 仓库 Settings → Environments 创建 `production`，添加下列 Secrets：
 
    | Secret | 内容 |
@@ -44,8 +45,8 @@ API、worker、PostgreSQL 和 Redis 使用 Compose 内部网络；
 
 ## 发布过程
 
-CI 完整通过 → 在 GitHub Linux runner 构建 amd64 镜像 → 以完整提交 SHA 为标签推送阿里云 ACR →
-SSH 上传本次 Compose 和镜像引用 → 拉取镜像 → 停止 API/worker → 备份数据库 → 执行 Alembic →
+CI 完整通过 → 在 GitHub Linux runner 构建 amd64 镜像 → 将应用和依赖镜像推送阿里云 ACR →
+SSH 上传本次 Compose 和镜像引用 → 从 ACR 拉取镜像 → 停止 API/worker → 备份数据库 → 执行 Alembic →
 启动并等待容器健康 → 从主机端口 `80` 检查首页及 `/api/health` → 更新 `current` 和 `previous` 链接 →
 由 GitHub Actions 通过公网地址复查首页及 `/api/health`。
 

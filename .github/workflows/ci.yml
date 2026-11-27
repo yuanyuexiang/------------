@@ -163,14 +163,29 @@ jobs:
             -f deploy/Dockerfile.web -t "$IMAGE_PREFIX-web:$GITHUB_SHA" .
           docker push "$IMAGE_PREFIX-api:$GITHUB_SHA"
           docker push "$IMAGE_PREFIX-web:$GITHUB_SHA"
+      - name: Publish database and broker images to ACR
+        run: |
+          docker pull pgvector/pgvector:pg15
+          docker pull redis:7-alpine
+          postgres_id=$(docker image inspect --format '{{.Id}}' pgvector/pgvector:pg15)
+          redis_id=$(docker image inspect --format '{{.Id}}' redis:7-alpine)
+          JB_POSTGRES_IMAGE="$IMAGE_PREFIX-api:pgvector-pg15-${postgres_id#sha256:}"
+          JB_REDIS_IMAGE="$IMAGE_PREFIX-api:redis-7-alpine-${redis_id#sha256:}"
+          docker tag pgvector/pgvector:pg15 "$JB_POSTGRES_IMAGE"
+          docker tag redis:7-alpine "$JB_REDIS_IMAGE"
+          docker push "$JB_POSTGRES_IMAGE"
+          docker push "$JB_REDIS_IMAGE"
+          printf '%s\n' "JB_POSTGRES_IMAGE=$JB_POSTGRES_IMAGE" \
+            "JB_REDIS_IMAGE=$JB_REDIS_IMAGE" >> "$GITHUB_ENV"
       - name: Upload release and deploy
         env:
           REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
         run: |
           release="/opt/jinbang/releases/$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          printf 'JB_API_IMAGE=%s-api:%s\nJB_WEB_IMAGE=%s-web:%s\n' \
-            "$IMAGE_PREFIX" "$GITHUB_SHA" "$IMAGE_PREFIX" "$GITHUB_SHA" > release.env
+          printf '%s\n' "JB_API_IMAGE=$IMAGE_PREFIX-api:$GITHUB_SHA" \
+            "JB_WEB_IMAGE=$IMAGE_PREFIX-web:$GITHUB_SHA" \
+            "JB_POSTGRES_IMAGE=$JB_POSTGRES_IMAGE" "JB_REDIS_IMAGE=$JB_REDIS_IMAGE" > release.env
           ssh -p "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             "mkdir -p '$release'"
           scp -P "$DEPLOY_PORT" -o BatchMode=yes -o StrictHostKeyChecking=yes \
