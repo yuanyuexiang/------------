@@ -183,9 +183,14 @@ export default function WorkbenchPage() {
           <div className="bid-file-grid">{gen.files.map((f) => <div className="bid-file-summary" key={f}>
             <Typography.Text strong>{/商务/.test(f) ? '商务文件' : /技术/.test(f) ? '技术文件' : f}</Typography.Text>
             <Typography.Paragraph type="secondary" ellipsis={{ tooltip: f }}>{f}</Typography.Paragraph>
+            {(gen.summary.layout_issues?.[f] ?? []).map(issue =>
+              <Typography.Paragraph key={issue} type="danger">{issue}</Typography.Paragraph>)}
             <Space wrap><Button onClick={() => setPreview({ filename: f })}>查看文件</Button><a href={api.fileUrl(id, f)}>下载草稿</a>
               <Button disabled={running || !!flowError || !flow || flow.blockers.length > 0} onClick={() => doExport(f)}>导出正式文件</Button></Space>
           </div>)}</div>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+            排版复核请下载草稿，用 WPS 更新整个目录，再核对分页、跨页表格和签章页。
+          </Typography.Paragraph>
           {!!flow?.exports.length && <Space direction="vertical" style={{ marginTop: 16 }}>{flow.exports.map(item => <Space wrap key={item.docx}><a href={api.fileUrl(id, item.docx)}>下载正式 Word：{item.docx}</a>{item.pdf && <a href={api.fileUrl(id, item.pdf)}>下载正式 PDF</a>}</Space>)}</Space>}
         </Card>
         <Card size="small" style={{ marginTop: 16 }} title="文件检查" extra={<Button type="primary" onClick={doReview} loading={running} disabled={!profile || running || flow?.stale}>检查文件{review ? ' / 复查' : ''}</Button>}>
@@ -219,7 +224,7 @@ export default function WorkbenchPage() {
           { key: 'f', label: '文件与问题位置', children: (
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert type={gen.summary.export_blocked ? 'warning' : 'success'}
-                message={gen.summary.export_blocked ? `文件共 ${gen.summary.todo_count} 处标记，重复问题已在“待核对事项”中合并；不等于缺少同等数量的企业材料` : '无待补充；正式导出还需通过本版本检查投标文件'} />
+                message={gen.summary.todo_count ? `文件共 ${gen.summary.todo_count} 处待补充标记，重复问题已在“待核对事项”中合并` : gen.summary.export_blocked ? '请先处理本版排版问题' : '无待补充项，请检查当前版本'} />
               {gen.summary.mode && (
                 <Typography.Text type="secondary">
                   版式：{Object.values(gen.summary.mode).every((m) => m === 'master') ? '采购文件规定格式（原版式）' : Object.values(gen.summary.mode).every((m) => m === 'plain') ? '系统默认格式（未识别到采购文件规定的格式）' : `商务 ${gen.summary.mode.commercial === 'master' ? '采购规定格式' : '系统默认格式'} / 技术 ${gen.summary.mode.technical === 'master' ? '采购规定格式' : '系统默认格式'}`}

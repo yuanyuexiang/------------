@@ -204,6 +204,10 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                 res.notes.extend(d.warnings)
             if master_note:
                 res.notes.append(master_note)
+                for path in (res.commercial_path, res.technical_path):
+                    res.layout_issues.setdefault(os.path.basename(path), []).append(
+                        "无法读取本包采购原件的投标格式，请核对采购文件包"
+                    )
             renamed = {}
             for field, kind in (("commercial_path", "商务文件"), ("technical_path", "技术文件")):
                 old = getattr(res, field)
@@ -213,6 +217,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
                 os.replace(old, dest)
                 setattr(res, field, dest)
             res.docx_todos = {renamed[name]: todos for name, todos in res.docx_todos.items()}
+            res.layout_issues = {renamed[name]: issues for name, issues in res.layout_issues.items()}
     except Exception as exc:
         _update(task_id, status="failed", message=f"生成失败: {exc}"[:2000])
         return
@@ -222,6 +227,7 @@ def _run_generate(task_id: str, project_id: str, profile_name: str, pkg_index: i
         save_artifact(p, {"version": metadata["version"], "generated_at": metadata["generated_at"], "id": task_id, "created_at": s.get(Task, task_id).created_at.isoformat(),
                           "pkg_index": pkg_index, "pkg_no": pkg.pkg_no, "profile": profile_name,
                           "product_model": product_model, "input_hash": input_hash,
+                          "layout_issues": res.layout_issues,
                           "files": {os.path.basename(path): file_hash(path)
                                     for path in (res.commercial_path, res.technical_path)}})
         pm.set_result(p, "generate", {"todo_count": summary.get("todo_count"), "export_blocked": summary.get("export_blocked"),

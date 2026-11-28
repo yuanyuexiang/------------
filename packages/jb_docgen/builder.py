@@ -32,7 +32,7 @@ def narrative_reference(ctx, sd) -> str:
 
 
 def append_spec_responses(doc, anchor_el, ctx, section_level: int = 1,
-                          include_heading: bool = True) -> object:
+                          include_heading: bool = True, preserve_columns: bool = False) -> object:
     """在锚点后追加"技术规范书逐条响应"章节（母版/自建版式共用）。返回新锚点。"""
     from . import master as M
     from .spec_response import append_spec
@@ -47,6 +47,7 @@ def append_spec_responses(doc, anchor_el, ctx, section_level: int = 1,
             last, n, skipped = append_spec(
                 doc, last, path, ctx.product, f"技术规范书 {sd.spec_id or ''} {sd.title}".strip(),
                 plans=ctx.response_plans.get(sd.spec_id or sd.source),
+                preserve_columns=preserve_columns,
                 heading_level=min(section_level + (1 if include_heading else 0), 4),
                 service_mode=not ctx.pkg.materials and any(word in ctx.pkg.sub_name for word in
                     ('服务', '科技项目', '研究', '咨询', '设计', '运维', '监理', '培训')),

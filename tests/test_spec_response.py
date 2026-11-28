@@ -1,10 +1,52 @@
 """技术规范书逐条响应：规范书原文复制 + 参数表加响应列 + 功能条目匹配/待补充（合成规范书，不依赖样本）。"""
 import docx
+from docx.oxml.ns import qn
 from docx.shared import Pt
 from jb_docgen import generate
 from jb_docgen import spec_response as SR
 from jb_kb.models import CompanyProfile, Product
 from jb_parser.trm import TRM, PackageTRM, SpecDoc
+from PIL import Image
+
+
+def test_source_styles_images_and_numbering_survive_copy(tmp_path):
+    from docx.enum.style import WD_STYLE_TYPE
+
+    image = tmp_path / 'source.png'
+    Image.new('RGB', (20, 20), color='blue').save(image)
+    source = docx.Document()
+    style = source.styles.add_style('说明样式', WD_STYLE_TYPE.PARAGRAPH)
+    style.font.size = Pt(18)
+    p = source.add_paragraph('1. 技术说明', style)
+    p._p.get_or_add_pPr().get_or_add_numPr().get_or_add_numId().val = 5
+    source.add_paragraph().add_run().add_picture(str(image))
+    table = source.add_table(rows=2, cols=2)
+    for row, values in zip(table.rows, [['名称', '要求值'], ['端口数量', '8路']]):
+        for cell, value in zip(row.cells, values):
+            cell.text = value
+    source_path = tmp_path / 'specification.docx'
+    source.save(source_path)
+
+    target = docx.Document()
+    target.styles.add_style('说明样式', WD_STYLE_TYPE.PARAGRAPH).font.size = Pt(10)
+    target.add_paragraph().add_run().add_picture(str(image))
+    anchor = target.add_paragraph('投标正文')._p
+    _, count, skipped = SR.append_spec(target, anchor, str(source_path), _product(), '规范书',
+                                       preserve_columns=True)
+    assert count == 1 and not skipped
+    path = tmp_path / 'result.docx'
+    target.save(path)
+    reopened = docx.Document(path)
+    p = next(p for p in reopened.paragraphs if p.text == '1. 技术说明')
+    assert p.style.font.size == Pt(18)
+    assert reopened.styles['说明样式'].font.size == Pt(10)
+    num = p._p.pPr.numPr.numId.val
+    assert num != 5 and reopened.part.numbering_part.element.num_having_numId(num) is not None
+    assert len(set(reopened.element.xpath('.//wp:docPr/@id'))) == 2
+    blip = reopened.inline_shapes[1]._inline.xpath('.//a:blip')[0]
+    assert reopened.part.related_parts[blip.get(qn('r:embed'))].blob == image.read_bytes()
+    assert len(reopened.tables[0].columns) == 2
+    assert any('端口数量）响应：8路' in p.text for p in reopened.paragraphs)
 
 
 def _spec_doc(path: str) -> str:

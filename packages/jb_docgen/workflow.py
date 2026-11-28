@@ -211,6 +211,9 @@ def source_blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> 
 
 def blockers(s, p: Project, a: dict, out_dir: str, profile: str = "") -> list[str]:
     reasons = source_blockers(s, p, a, out_dir, profile)
+    for filename, issues in a.get("layout_issues", {}).items():
+        kind = "商务文件" if "商务文件" in filename else "技术文件"
+        reasons.extend(f"{kind} · {issue}" for issue in issues)
     from .readiness import readiness
     try:
         _, current_profile, _ = inputs(s, p, a["profile"])

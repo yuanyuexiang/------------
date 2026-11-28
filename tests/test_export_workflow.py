@@ -24,7 +24,9 @@ def bid(client, tmp_path, monkeypatch):
             d.add_paragraph(profile.name + "\n" + body["text"])
             d.save(path)
             paths.append(str(path))
-        return GenResult(*paths, docx_todos={Path(p).name: scan_docx(p) for p in paths})
+        return GenResult(*paths, docx_todos={Path(p).name: scan_docx(p) for p in paths},
+                         layout_issues={Path(paths[0]).name: [body['layout_issue']]}
+                         if body.get('layout_issue') else {})
 
     monkeypatch.setattr("jb_docgen.generate", generate)
     client.put("/api/profiles/测试企业", json={"name": "测试企业"})
@@ -83,6 +85,17 @@ def test_confirmation_review_and_force_gate(bid):
     assert review(bid).json()["blocked"] is False
     assert export(bid, name, force=True)["ok"] is False
     assert export(bid, name)["ok"] is True
+
+
+def test_layout_issue_blocks_formal_but_keeps_draft_download(bid):
+    bid['body']['layout_issue'] = '未能应用采购文件规定的格式'
+    name = generate(bid)
+    assert review(bid).json()['blocked'] is False
+    assert state(bid)['generation']['summary']['layout_issues'][name] == [
+        '未能应用采购文件规定的格式'
+    ]
+    assert '商务文件 · 未能应用采购文件规定的格式' in export(bid, name)['blocked_by']
+    assert bid['client'].get(bid['url'] + '/files/' + name).status_code == 200
 
 
 def test_formal_copy_repeat_export_and_restored_review(bid, monkeypatch):

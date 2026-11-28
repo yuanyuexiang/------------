@@ -10,12 +10,15 @@ import docx
 import pytest
 from jb_docgen import generate
 from jb_kb.models import CompanyProfile, FinancialYear, Performance
-from jb_parser import main_doc_for_package, parse
+from jb_parser import main_doc_for_package, package_files, parse
 
 WS = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHAANXI_044 = os.path.join(
     WS, "物资/1/国网陕西省电力有限公司2026年第三次物资集中招标采购项目_招标文件包/"
         "分标044接入设备/包1_完整招标文件_1813604751495232.zip")
+SHAANXI_051 = os.path.join(
+    WS, "物资/1/国网陕西省电力有限公司2026年第三次物资集中招标采购项目_招标文件包/"
+        "分标051综合网管/包1_完整招标文件_1813606452501308.zip")
 JIANGXI_PKG = os.path.join(WS, "物资/通信监控系统/包1_完整招标文件_102421217810232908.zip")
 
 
@@ -72,6 +75,27 @@ def test_shaanxi_master(tmp_path):
     for path in (res.commercial_path, res.technical_path):
         with zipfile.ZipFile(path) as z:
             assert not [n for n in z.namelist() if n.startswith("word/media/")]
+
+
+@pytest.mark.skipif(not os.path.exists(SHAANXI_051), reason="样本缺失")
+def test_shaanxi_051_repairs_source_grid_without_adding_columns(tmp_path):
+    trm = parse(SHAANXI_051)
+    pkg = trm.packages[0]
+    sources = package_files(SHAANXI_051, pkg, workdir=str(tmp_path / 'src'))
+    source_path = sources.spec_docs['D068-500009678-00001']
+    original = next(table for table in docx.Document(source_path).tables
+                    if not table._tbl.xpath('./w:tblGrid'))
+    assert len(original.rows) == 3
+    result = generate(trm, pkg, _profile(), str(tmp_path / 'out'),
+                      master_docx=sources.main_doc, spec_paths=sources.spec_docs)
+    assert result.mode == {'commercial': 'master', 'technical': 'master'}
+    assert not result.layout_issues
+    assert not any('逐条响应失败' in note for note in result.notes)
+    generated = docx.Document(result.technical_path)
+    copied = next(t for t in generated.tables if t.rows[0].cells[0].text == '序号'
+                  and [c.text for c in t.rows[0].cells][1:] ==
+                  [c.text for c in original.rows[0].cells][1:])
+    assert [c.width for c in copied.columns] == [c.width for c in original.rows[0].cells]
 
 
 @pytest.mark.skipif(not os.path.exists(JIANGXI_PKG), reason="样本缺失")

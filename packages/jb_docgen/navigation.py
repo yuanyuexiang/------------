@@ -8,6 +8,12 @@ from docx.enum.text import WD_TAB_ALIGNMENT, WD_TAB_LEADER
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
+from lxml import etree
+
+_TOC = etree.XPath(
+    './/w:instrText[contains(., "TOC ")] | .//w:fldSimple[contains(@w:instr, "TOC ")]',
+    namespaces={'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'},
+)
 
 
 def _field(paragraph, instruction: str) -> None:
@@ -57,14 +63,30 @@ def _update_fields(doc) -> None:
 def add_navigation(path: str) -> bool:
     """封面分页后插入目录；保留已有目录，页码由 Word/转换器计算，绝不猜页码。"""
     doc = Document(path)
-    if doc.element.xpath('.//w:instrText[contains(., "TOC ")] | .//w:fldSimple[contains(@w:instr, "TOC ")]'):
+    boundary = next((p for p in doc.paragraphs
+                     if p._p.xpath('.//w:br[@w:type="page"]')), None)
+    if boundary is None:
         return False
-    title = next((p for p in doc.paragraphs if p.text.strip() == '目录'), None)
+    first_body = boundary._p.getnext()
+    while first_body is not None and first_body.tag == qn('w:p') and not (
+        _TOC(first_body) or ''.join(t.text or '' for t in first_body.iter(qn('w:t'))).strip()
+    ):
+        first_body = first_body.getnext()
+    if first_body is None or _TOC(first_body):
+        return False
+    title = next((p for p in doc.paragraphs
+                  if p._p is first_body and re.sub(r'\s+', '', p.text) == '目录'), None)
     if title is not None:
         # 仅升级系统旧目录；采购原件中的其他目录不擅自重建。
         entries = []
         following = title._p.getnext()
-        while following is not None and following.xpath('.//w:hyperlink[starts-with(@w:anchor,"jb_section_")]'):
+        while following is not None:
+            if _TOC(following):
+                return False
+            if following.tag != qn('w:p') or not following.xpath(
+                './/w:hyperlink[starts-with(@w:anchor,"jb_section_")]'
+            ):
+                break
             from docx.text.paragraph import Paragraph
             entries.append(Paragraph(following, doc._body))
             following = following.getnext()
@@ -74,12 +96,7 @@ def add_navigation(path: str) -> bool:
             doc.save(path)
             return True
         return False
-    boundary = next((p for p in doc.paragraphs
-                     if p._p.xpath('.//w:br[@w:type="page"]')), None)
-    if boundary is None:
-        return False  # 未识别封面边界时不擅自重排原件。
-    body_start = next((p for p in doc.paragraphs
-                       if p._p is boundary._p.getnext()), None)
+    body_start = next((p for p in doc.paragraphs if p._p is first_body), None)
     if body_start is None:
         return False
     headings = []
@@ -87,6 +104,11 @@ def add_navigation(path: str) -> bool:
     for paragraph in doc.paragraphs:
         if paragraph._p is boundary._p:
             started = True
+            continue
+        outline = paragraph._p.xpath('./w:pPr/w:outlineLvl/@w:val')
+        if outline:
+            if started and paragraph.text.strip() and outline[0] in ('0', '1', '2'):
+                headings.append((paragraph, int(outline[0]) + 1))
             continue
         match = re.fullmatch(r"Heading ([1-3])", paragraph.style.name)
         if started and match and paragraph.text.strip():

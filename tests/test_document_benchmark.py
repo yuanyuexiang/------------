@@ -18,7 +18,7 @@ def test_filled_cells_do_not_snap_multiple_line_spacing_to_page_grid():
     cell.paragraphs[0].paragraph_format.line_spacing = 1.5
     cell.paragraphs[0].add_run('空白响应').bold = True
     before = table.cell(0, 0)._tc.xml
-    set_cell_text(cell, '具体响应见表后第1项说明。')
+    set_cell_text(cell, '具体响应见表后第1项说明。', compact=True)
     paragraph = cell.paragraphs[0]
     assert paragraph._p.pPr.find(qn('w:snapToGrid')).get(qn('w:val')) == '0'
     assert paragraph.paragraph_format.line_spacing == 1.15
@@ -38,8 +38,9 @@ def test_commercial_long_headings_and_subsections_without_promoting_clauses():
     ]:
         doc.add_paragraph(title)
     _commercial_headings(doc, [])
-    assert [p.style.name for p in doc.paragraphs] == [
-        'Heading 2', 'Heading 3', 'Heading 3', 'Heading 2', 'Normal', 'Normal']
+    assert [p._p.xpath('w:pPr/w:outlineLvl/@w:val') for p in doc.paragraphs] == [
+        ['1'], ['2'], ['2'], ['1'], [], []]
+    assert all(p.style.name == 'Normal' for p in doc.paragraphs)
 
 
 def test_comparison_tracks_repeated_image_crops_and_missing_sections(tmp_path):

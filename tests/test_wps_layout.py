@@ -2,13 +2,70 @@
 import re
 
 from docx import Document
+from docx.enum.section import WD_SECTION
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Pt
-from jb_docgen.master import fill_paragraph
+from docx.shared import Cm, Pt
+from jb_docgen.layout import fit_tables, structural_issues
+from jb_docgen.master import carve, fill_paragraph, set_kv_cells
 from jb_docgen.navigation import add_navigation
 from jb_docgen.preparation_document import append_team_document
 from jb_kb.models import CompanyProfile, Person
+
+
+def test_original_cell_format_and_note_stay_in_place():
+    table = Document().add_table(rows=1, cols=2)
+    table.cell(0, 0).text = '企业名称'
+    target = table.cell(0, 1)
+    slot = target.paragraphs[0]
+    slot.paragraph_format.line_spacing = 1.5
+    run = slot.add_run('＿＿＿＿')
+    run.font.name = '仿宋'
+    note = target.add_paragraph('（盖章后生效）').add_run('签章')
+    note.bold = True
+    note_xml = target.paragraphs[1]._p.xml
+    assert set_kv_cells(table, {'企业名称': '测试企业'}) == 1
+    assert slot.text == '测试企业' and slot.paragraph_format.line_spacing == 1.5
+    assert run.font.name == '仿宋'
+    assert target.paragraphs[1]._p.xml == note_xml
+
+
+def test_carve_retains_section_settings_and_inherited_header(tmp_path):
+    source = Document()
+    source.sections[0].header.paragraphs[0].text = '采购页眉'
+    source.add_paragraph('前文')
+    source.add_section(WD_SECTION.NEW_PAGE).left_margin = Cm(4)
+    source.add_paragraph('商务文件')
+    source.add_paragraph('签章区')
+    source.add_paragraph('技术文件')
+    source.add_paragraph('正文')
+    source.add_section(WD_SECTION.NEW_PAGE).left_margin = Cm(2)
+    source.add_paragraph('附录')
+    original = tmp_path / 'master.docx'
+    source.save(original)
+    output = carve(str(original), 'commercial')
+    assert [p.text for p in output.paragraphs] == ['商务文件', '签章区']
+    assert output.sections[0].left_margin == Document(original).sections[1].left_margin
+    assert output.sections[0].header.paragraphs[0].text == '采购页眉'
+
+
+def test_unknown_grid_is_preserved_and_missing_picture_is_reported(tmp_path):
+    doc = Document()
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(1, 0).width = Cm(1)
+    table._tbl.remove(table._tbl.tblGrid)
+    drawing = OxmlElement('w:drawing')
+    inline = OxmlElement('wp:inline')
+    blip = OxmlElement('a:blip')
+    blip.set(qn('r:embed'), 'rIdMissing')
+    inline.append(blip)
+    drawing.append(inline)
+    doc.add_paragraph().add_run()._r.append(drawing)
+    path = str(tmp_path / 'unknown-grid.docx')
+    doc.save(path)
+    assert fit_tables(path, preserve_source=True) == 0
+    assert not Document(path).tables[0]._tbl.xpath('./w:tblGrid')
+    assert structural_issues(path) == ['正文有 1 处图片、链接或其他附件引用缺失']
 
 
 def test_cross_run_fill_preserves_unmodified_character_formatting():
@@ -72,6 +129,24 @@ def test_native_toc_wraps_cache_and_preserves_source_toc(tmp_path):
     d.save(path)
     assert add_navigation(str(path))
     assert len(Document(path).element.xpath('.//w:instrText[contains(.,"TOC ")]')) == 1
+
+
+def test_specification_toc_does_not_hide_bid_toc(tmp_path):
+    doc = Document()
+    doc.add_paragraph('投标文件')
+    doc.add_page_break()
+    doc.add_heading('技术正文', level=1)
+    appendix = doc.add_paragraph('规范书目录')
+    field = OxmlElement('w:fldSimple')
+    field.set(qn('w:instr'), r' TOC \o "1-2" ')
+    appendix._p.append(field)
+    path = str(tmp_path / 'bid-with-specification.docx')
+    doc.save(path)
+    assert add_navigation(path)
+    out = Document(path)
+    assert out.paragraphs[2].text == '目录'
+    assert len(out.element.xpath('.//w:fldSimple[contains(@w:instr,"TOC ")]')) == 1
+    assert not add_navigation(path)
 
 
 def test_team_table_does_not_publish_long_internal_sources(tmp_path):

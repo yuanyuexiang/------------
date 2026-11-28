@@ -92,16 +92,36 @@ def carve(path: str, key: str):
     start_el = paras[pr.start]._p
     end_el = paras[pr.end]._p if pr.end < len(paras) else None
     body = doc.element.body
-    keep = False
-    for el in list(body.iterchildren()):
-        if el is start_el:
-            keep = True
-        elif el is end_el:
-            keep = False
-        if el.tag == qn("w:sectPr"):
-            continue
-        if not keep:
-            body.remove(el)
+    elements = list(body)
+    final = body.get_or_add_sectPr()
+    start = elements.index(start_el)
+    end = elements.index(end_el) if end_el is not None else elements.index(final)
+    sections = [(i, node) for i, element in enumerate(elements)
+                for node in (element.findall(f'{qn("w:pPr")}/{qn("w:sectPr")}')
+                             if element is not final else [final])]
+    # A paragraph-level sectPr applies to the content before it. Use the section
+    # that owns the slice end, even if its closing paragraph is outside the slice.
+    closing_index, closing = next((i, node) for i, node in sections if i >= end - 1)
+    terminal = copy.deepcopy(closing)
+    first = next((node for i, node in sections if start <= i < closing_index), terminal)
+    inherited = {}
+    for i, section in sections:
+        if i >= start:
+            break
+        for ref in section.xpath('./w:headerReference | ./w:footerReference'):
+            inherited[(ref.tag, ref.get(qn('w:type')))] = ref
+    for ref in first.xpath('./w:headerReference | ./w:footerReference'):
+        inherited.pop((ref.tag, ref.get(qn('w:type'))), None)
+    for ref in inherited.values():
+        if ref.tag == qn('w:headerReference'):
+            first._insert_headerReference(copy.deepcopy(ref))
+        else:
+            first._insert_footerReference(copy.deepcopy(ref))
+    if closing_index == end - 1:
+        closing.getparent().remove(closing)
+    for el in elements[:start] + elements[end:]:
+        body.remove(el)
+    body.append(terminal)
     strip_orphan_rels(doc)
     return doc
 
@@ -170,20 +190,17 @@ def remove_guidance(doc) -> int:
             # 上传说明可能附在真实章节标题后，删除说明时必须保留章节。
             title = re.split(r"[（(](?:可在|上传)", p.text, maxsplit=1)[0].strip()
             if title and title != p.text.strip():
-                run = merge_runs(p)
-                if run is not None:
-                    run.text = title
-                else:
-                    p.text = title
-                if _style_or_none(doc, "Heading 1") is not None:
-                    p.style = "Heading 1"
-                n += 1
+                if fill_paragraph(p, [(re.compile(r"[（(](?:可在|上传).*$"), "")]):
+                    mark_heading(p, 1)
+                    n += 1
                 continue
-            p._p.getparent().remove(p._p)
-            n += 1
-        elif re.fullmatch(
+        elif not re.fullmatch(
             r"[（(](?:上传投标工具路径|上传应答工具路径|上传路径)[：:].*[）)]", text
         ):
+            continue
+        if p._p.xpath('./w:pPr/w:sectPr'):
+            n += fill_paragraph(p, [(re.compile(r'(?s)\A.+\Z'), '')])
+        elif not p._p.xpath(_CELL_PROTECTED):
             p._p.getparent().remove(p._p)
             n += 1
     return n
@@ -198,21 +215,6 @@ def iter_paragraphs(doc_or_cell) -> Iterable[Paragraph]:
         for row in t.rows:
             for c in distinct_cells(row):
                 yield from c.paragraphs
-
-
-def merge_runs(p: Paragraph):
-    """把段落全部 run 文本并入第一个 run（沿用其字体），返回该 run；含图片/域/超链接的段落不动（返回 None）。"""
-    runs = p.runs
-    if not runs:
-        return None
-    if p._p.xpath(".//w:drawing | .//w:pict | .//w:fldChar | .//w:fldSimple | .//w:hyperlink | .//w:sdt"):
-        return None
-    text = "".join(r.text for r in runs)
-    first = runs[0]
-    for r in runs[1:]:
-        r._r.getparent().remove(r._r)
-    first.text = text
-    return first
 
 
 def fill_paragraph(p: Paragraph, subs: list[Sub]) -> bool:
@@ -307,13 +309,16 @@ def distinct_cells(row: _Row) -> list[_Cell]:
     return out
 
 
-def cells_by_grid(row: _Row) -> dict[int, _Cell]:
+def cells_by_grid(row: _Row, *, inherited: bool = False) -> dict[int, _Cell]:
     """{起始网格列: 单元格}——表头有横向合并时靠网格列对齐数据列。"""
     out: dict[int, _Cell] = {}
-    col = 0
-    for c in distinct_cells(row):
-        out[col] = c
-        col += c._tc.grid_span
+    first = col = row._tr.grid_before
+    for tc in row._tr.tc_lst:
+        if tc.vMerge != "continue":
+            out[col] = _Cell(tc, row.table)
+        elif inherited:
+            out[col] = row.cells[col - first]
+        col += tc.grid_span
     return out
 
 
@@ -327,63 +332,77 @@ def find_table(doc, keywords: list[str], min_hits: int = 2, head_rows: int = 3) 
     return None
 
 
-def set_cell_text(cell: _Cell, text: str) -> None:
-    """保留首个 run 字体，填写的数据使用紧凑行距，避免母版网格放大行高。"""
-    paras = cell.paragraphs
-    p = paras[0]
-    # 某些采购母版的数据格套用了带大纲级别的自定义样式；填写后的值不是章节标题。
-    properties = p._p.get_or_add_pPr()
-    outline = properties.find(qn("w:outlineLvl"))
-    if outline is None:
-        outline = OxmlElement("w:outlineLvl")
-        properties.append(outline)
-    outline.set(qn("w:val"), "9")
-    # 数据格不能继承母版标题的“与下段同页”，否则多行表与后续证据连锁推到下一页。
-    p.paragraph_format.keep_with_next = False
-    # 母版的 1.5 倍行距叠加节网格，在 LibreOffice 中可膨胀至约 47 磅。
-    # 仅调整新填写的数据段落，不改变原始要求、表头、签章或表格合并关系。
-    grid = properties.find(qn('w:snapToGrid'))
-    if grid is None:
-        grid = OxmlElement('w:snapToGrid')
-        properties.append(grid)
-    grid.set(qn('w:val'), '0')
-    p.paragraph_format.line_spacing = 1.15
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
-    for extra in paras[1:]:
-        extra._p.getparent().remove(extra._p)
-    runs = p.runs
-    if runs:
-        for r in runs[1:]:
-            r._r.getparent().remove(r._r)
-        runs[0].text = text
-    else:
-        p.add_run(text)
+_CELL_PROTECTED = (
+    './/w:drawing | .//w:pict | .//w:object | .//w:fldChar | .//w:fldSimple | '
+    './/w:instrText | .//w:hyperlink | .//w:sdt | .//w:sym | .//w:br | .//w:tab'
+)
+_CELL_SLOT = re.compile(r"\{\{[^{}]+\}\}|[_＿]{2,}")
+
+
+def cell_has_slot(cell: _Cell) -> bool:
+    return not cell.paragraphs[0].text.strip() or bool(_CELL_SLOT.search(cell.text))
+
+
+def set_cell_text(cell: _Cell, text: str, *, compact: bool = False) -> bool:
+    """填已定位的数据格，保留其他段落、字符格式和受保护内容。"""
+    if cell._tc.vMerge == "continue":
+        return False
+    for p in cell.paragraphs:
+        if _CELL_SLOT.search(p.text) and not p._p.xpath(_CELL_PROTECTED):
+            return fill_paragraph(p, [(_CELL_SLOT, lambda _: text)])
+    p = cell.paragraphs[0]
+    if p._p.xpath(_CELL_PROTECTED):
+        return False
+    if compact:
+        # A new reference in a narrow response column should not snap to the section grid.
+        properties = p._p.get_or_add_pPr()
+        grid = properties.find(qn('w:snapToGrid'))
+        if grid is None:
+            grid = OxmlElement('w:snapToGrid')
+            properties.insert_element_before(grid, 'w:spacing', 'w:ind', 'w:contextualSpacing',
+                                             'w:jc', 'w:outlineLvl', 'w:rPr', 'w:sectPr', 'w:pPrChange')
+        grid.set(qn('w:val'), '0')
+        p.paragraph_format.line_spacing = 1.15
+    if p.text.strip():
+        return p.text == text or fill_paragraph(p, [(re.compile(r"(?s)\A.+\Z"), lambda _: text)])
+    if text:
+        # Clear only a direct keep-with-next on an empty, single data paragraph.
+        if len(cell.paragraphs) == 1 and p.paragraph_format.keep_with_next:
+            p.paragraph_format.keep_with_next = False
+        run = next(iter(p.runs), None)
+        if run is None:
+            p.add_run(text)
+        else:
+            run.text = text
+    return True
 
 
 def set_kv_cells(table: Table, mapping: dict[str, str], row_scoped: Optional[dict[str, dict[str, str]]] = None) -> int:
     """"标签格 | 值格" 式表格（基本情况表）：标签命中则填右侧空格。row_scoped={行首关键词: {标签: 值}} 处理同名标签。"""
     filled = 0
     for row in table.rows:
-        cells = distinct_cells(row)
+        cells = cells_by_grid(row)
         if not cells:
             continue
         scoped: dict[str, str] = {}
-        head = norm(cells[0].text)
+        head = norm(next(iter(cells.values())).text)
         for kw, m in (row_scoped or {}).items():
             if kw in head:
                 scoped = m
-        for i in range(len(cells) - 1):
-            key = norm(cells[i].text).rstrip("：:")
+        for col, cell in cells.items():
+            key = norm(cell.text).rstrip("：:")
             val = scoped.get(key) or mapping.get(key)
-            if val and not cells[i + 1].text.strip():
-                set_cell_text(cells[i + 1], val)
-                filled += 1
+            target = cells.get(col + cell._tc.grid_span)
+            if val and target is not None and cell_has_slot(target):
+                filled += set_cell_text(target, val)
     return filled
 
 
 def _is_template_row(row: _Row) -> bool:
-    texts = [c.text.strip() for c in distinct_cells(row)]
+    if row._tr.xpath('.//w:vMerge | .//w:tbl | .//w:bookmarkStart | .//w:commentRangeStart'
+                     ' | ' + _CELL_PROTECTED):
+        return False
+    texts = [c.text.strip() for c in cells_by_grid(row).values()]
     if not texts:
         return False
     k = 0
@@ -424,7 +443,7 @@ def fill_rows(table: Table, records: list[list[Optional[str]]]) -> int:
         for height in tr.xpath('./w:trPr/w:trHeight'):
             if height.get(qn("w:hRule")) == "exact":
                 height.set(qn("w:hRule"), "atLeast")
-        cells = distinct_cells(_Row(tr, table))
+        cells = cells_by_grid(_Row(tr, table)).values()
         for c, v in zip(cells, rec):
             if v is not None:
                 set_cell_text(c, v)
@@ -440,7 +459,7 @@ def _header_map(table: Table, colmap: list[tuple[str, str]]) -> tuple[list[int],
     pats = [(re.compile(k), f) for k, f in colmap]
     grid_field: dict[int, str] = {}
     used: set[str] = set()
-    for col, cell in cells_by_grid(header).items():
+    for col, cell in cells_by_grid(header, inherited=True).items():
         text = norm(cell.text)
         if not text:
             continue
@@ -469,10 +488,6 @@ def fill_by_header(table: Table, records: list[dict], colmap: list[tuple[str, st
     idx, grid_field = _header_map(table, colmap)
     if sum(1 for f in grid_field.values() if f != "__seq__") < min_cols:
         return 0
-    for row in table.rows[:idx[0]]:
-        properties = row._tr.get_or_add_trPr()
-        if properties.find(qn("w:tblHeader")) is None:
-            properties.append(OxmlElement("w:tblHeader"))
     sample = cells_by_grid(table.rows[idx[0]])
     rows: list[list[Optional[str]]] = []
     for i, rec in enumerate(records):
@@ -504,6 +519,17 @@ def _style_or_none(doc, name: Optional[str]):
         return doc.styles[name]
     except KeyError:
         return None
+
+
+def mark_heading(paragraph: Paragraph, level: int) -> None:
+    """Expose a source heading in navigation while keeping its original paragraph style."""
+    properties = paragraph._p.get_or_add_pPr()
+    outline = properties.find(qn('w:outlineLvl'))
+    if outline is None:
+        outline = OxmlElement('w:outlineLvl')
+        properties.insert_element_before(outline, 'w:divId', 'w:cnfStyle', 'w:rPr',
+                                         'w:sectPr', 'w:pPrChange')
+    outline.set(qn('w:val'), str(level - 1))
 
 
 def insert_paragraph_after(doc, anchor_el, text: str = "", style: Optional[str] = None,

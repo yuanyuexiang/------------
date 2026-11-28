@@ -24,10 +24,11 @@ class GenResult:
     mode: dict[str, str] = field(default_factory=dict)      # 文件→ master（母版切片）| plain（自建版式）
     notes: list[str] = field(default_factory=list)          # 母版回退原因等说明
     gap_details: dict = field(default_factory=dict)
+    layout_issues: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def export_blocked(self) -> bool:
-        return any(self.docx_todos.values())
+        return any(self.docx_todos.values()) or any(self.layout_issues.values())
 
     def summary(self) -> dict:
         stats = []
@@ -39,7 +40,7 @@ class GenResult:
                 "technical": os.path.basename(self.technical_path),
                 "todo_count": sum(len(v) for v in self.docx_todos.values()),
                 "export_blocked": self.export_blocked, "tech_params": stats,
-                "mode": self.mode, "notes": self.notes}
+                "mode": self.mode, "notes": self.notes, "layout_issues": self.layout_issues}
 
 
 def pick_product(profile: CompanyProfile, pkg: PackageTRM, model: Optional[str] = None) -> Optional[Product]:
@@ -63,7 +64,7 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
     """生成商务/技术文件。
 
     master_docx 给定（招标文件六章主文件）时以其"文件格式"章为母版原位填空，保留国网原版式；
-    母版缺段或装配异常则该文件退回自建版式（builder），原因写入 notes，绝不让生成失败。
+    母版缺段或装配异常时保留可下载的自建版式草稿，并记录正式导出阻断原因。
     attachment_paths：知识库附件 id → 本地路径，用于把扫描件插入对应小节（PDF 自动转页图）。
     attachment_layouts：视图 id → 原 Word 行内图片 XML；同一原图的不同裁切视图须使用不同 id。
     spec_paths：规范书 spec_id → 原 docx 路径，技术文件追加"技术规范书逐条响应"章节。
@@ -106,10 +107,10 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
                     mode=mode, notes=ctx.notes)
     from .gaps import consolidate_team_gaps
     res.gap_details = {'team': consolidate_team_gaps(tech)}
-    from .layout import fit_tables
+    from .layout import fit_tables, structural_issues
     from .navigation import add_navigation
-    for path in (com, tech):
-        fit_tables(path)
+    for kind, path in (("commercial", com), ("technical", tech)):
+        fit_tables(path, preserve_source=mode[kind] == "master")
         add_navigation(path)
     if profile.is_demo:
         import docx
@@ -121,4 +122,10 @@ def generate(trm: TRM, pkg: PackageTRM, profile: CompanyProfile, out_dir: str,
             d.paragraphs[0].insert_paragraph_before("演示样例 · 模拟数据 · 不可用于正式投标")
             d.save(path)
     res.docx_todos = {os.path.basename(com): scan_docx(com), os.path.basename(tech): scan_docx(tech)}
+    for kind, path in (("commercial", com), ("technical", tech)):
+        issues = structural_issues(path)
+        if master_docx and mode[kind] != "master":
+            issues.insert(0, "未能应用采购文件规定的格式，请核对对应的商务或技术格式章节")
+        if issues:
+            res.layout_issues[os.path.basename(path)] = issues
     return res

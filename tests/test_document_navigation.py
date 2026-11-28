@@ -34,7 +34,8 @@ def test_guidance_cleanup_preserves_required_section():
     doc.add_paragraph('（二）专项响应文件（上传招投标交易平台信息系统路径：技术文件）')
     M.remove_guidance(doc)
     assert doc.paragraphs[0].text == '（二）专项响应文件'
-    assert doc.paragraphs[0].style.name == 'Heading 1'
+    assert doc.paragraphs[0]._p.xpath('w:pPr/w:outlineLvl/@w:val') == ['0']
+    assert doc.paragraphs[0].style.name == 'Normal'
 
 
 def test_drafts_are_placed_under_required_sections_in_template_order():

@@ -12,7 +12,6 @@
 """
 from __future__ import annotations
 
-import copy
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -26,13 +25,14 @@ from jb_kb.models import Product
 from jb_parser.trm import SpecDoc, SpecParamRow
 
 from . import master as M
+from .layout import ensure_table_grid
 from .placeholders import todo
+from .source_content import SourceContent
 from .techparams import _keywords, fill_spec, match_param_text
 
 HEAD_PAT = re.compile(r"^(\d+(?:\.\d+){0,3})[\s.、．)）]*(\S.{0,38})$")
 ITEM_PAT = re.compile(r"^[（(]?\d{1,2}[)）.、．]\s*\S")
 RESP_TAG = "【投标人响应】"
-_STRIP_XPATH = ".//w:drawing | .//w:pict | .//w:object | .//w:numPr | .//w:sectPr"
 _TABLE_HEADER_KW = ("要求", "参数", "指标", "名称", "项目", "内容", "保证值", "响应")
 
 
@@ -133,7 +133,8 @@ def _looks_header(cells: list[str]) -> bool:
     return not re.search(r"\d", joined) and any(k in joined for k in _TABLE_HEADER_KW)
 
 
-def respond_table(table: Table, product: Optional[Product]) -> int:
+def respond_table(table: Table, product: Optional[Product], *,
+                  preserve_columns: bool = False, following: Optional[list[str]] = None) -> int:
     """参数表：有"保证值/响应"列就填该列，否则追加"投标人响应"列。表头可多行、可横向合并（按网格列对齐）。返回填写行数。"""
     rows = _table_rows(table)
     if not rows or len(rows[0]) < 2:
@@ -183,6 +184,13 @@ def respond_table(table: Table, product: Optional[Product]) -> int:
             responses[r.row] = r.response
     filled = 0
     if resp_col is None:
+        if preserve_columns or not ensure_table_grid(table._tbl):
+            if following is None:
+                return 0
+            for n in range(1, len(data_idx) + 1):
+                row = spec.param_rows[n - 1]
+                following.append(f"表中第{n}项（{row.name}）响应：{responses[n]}")
+            return len(data_idx)
         table.add_column(Cm(3.5))
         if n_header:
             M.set_cell_text(M.distinct_cells(table.rows[0])[-1], "投标人响应")
@@ -192,55 +200,55 @@ def respond_table(table: Table, product: Optional[Product]) -> int:
     else:
         for n, i in enumerate(data_idx, start=1):
             cell = M.cells_by_grid(table.rows[i]).get(resp_col)
-            if cell is not None and not cell.text.strip():
-                M.set_cell_text(cell, responses.get(n, ""))
-                filled += 1
+            if cell is not None and M.cell_has_slot(cell):
+                if M.set_cell_text(cell, responses.get(n, "")):
+                    filled += 1
+                elif following is not None:
+                    following.append(todo(f"表中第{n}项响应格含原件内容，请核对填写位置"))
     return filled
 
 
 # ---------- 复制 + 插入 ----------
 
-def _clean_copy(el):
-    new = copy.deepcopy(el)
-    for bad in new.xpath(_STRIP_XPATH):
-        bad.getparent().remove(bad)
-    return new
-
-
 def append_spec(doc, anchor_el, spec_path: str, product: Optional[Product], title: str,
                 plans: Optional[dict[str, str]] = None, service_mode: bool = False,
-                heading_level: int = 2) -> tuple[object, int, bool]:
+                heading_level: int = 2, preserve_columns: bool = False) -> tuple[object, int, bool]:
     """把一本规范书复制到 anchor 之后并逐节响应。返回 (新锚点, 响应小节数, 是否跳过)。"""
     src = docx.Document(spec_path)
     sections = analyse(src)
     if is_cover_only(src, sections):
         return anchor_el, 0, True
-    last = M.insert_heading_after(doc, anchor_el, title, level=heading_level)._p
     by_el = {id(s.heading_el): s for s in sections}
-    responded = 0
+    importer = SourceContent(src, doc)
+    blocks = []
     for el in src.element.body.iterchildren():
-        if el.tag not in (qn("w:p"), qn("w:tbl")):
+        if el.tag not in (qn("w:p"), qn("w:tbl"), qn("w:sdt"), qn("w:customXml"),
+                          qn("w:altChunk")):
             continue
-        if el.tag == qn("w:p") and not el.xpath("string(.)").strip() and id(el) not in by_el:
+        if (el.tag == qn("w:p") and not el.xpath("string(.)").strip()
+                and not el.xpath(M._CELL_PROTECTED + ' | .//w:numPr | .//w:bookmarkStart')):
             continue
-        new = _clean_copy(el)
+        blocks.append((el, importer.copy(el)))
+    last = M.insert_heading_after(doc, anchor_el, title, level=heading_level)._p
+    responded = 0
+    for el, new in blocks:
         last.addnext(new)
         last = new
         if el.tag == qn("w:tbl"):
             t = Table(new, doc._body)
             if service_mode and service_table_rows(t):
-                for response in respond_service_table(t, plans or {}):
-                    last = M.insert_paragraph_after(doc, last, response)._p
+                following = respond_service_table(t, plans or {})
                 responded += 1
-            elif respond_table(t, product):
-                responded += 1
+            else:
+                following = []
+                if respond_table(t, product, preserve_columns=preserve_columns, following=following):
+                    responded += 1
+            for response in following:
+                last = M.insert_paragraph_after(doc, last, response)._p
             continue
         sec = by_el.get(id(el))
         if sec is None:
             continue
-        style = M._style_or_none(doc, f"Heading {min(heading_level + sec.level, 4)}")
-        if style is not None:
-            Paragraph(new, doc._body).style = style
         items = sec.items + (sec.prose_texts if service_mode and not sec.has_children else [])
         if not items:
             continue
@@ -281,10 +289,14 @@ def respond_service_table(table, plans):
         text = re.sub(r'\s*\[来源:[^\]]+\]', '', text)
         if column is None:
             following.append(f'表中第{index}项响应：{text}')
-        elif len(text) > 160:
-            # 母版的应答列通常不足三厘米；长方案放到表后，避免挤成十余页竖条。
-            M.set_cell_text(table.rows[index].cells[column], f'具体响应见表后第{index}项说明。')
-            following.append(f'表中第{index}项响应：{text}')
         else:
-            M.set_cell_text(table.rows[index].cells[column], text)
+            cell = table.rows[index].cells[column]
+            if not M.cell_has_slot(cell):
+                continue
+            # 母版的应答列通常不足三厘米；长方案放到表后，避免挤成十余页竖条。
+            if len(text) > 160:
+                M.set_cell_text(cell, f'具体响应见表后第{index}项说明。', compact=True)
+                following.append(f'表中第{index}项响应：{text}')
+            elif not M.set_cell_text(cell, text):
+                following.append(todo(f'表中第{index}项应答格含原件内容，请核对填写位置'))
     return following

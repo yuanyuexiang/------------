@@ -205,7 +205,7 @@ export interface GenResult {
   generation_mode?: 'prepared' | 'incomplete_draft'
   preparation_snapshot?: PreparationReadiness
   llm_connection?: { name: string; model: string }
-  summary: { commercial: string; technical: string; todo_count: number; export_blocked: boolean; tech_params: { spec_id: string; rows: number; satisfied: number; deviation: number; unknown: number; missing: number }[]; mode?: Record<string, 'master' | 'plain'>; notes?: string[] }
+  summary: { commercial: string; technical: string; todo_count: number; export_blocked: boolean; tech_params: { spec_id: string; rows: number; satisfied: number; deviation: number; unknown: number; missing: number }[]; mode?: Record<string, 'master' | 'plain'>; notes?: string[]; layout_issues?: Record<string, string[]> }
   draft_sources?: Record<string, string>
   evidence_coverage?: string[]
   confirmations?: { category: string; location: string; message: string; action: string; occurrences?: number; locations?: string[] }[]

@@ -264,8 +264,7 @@ def _commercial_headings(doc, format_blocks) -> None:
         if not known:
             continue
         level = min(3, 2 + match[1].count('.')) if match else 2
-        if M._style_or_none(doc, f'Heading {level}') is not None:
-            paragraph.style = f'Heading {level}'
+        M.mark_heading(paragraph, level)
 
 
 def build_commercial(ctx: GenContext, master_path: str, out_path: str) -> bool:
@@ -689,12 +688,12 @@ def _technical_headings(doc) -> None:
     for paragraph in doc.paragraphs:
         match = re.match(r"^\d+[.．、]\s*(.*)", paragraph.text.strip())
         if match and match.group(1).startswith(topics):
-            paragraph.text = re.sub(r"[（(]如有[，,]\s*格式自拟[）)]", "", paragraph.text)
-            if M._style_or_none(doc, "Heading 2") is not None:
-                paragraph.style = "Heading 2"
+            M.fill_paragraph(
+                paragraph, [(re.compile(r"[（(]如有[，,]\s*格式自拟[）)]"), "")]
+            )
+            M.mark_heading(paragraph, 2)
         elif re.match(r"^表[12]\s*.*(?:人员汇总表|人员简历表)", paragraph.text.strip()):
-            if M._style_or_none(doc, "Heading 3") is not None:
-                paragraph.style = "Heading 3"
+            M.mark_heading(paragraph, 3)
 
 
 def _insert_boilerplates(doc, ctx: GenContext) -> None:
@@ -730,9 +729,10 @@ def build_technical(ctx: GenContext, master_path: str, out_path: str) -> tuple[b
     last = _fill_params(doc, ctx, results)
     dedicated = M.find_paragraph(doc, r"^\d+[.．、].*采购文件.*技术规范书.*其他应提交")
     if dedicated is not None and last is dedicated._p:
-        append_spec_responses(doc, last, ctx, section_level=3, include_heading=False)
+        append_spec_responses(doc, last, ctx, section_level=3, include_heading=False,
+                              preserve_columns=True)
     else:
-        append_spec_responses(doc, last, ctx)
+        append_spec_responses(doc, last, ctx, preserve_columns=True)
     _fill_performances(doc, ctx)
     _fill_personnel(doc, ctx)
     _fill_certs(doc, ctx)
