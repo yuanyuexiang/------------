@@ -11,18 +11,18 @@ from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from jb_kb import attachments
+from jb_kb.models import bid_record_data
 from jb_parser import package_files
-from jb_parser.trm import PackageTRM
+from jb_parser.trm import TRM, PackageTRM
 from jb_store import projects as pm
 
-from . import preparation, workflow
+from . import material_checks, preparation, workflow
 
 GROUPS = {'terms': '关键投标要求', 'qualification': '资格与证明', 'specification': '技术与服务要求',
           'submission': '提交要求', 'rejection': '否决情形', 'format': '规定格式'}
 
 
 def catalog(p, index):
-    from jb_parser.trm import TRM
     trm = TRM.model_validate(p.trm_confirmed or p.trm or {})
     if not 0 <= index < len(trm.packages):
         raise ValueError('采购包不存在')
@@ -88,7 +88,7 @@ def evidence(s, p, index, cp):
     records = {}
     for kind in ('certificates', 'personnel', 'performances', 'financials', 'products', 'test_reports'):
         for item in getattr(chosen, kind):
-            data = item.model_dump()
+            data = bid_record_data(item)
             key = f'{kind}:{item.id}'
             title = next((str(data[k]) for k in ('name', 'project', 'year', 'model') if data.get(k)), item.id)
             ids = [aid for aid in data.get('attachments', []) if aid in available]
@@ -162,7 +162,6 @@ def _source(zip_path, mtime, size, package_json, source):
 
 
 def source_document(p, index, source):
-    from jb_parser.trm import TRM
     trm = TRM.model_validate(p.trm_confirmed or p.trm or {})
     if not 0 <= index < len(trm.packages):
         raise ValueError('采购包不存在')
@@ -212,7 +211,13 @@ def state(s, p, index, cp, out_dir):
         row['link_revision'] = workflow.fingerprint(link)
         row['link'] = {k: v for k, v in (link or {}).items() if k not in ('basis', 'profile')}
         row['status'] = 'stale' if stale else 'confirmed' if link and link.get('confirmed') else 'linked' if link else 'unlinked'
-    return {'revision': workflow.inputs(s, p, cp.name)[2], 'requirements': rows,
+    trm = TRM.model_validate(p.trm_confirmed or p.trm or {})
+    authorization = preparation.fact_state(p, index, cp)["authorization"]
+    checks = material_checks.checks(
+        rows, trm, trm.packages[index], workflow.selected_profile(p, index, cp), records,
+        bool(authorization["confirmation"] and not authorization["stale"]),
+    )
+    return {'revision': workflow.inputs(s, p, cp.name)[2], 'requirements': rows, 'material_checks': checks,
             'evidence': [{k: v for k, v in item.items() if k != '_basis'} for item in records.values()],
             'files': list(artifact['files']) if artifact else [], 'generation_id': artifact['id'] if artifact else None,
             'generation_stale': generation_stale, 'review': flow['review'] if artifact else None,

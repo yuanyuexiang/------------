@@ -6,6 +6,7 @@ import { Alert, Button, Card, Form, Input, Modal, Popconfirm, Space, Table, Tag,
 import { BankOutlined, PlusOutlined } from '@ant-design/icons'
 import { api, fmtUtc, KbKind, ProfileSummary } from '../../api'
 import { KIND_TITLES } from './fields'
+import CompanyEnrichment from './CompanyEnrichment'
 
 const COUNT_KINDS: KbKind[] = ['certificates', 'personnel', 'performances', 'financials', 'products', 'test_reports', 'boilerplates']
 
@@ -15,6 +16,7 @@ export default function KbListPage() {
   const qc = useQueryClient()
   const { data = [], isLoading } = useQuery({ queryKey: ['profiles'], queryFn: api.profiles })
   const [creating, setCreating] = useState(false)
+  const [lookupCode, setLookupCode] = useState<string>()
   const [form] = Form.useForm()
   const create = useMutation({
     mutationFn: (v: { name: string; credit_code: string }) => api.saveMain(v.name, { credit_code: v.credit_code }),
@@ -58,13 +60,17 @@ export default function KbListPage() {
       </Card>
 
       <Modal className="jb-dialog" centered cancelText="取消" open={creating} width={560} okText="创建档案" title={<span className="dialog-title"><span className="dialog-title-icon"><BankOutlined /></span><span>新建企业档案<small>建立企业资料，开启投标准备</small></span></span>} onCancel={() => setCreating(false)} onOk={() => form.validateFields().then((v) => create.mutate(v))} confirmLoading={create.isPending}>
-        <div className="dialog-intro">先填写企业基本信息，创建后可继续补齐证照、人员及业绩材料。</div>
+        <div className="dialog-intro">有统一社会信用代码时，可以先联网补全。</div>
         <Form form={form} layout="vertical">
 
           <Form.Item name="name" label="企业名称" extra="请填写与营业执照一致的企业全称" rules={[{ required: true, message: '请填写企业名称' }]}><Input placeholder="请输入企业全称" autoComplete="organization" /></Form.Item>
           <Form.Item name="credit_code" label="统一社会信用代码" extra="18 位数字或大写字母，可在创建后补充" rules={[{ pattern: /^[0-9A-Z]{18}$/, message: '18 位数字/大写字母' }]}><Input maxLength={18} placeholder="请输入统一社会信用代码" /></Form.Item>
         </Form>
+        <Button disabled={create.isPending} onClick={() => { setLookupCode(form.getFieldValue('credit_code') ?? ''); setCreating(false) }}>联网补全</Button>
       </Modal>
+      {lookupCode !== undefined && <CompanyEnrichment initialCode={lookupCode}
+        onClose={() => { setLookupCode(undefined); setCreating(true) }}
+        onSaved={result => { setLookupCode(undefined); nav(`/kb/${encodeURIComponent(result.company)}`) }} />}
     </Space>
   )
 }

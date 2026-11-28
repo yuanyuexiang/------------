@@ -18,7 +18,7 @@ from typing import Optional
 
 import docx
 from jb_kb import repo
-from jb_kb.models import CompanyProfile
+from jb_kb.models import CompanyProfile, bid_profile_data, bid_record_data
 from jb_kb.selection import MaterialSelection, select_profile
 from jb_parser.trm import TRM
 from jb_rules import Context, RuleSetting, review
@@ -54,7 +54,7 @@ def inputs(s, p: Project, profile: str):
     trm = TRM.model_validate(p.trm_confirmed or p.trm)
     attachments = [{"id": a.id, "sha256": a.sha256} for a in s.scalars(
         select(KbAttachment).where(KbAttachment.company == profile).order_by(KbAttachment.id))]
-    digest = fingerprint({"generation_rules_version": 4, "trm": trm.model_dump(), "profile": cp.model_dump(),
+    digest = fingerprint({"generation_rules_version": 4, "trm": trm.model_dump(), "profile": bid_profile_data(cp),
                           "attachments": attachments, "open_time": p.open_time,
                           "deadline": p.deadline,
                           "bid_facts": (p.results or {}).get("bid_facts", {}),
@@ -94,7 +94,7 @@ def qualification_bases(s, p: Project, cp: CompanyProfile) -> dict:
     bases = {}
     for index, pkg in enumerate(trm.packages):
         selected = selected_profile(p, index, cp)
-        records = {kind: [x.model_dump() for x in getattr(selected, kind)]
+        records = {kind: [bid_record_data(x) for x in getattr(selected, kind)]
                    for kind in ('certificates', 'personnel', 'performances', 'test_reports')}
         ids = {aid for values in records.values() for item in values for aid in item.get('attachments', [])}
         bases[trm.package_key(index)] = fingerprint({'company': cp.name, 'shared': shared,

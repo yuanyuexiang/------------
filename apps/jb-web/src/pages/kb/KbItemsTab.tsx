@@ -4,9 +4,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Form, Input, InputNumber, Modal, Popconfirm, Popover, Select, Space, Table, Tag, Tooltip, Typography, Upload, message } from 'antd'
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { api, Attachment, KbItem } from '../../api'
+import { api, Attachment, EvidenceOrigin, KbItem } from '../../api'
 import { FieldSpec, KindSpec } from './fields'
 import { errorMessage, attachmentKindLabel, kbOptionLabel } from '../../uiLabels'
+import { EvidenceLink } from './CompanyEnrichment'
 
 const DATE_RULE = { pattern: /^\d{4}(-\d{2}(-\d{2})?)?$/, message: '请按“年-月-日”填写，例如 2026-11-04；也可只填到月' }
 const BOOL3 = [{ value: true, label: '是' }, { value: false, label: '否' }]
@@ -124,6 +125,8 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
     return false
   }
   const attName = (id: string) => attachments.find((a: Attachment) => a.id === id)
+  const sourced = editing && editing !== 'new' ? editing : undefined
+  const evidenceOrigin = sourced?.evidence_origin as EvidenceOrigin | undefined
 
   const columns: ColumnsType<KbItem> = [
     ...spec.fields.filter((f) => f.width).map((f, index) => ({
@@ -168,6 +171,14 @@ export default function KbItemsTab({ company, spec }: { company: string; spec: K
 
       <Modal okText="保存" className="jb-dialog" centered cancelText="取消" open={editing !== null} title={editing === 'new' ? `新增${spec.title}` : `编辑${spec.title}`} width={720}
         onCancel={() => setEditing(null)} onOk={submit} confirmLoading={save.isPending} destroyOnClose>
+        {evidenceOrigin && <Alert type="info" showIcon style={{ marginBottom: 14 }}
+          message={<EvidenceLink origin={evidenceOrigin} />}
+          description={evidenceOrigin.kind === 'online' ? '确认后请选择本企业的证明原件，再将此条设为已审核。' : evidenceOrigin.excerpt || undefined} />}
+        {sourced && (sourced.award_date || sourced.award_project_no || sourced.award_amount_wan != null) && <Space wrap style={{ marginBottom: 12 }}>
+          {sourced.award_date ? <Tag>中标公告日期 {String(sourced.award_date)}</Tag> : null}
+          {sourced.award_project_no ? <Tag>公告项目编号 {String(sourced.award_project_no)}</Tag> : null}
+          {sourced.award_amount_wan != null ? <Tag>中标金额 {String(sourced.award_amount_wan)} 万元</Tag> : null}
+        </Space>}
         <Form form={form} layout="vertical" >
           <div className="kb-item-form-grid">
             {spec.fields.map((f) => {

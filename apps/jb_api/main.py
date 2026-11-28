@@ -25,8 +25,8 @@ from jb_store import projects as pm
 from sqlalchemy import select
 
 from . import auth as auth_api
+from . import company_enrichment, kb, tasks, workspace
 from . import config as config_api
-from . import kb, tasks, workspace
 from . import preparation as preparation_api
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.getcwd(), "uploads"))
@@ -56,6 +56,7 @@ app.add_middleware(
 app.middleware("http")(auth_api.auth_middleware)   # 除 health/login 外全部要求登录
 app.include_router(auth_api.router)     # 登录 / 用户管理：/api/auth/*、/api/users/*
 app.include_router(kb.router)   # 企业知识库：/api/profiles/*、/api/attachments/*
+app.include_router(company_enrichment.router)
 app.include_router(preparation_api.router)
 app.include_router(workspace.router)
 app.include_router(config_api.router)   # 配置中心：/api/config/*

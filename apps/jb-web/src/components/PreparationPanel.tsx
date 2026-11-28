@@ -10,8 +10,8 @@ import './PreparationPanel.css'
 import { projectUrl } from '../projectNavigation'
 
 const LABELS: Record<string, string> = { ...Object.fromEntries(STAT_FIELDS), staff_as_of: '统计日期', staff_source: '统计依据', signed_date: '合同签约日期', shareholders: '股东出资明细' }
-export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSaved, onRepair }: {
-  id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void; onRepair: () => void
+export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSaved, onRepair, onCheck }: {
+  id: string; profile: string; pkgIndex: number; disabled: boolean; onSaved: () => void; onRepair: () => void; onCheck: () => void
 }) {
   const qc = useQueryClient()
   const [params, setParams] = useSearchParams()
@@ -117,7 +117,7 @@ export default function PreparationPanel({ id, profile, pkgIndex, disabled, onSa
     return attachment ? <a key={key} href={api.attachmentUrl(key)} target="_blank" rel="noreferrer">{attachment.filename}</a> : null
   })}</Space>
   const requiredCount = snapshot?.roles.reduce((n, r) => n + r.count, 0) ?? 0
-  return <Card size="small" title="文件填写资料">
+  return <Card size="small" title="文件填写资料" extra={<Button size="small" onClick={onCheck}>按本包核对资料</Button>}>
     {error && <Alert type="error" message={errorMessage(error)} />}
     <div className="preparation-task-grid">
       {data?.tasks.filter(t => t.required && !t.complete && !['system', 'other'].includes(t.id)).map(t => <Card key={t.id} size="small" title={t.title}>

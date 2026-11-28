@@ -119,6 +119,18 @@ export interface Product extends KbItem { model: string; name: string; category:
 export interface TestReport extends KbItem { name: string; report_type: string; agency: string; number: string; issued_date: string; valid_until: string; covered_models: string[] }
 export interface Boilerplate extends KbItem { topic: string; title: string; text: string; applicable_types: string[]; approved: boolean }
 export interface Attachment { id: string; kind: string; filename: string; content_type: string; size: number; sha256: string; storage_path: string; uploaded_at: string }
+export interface EvidenceOrigin { kind: 'online' | 'attachment'; title: string; fetched_at: string; url: string; attachment_id: string; page: number | null; excerpt: string }
+export interface EnrichmentCandidate {
+  id: string; kind: string; title: string; field: string; origin: EvidenceOrigin
+  value: string | number | null; current: string | number | null; data: Record<string, unknown>
+  field_origins: Record<string, EvidenceOrigin>; unchanged: boolean; existing_id: string
+}
+export interface EnrichmentPreview {
+  company: string; token: string; candidates: EnrichmentCandidate[]; extra: Record<string, string>
+  checks: { title: string; status: string; detail: string }[]
+  sources: { title: string; url: string; kind: string }[]
+}
+export interface EnrichmentResult { company: string; fields_updated: number; records_added: number; records_updated: number; record_kinds: string[] }
 export type KbKind = 'certificates' | 'personnel' | 'performances' | 'financials' | 'products' | 'test_reports' | 'boilerplates'
 export interface CompanyProfile {
   name: string; credit_code: string; legal_person: string; legal_or_admin: string; authorized_rep: string; authorized_rep_title: string
@@ -127,6 +139,7 @@ export interface CompanyProfile {
   staff_total: number | null; staff_technical: number | null; senior_engineers: number | null; engineers: number | null
   certificates: Certificate[]; personnel: Person[]; performances: Performance[]; financials: FinancialYear[]
   products: Product[]; test_reports: TestReport[]; boilerplates: Boilerplate[]; sources: string[]
+  field_sources?: Record<string, EvidenceOrigin>; registry_details?: Record<string, string>
   [k: string]: unknown
 }
 export interface ProfileSummary { name: string; credit_code: string; updated_at: string; counts: Record<KbKind, number> }
@@ -180,6 +193,8 @@ export interface RequirementRow {
 }
 export interface RequirementsState {
   revision: string; requirements: RequirementRow[]; evidence: RequirementEvidence[]; files: string[]
+  material_checks?: { title: string; status: string; note: string; tab: string; url: string; source_label: string
+    clauses: { id: string; source: string; title: string }[] }[]
   generation_id: string | null; generation_stale: boolean; review_stale: boolean; review: ReviewResult | null; blockers: string[]; groups: Record<string, string>
 }
 export interface ItemScore { element: string; kind: string; score_min: number; score_max: number; predicted: number | null; method: string; basis: string; missing: string[] }
@@ -327,6 +342,12 @@ export const api = {
   trm: (id: string, confirmed = false) => req<TRM>(`/api/projects/${id}/trm?confirmed=${confirmed}`),
   confirmTrm: (id: string, trm: TRM) => req<{ ok: boolean }>(`/api/projects/${id}/trm`, json(trm)),
   profiles: () => req<ProfileSummary[]>('/api/profiles'),
+  lookupCompany: (company: string, credit_code: string) =>
+    req<EnrichmentPreview>('/api/company-enrichment/online', json({ company, credit_code }, 'POST')),
+  readCompanyAttachment: (company: string, attachment_id: string, kind: string) =>
+    req<EnrichmentPreview>('/api/company-enrichment/attachment', json({ company, attachment_id, kind }, 'POST')),
+  applyCompanyEnrichment: (token: string, selected: string[]) =>
+    req<EnrichmentResult>('/api/company-enrichment/apply', json({ token, selected }, 'POST')),
   saveMain: (name: string, fields: Partial<CompanyProfile>) => req<CompanyProfile>(`/api/profiles/${encodeURIComponent(name)}/main`, json(fields)),
   deleteProfile: (name: string) => req<{ ok: boolean }>(`/api/profiles/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   expiry: (name: string, days = 90, on?: string) =>

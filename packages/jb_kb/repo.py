@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from jb_store import (
+    KbAttachment,
     KbBoilerplate,
     KbCertificate,
     KbFinancial,
@@ -29,6 +30,7 @@ from .models import (
     Boilerplate,
     Certificate,
     CompanyProfile,
+    EvidenceOrigin,
     FinancialYear,
     Performance,
     Person,
@@ -158,13 +160,21 @@ def save_profile(s: Session, name: str, profile: CompanyProfile) -> None:
                 s.delete(r)
 
 
-def save_main(s: Session, name: str, fields: dict) -> CompanyProfile:
+def save_main(s: Session, name: str, fields: dict, *,
+              field_sources: Optional[dict[str, EvidenceOrigin]] = None,
+              registry_details: Optional[dict[str, str]] = None) -> CompanyProfile:
     """只更新主档标量字段（管理页"主档"表单），不动子表；列表字段即使传入也忽略。"""
     current = load_profile(s, name)
     if current is None:
         current = CompanyProfile(name=name)
     data = current.model_dump()
-    data.update({k: v for k, v in fields.items() if k not in LIST_FIELDS})
+    data.update({k: v for k, v in fields.items()
+                 if k not in LIST_FIELDS and k not in ("field_sources", "registry_details")})
+    data["field_sources"] = {
+        key: source for key, source in current.field_sources.items()
+        if key not in fields or getattr(current, key, None) == fields[key]
+    } | (field_sources or {})
+    data["registry_details"] = current.registry_details | (registry_details or {})
     data["name"] = name
     cp = CompanyProfile.model_validate(data)
     row = s.get(Profile, name)
@@ -203,13 +213,28 @@ def get_item(s: Session, key: str, item_id: str) -> Optional[BaseModel]:
     return _row_to_item(kind, r) if r is not None else None
 
 
-def upsert_item(s: Session, name: str, key: str, payload: dict[str, Any]) -> BaseModel:
+def upsert_item(s: Session, name: str, key: str, payload: dict[str, Any], *,
+                evidence_fields: Optional[dict[str, EvidenceOrigin]] = None) -> BaseModel:
     """新增（无 id）或更新（有 id）。主档不存在时 404 由调用方判断。"""
     kind = KINDS[key]
-    item = kind.model.model_validate(payload)
-    r = s.get(kind.orm, item.id) if item.id else None
+    item_id = payload.get("id")
+    r = s.get(kind.orm, item_id) if item_id else None
     if r is not None and r.company != name:
         raise ValueError("条目不属于该企业")
+    if r is not None and r.data.get("evidence_origin"):
+        imported = {k: v for k, v in r.data.items() if k.startswith("award_")}
+        payload = {**imported, **payload, "evidence_origin": r.data["evidence_origin"],
+                   "evidence_fields": ({
+                       k: v for k, v in r.data.get("evidence_fields", {}).items()
+                       if k not in payload or payload[k] == r.data.get(k)
+                   } | (evidence_fields or {}))}
+    item = kind.model.model_validate(payload)
+    origin = getattr(item, "evidence_origin", None)
+    if origin and origin.kind == "online" and item.status == "approved":
+        owned = s.scalar(select(KbAttachment.id).where(
+            KbAttachment.company == name, KbAttachment.id.in_(item.attachments)).limit(1))
+        if owned is None:
+            raise ValueError("请关联本企业的证书或合同等证明原件后再审核")
     if r is None:
         item.id = item.id or _uid()
         s.add(kind.orm(id=item.id, company=name, **kind.to_row_values(item)))

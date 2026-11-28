@@ -8,6 +8,7 @@ import { api, fmtUtc, Attachment, CompanyProfile, ExpiryItem } from '../../api'
 import { KIND_SPECS } from './fields'
 import CompanyFactsFields, { STAT_FIELDS } from '../../components/CompanyFactsFields'
 import KbItemsTab from './KbItemsTab'
+import CompanyEnrichment, { EvidenceLink } from './CompanyEnrichment'
 
 const LEVEL: Record<ExpiryItem['level'], { color: string; text: string }> = {
   expired: { color: 'red', text: '已过期' }, d30: { color: 'volcano', text: '30 天内' }, d60: { color: 'orange', text: '60 天内' },
@@ -19,20 +20,38 @@ const KIND_CN: Record<string, string> = { certificates: '证照', test_reports: 
 function MainTab({ company, profile }: { company: string; profile: CompanyProfile }) {
   const qc = useQueryClient()
   const [form] = Form.useForm()
+  const [params, setParams] = useSearchParams()
+  const [edited, setEdited] = useState(false)
+  const initialMode = params.get('enrich') === 'attachment' ? 'attachment' : 'online'
+  const closeEnrichment = () => {
+    const next = new URLSearchParams(params); next.delete('enrich'); next.delete('attachment'); setParams(next, { replace: true })
+  }
   useEffect(() => { form.setFieldsValue(profile) }, [profile, form])
   const save = useMutation({
     mutationFn: (v: Partial<CompanyProfile>) => api.saveMain(company, v),
-    onSuccess: () => { message.success('基本信息已保存'); qc.invalidateQueries({ queryKey: ['profile', company] }); qc.invalidateQueries({ queryKey: ['profiles'] }) },
+    onSuccess: () => { message.success('基本信息已保存'); setEdited(false); qc.invalidateQueries({ queryKey: ['profile', company] }); qc.invalidateQueries({ queryKey: ['profiles'] }) },
     onError: (e) => message.error(errorMessage(e)),
   })
+  const origin = (field: string) => {
+    const value = profile.field_sources?.[field]
+    return value ? <EvidenceLink origin={value} /> : undefined
+  }
   const text = (name: string, label: string, span = 1) => (
-    <Form.Item name={name} label={label} style={{ gridColumn: `span ${span}` }}><Input /></Form.Item>
+    <Form.Item name={name} label={label} extra={origin(name)} style={{ gridColumn: `span ${span}` }}><Input /></Form.Item>
   )
   const num = (name: string, label: string) => (
-    <Form.Item name={name} label={label}><InputNumber style={{ width: '100%' }} /></Form.Item>
+    <Form.Item name={name} label={label} extra={origin(name)}><InputNumber style={{ width: '100%' }} /></Form.Item>
   )
   return (
-    <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
+    <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} onValuesChange={() => setEdited(true)}>
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Button disabled={save.isPending} onClick={() => {
+          if (edited) { message.warning('请先保存手动修改，再联网补全'); return }
+          const next = new URLSearchParams(params); next.set('enrich', 'online'); setParams(next, { replace: true })
+        }}>联网补全</Button>
+        {Object.entries(profile.registry_details ?? {}).map(([key, value]) =>
+          <Tag key={key}>{key} {value}</Tag>)}
+      </Space>
       <div className="company-form-grid">
         {text('credit_code', '统一社会信用代码')}
         {text('legal_person', '法定代表人')}
@@ -53,12 +72,14 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
         {text('email', '电子邮箱')}
         {text('website', '网址')}
 
-        <Form.Item name="business_scope" label="经营范围" style={{ gridColumn: '1 / -1' }}><Input.TextArea rows={3} /></Form.Item>
+        <Form.Item name="business_scope" label="经营范围" extra={origin('business_scope')} style={{ gridColumn: '1 / -1' }}><Input.TextArea rows={3} /></Form.Item>
       </div>
       <Space>
         <Button type="primary" htmlType="submit" loading={save.isPending}>保存基本信息</Button>
         <Typography.Text type="secondary">建档依据：{profile.sources?.length ? profile.sources.join('；') : '（无）'}</Typography.Text>
       </Space>
+      {params.has('enrich') && <CompanyEnrichment company={company} initialCode={profile.credit_code} initialMode={initialMode}
+        initialAttachment={params.get('attachment') ?? ''} onClose={closeEnrichment} onSaved={closeEnrichment} />}
     </Form>
   )
 }
@@ -116,6 +137,7 @@ function ExpiryTab({ company }: { company: string }) {
 /** 附件库：上传 / 下载 / 删除；条目表单里可挂接。 */
 function AttachmentsTab({ company }: { company: string }) {
   const qc = useQueryClient()
+  const [params, setParams] = useSearchParams()
   const [kind, setKind] = useState('other')
   const { data = [], isLoading } = useQuery({ queryKey: ['attachments', company], queryFn: () => api.attachments(company) })
   const refresh = () => qc.invalidateQueries({ queryKey: ['attachments', company] })
@@ -140,11 +162,15 @@ function AttachmentsTab({ company }: { company: string }) {
           { title: '归类', dataIndex: 'kind', width: 110, render: (k: string) => kinds.find(([v]) => v === k)?.[1] ?? k },
           { title: '大小', dataIndex: 'size', width: 100, render: (n: number) => n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB` },
           { title: '上传时间', dataIndex: 'uploaded_at', width: 170, render: fmtUtc },
-          { title: '操作', width: 80, render: (_, r) => (
+          { title: '操作', width: 145, render: (_, r) => <Space size={2}>
+            <Button size="small" type="link" onClick={() => {
+              const next = new URLSearchParams(params)
+              next.set('tab', 'main'); next.set('enrich', 'attachment'); next.set('attachment', r.id); setParams(next)
+            }}>识别字段</Button>
             <Popconfirm title="删除附件？使用此附件的资料记录将无法再查看该文件" onConfirm={async () => { await api.deleteAttachment(company, r.id); refresh() }}>
               <Button size="small" type="link" danger>删除</Button>
             </Popconfirm>
-          ) },
+          </Space> },
         ]} />
     </Space>
   )

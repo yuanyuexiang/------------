@@ -155,7 +155,7 @@ export default function WorkbenchPage() {
       {flow?.stale && <Alert showIcon type="warning" message={running ? "正在处理，请等待标书更新完成" : "资料已更新，标书尚未更新"}
         description={running ? "处理完成后将刷新文件状态。" : "补齐资料后，点击上方“更新标书”。"} />}
       <div ref={preparationAnchor}>
-      {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onRepair={repair} onSaved={() => { setScore(null); void refreshFlow() }} />}
+      {profile && <PreparationPanel key={`preparation:${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onRepair={repair} onCheck={() => setRequirementsOpen(true)} onSaved={() => { setScore(null); void refreshFlow() }} />}
       </div>
       {profile && <Collapse items={[{ key: 'materials', label: '选择本包使用的证明材料', children: <MaterialPicker key={`${id}:${profile}:${pkgIndex}`} id={id} profile={profile} pkgIndex={pkgIndex} disabled={running} onSaved={() => { setScore(null); void refreshFlow(); void qc.invalidateQueries({ queryKey: ['preparation', id] }); void qc.invalidateQueries({ queryKey: ['qualification', id] }); void qc.invalidateQueries({ queryKey: ['requirements', id] }) }} /> }]} />}
 

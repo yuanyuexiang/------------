@@ -150,7 +150,10 @@ def create_item(name: str, kind: str, item: dict):
     item.pop("id", None)
     with session() as s:
         _require_company(s, name)
-        return repo.upsert_item(s, name, kind, item).model_dump()
+        try:
+            return repo.upsert_item(s, name, kind, item).model_dump()
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from None
 
 
 @router.put("/profiles/{name}/{kind}/{item_id}")

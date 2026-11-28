@@ -11,11 +11,26 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class EvidenceOrigin(BaseModel):
+    kind: Literal["online", "attachment"]
+    title: str
+    fetched_at: str
+    url: str = ""
+    attachment_id: str = ""
+    page: Optional[int] = None
+    excerpt: str = ""
+
+
+class SourcedRecord(BaseModel):
+    evidence_origin: Optional[EvidenceOrigin] = None
+    evidence_fields: dict[str, EvidenceOrigin] = Field(default_factory=dict)
+
+
 # 知识库条目通用字段（P2 拆表后每条记录独立成行）：
 #   id           落库后的行 ID；建档/导入阶段为空，入库时分配
 #   status       draft（待审核）| approved（审核生效）——只有 approved 的事实才进投标文件
 #   attachments  扫描件附件 ID 列表（见 Attachment）
-class Certificate(BaseModel):
+class Certificate(SourcedRecord):
     id: str = ""
     name: str = ""              # 如"质量管理体系认证证书"
     cert_type: str = ""         # 体系认证/资质等级/许可证/信用等级/...
@@ -68,7 +83,7 @@ class Person(BaseModel):
     source: str = ""
 
 
-class Performance(BaseModel):
+class Performance(SourcedRecord):
     id: str = ""
     project: str = ""
     buyer: str = ""
@@ -89,9 +104,12 @@ class Performance(BaseModel):
     status: str = "approved"
     attachments: list[str] = Field(default_factory=list)
     source: str = ""
+    award_date: str = ""
+    award_amount_wan: Optional[float] = None
+    award_project_no: str = ""
 
 
-class FinancialYear(BaseModel):
+class FinancialYear(SourcedRecord):
     id: str = ""
     year: str = ""
     report_kind: Literal["independent", "comparative"] = "independent"
@@ -125,7 +143,7 @@ class Product(BaseModel):
     source: str = ""
 
 
-class TestReport(BaseModel):
+class TestReport(SourcedRecord):
     """检测/型式试验/鉴定报告：资格条件常要求"报告在有效期内"，有效期按开标日推算。"""
     id: str = ""
     name: str = ""
@@ -221,6 +239,8 @@ class CompanyProfile(BaseModel):
     sgcc_relationship: str = ""  # 必须有声明依据，不默认“无”
     is_demo: bool = False       # 演示档案的产出必须有可见标识
     sources: list[str] = Field(default_factory=list)      # 建档依据文件
+    field_sources: dict[str, EvidenceOrigin] = Field(default_factory=dict)
+    registry_details: dict[str, str] = Field(default_factory=dict)
 
     def save(self, path: str) -> None:
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -231,3 +251,19 @@ class CompanyProfile(BaseModel):
     def load(cls, path: str) -> CompanyProfile:
         with open(path, encoding="utf-8") as f:
             return cls.model_validate(json.load(f))
+
+
+_LOOKUP_METADATA = {"evidence_origin", "evidence_fields", "award_date", "award_amount_wan", "award_project_no"}
+
+
+def bid_record_data(item: BaseModel) -> dict:
+    """Only values consumed by existing qualification and response generation."""
+    return item.model_dump(exclude=_LOOKUP_METADATA)
+
+
+def bid_profile_data(profile: CompanyProfile) -> dict:
+    """Keep the generation fingerprint of previously saved profiles reproducible."""
+    return profile.model_dump(exclude={
+        "field_sources": True, "registry_details": True, **{key: {"__all__": _LOOKUP_METADATA}
+                                 for key in ("certificates", "performances", "financials", "test_reports")},
+    })

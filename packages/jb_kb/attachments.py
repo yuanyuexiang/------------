@@ -10,7 +10,7 @@ import os
 import re
 from typing import Optional
 
-from jb_store import KbAttachment
+from jb_store import KbAttachment, KbCertificate, KbPerformance
 from jb_store.models import _uid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -74,6 +74,16 @@ def delete_attachment(s: Session, company: str, attachment_id: str) -> bool:
     path = os.path.join(attachments_root(), r.storage_path)
     if os.path.exists(path):
         os.remove(path)
+    remaining = set(s.scalars(select(KbAttachment.id).where(
+        KbAttachment.company == company, KbAttachment.id != attachment_id)))
+    for model in (KbCertificate, KbPerformance):
+        for item in s.scalars(select(model).where(model.company == company, model.status == "approved")):
+            data = item.data or {}
+            proofs = data.get("attachments", [])
+            if ((data.get("evidence_origin") or {}).get("kind") == "online"
+                    and attachment_id in proofs and not remaining.intersection(proofs)):
+                item.status = "draft"
+                item.data = {**data, "status": "draft"}
     s.delete(r)
     s.flush()
     return True

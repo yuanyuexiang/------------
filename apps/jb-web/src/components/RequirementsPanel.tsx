@@ -63,8 +63,25 @@ export default function RequirementsPanel() {
   if (isLoading || !data) return <Spin />
   const rows = data.requirements.filter(r => (!group || r.group === group) && (!status || r.status === status)
     && (!search || `${r.title}${r.text}${r.source}`.includes(search)))
+  const returnTo = href('workbench', pkgIndex, 'prepare')
   return <>
     <Card size="small" title="本包要求与证据" extra={<Typography.Text type="secondary">关联记录不替代合规审查</Typography.Text>}>
+      {!!data.material_checks?.length && <Collapse size="small" defaultActiveKey={['documents']} style={{ marginBottom: 16 }}
+        items={[{ key: 'documents', label: '查找与补充本包材料', children: <Space direction="vertical" style={{ width: '100%' }}>
+          {data.material_checks.map(check => <div key={check.title} style={{ borderBottom: '1px solid var(--ant-color-border-secondary, #edf0f5)', paddingBottom: 8 }}>
+            <Space wrap><Typography.Text strong>{check.title}</Typography.Text><Tag color={check.status.startsWith('待') ? 'orange' : 'blue'}>{check.status}</Tag>
+              <Typography.Text type="secondary">{check.note}</Typography.Text></Space>
+            <Space wrap size={12}>
+              {check.clauses[0] && <Button size="small" type="link" style={{ padding: 0 }}
+                onClick={() => focus(data.requirements.find(r => r.id === check.clauses[0].id))}>核对原文 · {check.clauses[0].source}</Button>}
+              {check.url && <a href={check.url} target="_blank" rel="noreferrer">{check.source_label}</a>}
+              {check.title === '本次授权'
+                ? <Button size="small" type="link" style={{ padding: 0 }} onClick={() => nav(`${returnTo}&task=authorization`)}>处理本次授权</Button>
+                : <><a href={`/kb/${encodeURIComponent(profile)}?tab=${check.tab}&returnTo=${encodeURIComponent(returnTo)}`}>查看企业资料</a>
+                  <a href={`/kb/${encodeURIComponent(profile)}?tab=main&enrich=attachment&returnTo=${encodeURIComponent(returnTo)}`}>识别已有原件</a></>}
+            </Space>
+          </div>)}
+        </Space> }]} />}
       <Typography.Paragraph type="secondary">清单汇总已解析的采购要求，仍需对照完整原件核查遗漏；关联材料不等于满足要求。</Typography.Paragraph>
       <div className="requirement-summary"><span>采购要求 {data.requirements.length} 项</span><span>已关联 {data.requirements.filter(r => r.status !== 'unlinked').length} 项</span>
         <span>关联需复核 {data.requirements.filter(r => r.status === 'stale').length} 项</span><span>当前生成版本 {data.generation_id?.slice(0, 8) || '尚未生成'}</span></div>
