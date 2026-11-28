@@ -4,9 +4,46 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
+
+from PIL import Image, ImageOps
+
+
+def registry_ocr(path: str) -> Iterator[str]:
+    """Read the first page of a scanned registration original at alternate orientations."""
+    source = Path(path)
+    with tempfile.TemporaryDirectory(prefix='jb-registry-ocr-') as folder:
+        target = Path(folder) / 'registry'
+        try:
+            if source.suffix.lower() == '.pdf':
+                subprocess.run(['pdftoppm', '-f', '1', '-l', '1', '-r', '200', '-singlefile',
+                                '-png', str(source), str(target)], check=True,
+                               capture_output=True, timeout=20)
+                source = target.with_suffix('.png')
+            with Image.open(source) as image:
+                upright = ImageOps.exif_transpose(image)
+                for angle in (270, 90, 0, 180):
+                    page = target.with_name('rotated.png')
+                    upright.rotate(angle, expand=True).save(page)
+                    cmd = ['tesseract', str(page), 'stdout', '-l', 'chi_sim+eng', '--psm']
+                    text = subprocess.run([*cmd, '3'], capture_output=True, text=True,
+                                          timeout=12).stdout
+                    normalized = re.sub(r'\s+', '', text)
+                    if '统一社会信用代码' not in normalized or '名称' not in normalized:
+                        continue
+                    if '营业执照' not in normalized:
+                        sparse = subprocess.run([*cmd, '11'], capture_output=True, text=True,
+                                                timeout=12).stdout
+                        heading = next((line for line in sparse.splitlines()
+                                        if '营业执照' in re.sub(r'\s+', '', line)), '')
+                        text = f'{heading}\n{text}'
+                    yield text[:12000]
+        except (OSError, ValueError, Image.DecompressionBombError, subprocess.SubprocessError):
+            return
 
 
 def read_evidence(path: str, max_pages: int = 12, ocr_pages: int = 4) -> dict:

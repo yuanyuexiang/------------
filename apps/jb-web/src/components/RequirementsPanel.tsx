@@ -78,7 +78,7 @@ export default function RequirementsPanel() {
               {check.title === '本次授权'
                 ? <Button size="small" type="link" style={{ padding: 0 }} onClick={() => nav(`${returnTo}&task=authorization`)}>处理本次授权</Button>
                 : <><a href={`/kb/${encodeURIComponent(profile)}?tab=${check.tab}&returnTo=${encodeURIComponent(returnTo)}`}>查看企业资料</a>
-                  <a href={`/kb/${encodeURIComponent(profile)}?tab=main&enrich=attachment&returnTo=${encodeURIComponent(returnTo)}`}>识别已有原件</a></>}
+                  {check.import_kind && <a href={`/kb/${encodeURIComponent(profile)}?tab=main&enrich=attachment&enrichKind=${encodeURIComponent(check.import_kind)}&returnTo=${encodeURIComponent(returnTo)}`}>补全企业资料</a>}</>}
             </Space>
           </div>)}
         </Space> }]} />}

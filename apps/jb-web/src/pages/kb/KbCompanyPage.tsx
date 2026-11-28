@@ -22,9 +22,8 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
   const [form] = Form.useForm()
   const [params, setParams] = useSearchParams()
   const [edited, setEdited] = useState(false)
-  const initialMode = params.get('enrich') === 'attachment' ? 'attachment' : 'online'
   const closeEnrichment = () => {
-    const next = new URLSearchParams(params); next.delete('enrich'); next.delete('attachment'); setParams(next, { replace: true })
+    const next = new URLSearchParams(params); next.delete('enrich'); next.delete('enrichKind'); next.delete('attachment'); setParams(next, { replace: true })
   }
   useEffect(() => { form.setFieldsValue(profile) }, [profile, form])
   const save = useMutation({
@@ -46,9 +45,9 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
     <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)} onValuesChange={() => setEdited(true)}>
       <Space wrap style={{ marginBottom: 16 }}>
         <Button disabled={save.isPending} onClick={() => {
-          if (edited) { message.warning('请先保存手动修改，再联网补全'); return }
-          const next = new URLSearchParams(params); next.set('enrich', 'online'); setParams(next, { replace: true })
-        }}>联网补全</Button>
+          if (edited) { message.warning('请先保存手动修改，再补全企业资料'); return }
+          const next = new URLSearchParams(params); next.set('enrich', 'attachment'); setParams(next, { replace: true })
+        }}>补全企业资料</Button>
         {Object.entries(profile.registry_details ?? {}).map(([key, value]) =>
           <Tag key={key}>{key} {value}</Tag>)}
       </Space>
@@ -78,7 +77,7 @@ function MainTab({ company, profile }: { company: string; profile: CompanyProfil
         <Button type="primary" htmlType="submit" loading={save.isPending}>保存基本信息</Button>
         <Typography.Text type="secondary">建档依据：{profile.sources?.length ? profile.sources.join('；') : '（无）'}</Typography.Text>
       </Space>
-      {params.has('enrich') && <CompanyEnrichment company={company} initialCode={profile.credit_code} initialMode={initialMode}
+      {params.has('enrich') && <CompanyEnrichment company={company} initialKind={params.get('enrichKind') ?? ''}
         initialAttachment={params.get('attachment') ?? ''} onClose={closeEnrichment} onSaved={closeEnrichment} />}
     </Form>
   )

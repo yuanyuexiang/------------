@@ -38,16 +38,22 @@ def store(s: Session, company: str, filename: str, content: bytes, kind: str = "
         return _to_model(dup)
     aid = _uid()
     safe_name = _SAFE.sub("_", os.path.basename(filename)) or "file"
-    rel = os.path.join(_SAFE.sub("_", company) or "company", f"{aid}_{safe_name}")
+    folder = _SAFE.sub("_", company).encode()[:220].decode(errors="ignore")
+    rel = os.path.join(folder if folder not in ("", ".", "..") else "company", f"{aid}_{safe_name}")
     abs_path = os.path.join(attachments_root(), rel)
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    with open(abs_path, "wb") as f:
-        f.write(content)
     row = KbAttachment(id=aid, company=company, kind=kind, filename=safe_name, content_type=content_type,
                        size=len(content), sha256=digest, storage_path=rel,
                        uploaded_at=dt.datetime.utcnow())
-    s.add(row)
-    s.flush()
+    file = open(abs_path, "xb")
+    try:
+        with file:
+            file.write(content)
+        s.add(row)
+        s.flush()
+    except Exception:
+        os.unlink(abs_path)
+        raise
     return _to_model(row)
 
 

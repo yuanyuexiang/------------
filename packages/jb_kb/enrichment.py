@@ -5,19 +5,23 @@ import base64
 import hashlib
 import hmac
 import time
+from contextlib import ExitStack
+from dataclasses import dataclass
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Optional, Union
 
 from jb_store import Profile, session
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import func, select
 
-from . import attachment_import, attachments, online, repo
-from .models import CompanyProfile, EvidenceOrigin
+from . import attachment_import, attachments, repo
+from .models import EvidenceOrigin
 
 LABELS = {
     "name": "企业名称", "credit_code": "统一社会信用代码", "legal_person": "法定代表人",
     "address": "登记住所", "business_scope": "经营范围", "founded": "成立日期",
-    "registered_capital_wan": "注册资本（人民币万元）",
+    "registered_capital_wan": "注册资本（人民币万元）", "company_type": "企业类型",
 }
 TITLES = {"certificates": "证照", "performances": "业绩", "financials": "财务", "test_reports": "检测报告"}
 _EXPIRY = 1800
@@ -44,11 +48,18 @@ class Review(BaseModel):
     existing: bool
     expected_code: str
     candidates: list[Candidate]
+    original_sha256: str = ""
+    original_name: str = ""
 
 
-class PreviewRequest(BaseModel):
-    company: str = Field(default="", max_length=128)
-    credit_code: str = Field(default="", max_length=32)
+@dataclass(frozen=True)
+class Original:
+    filename: str
+    content: bytes
+
+    @property
+    def sha256(self) -> str:
+        return hashlib.sha256(self.content).hexdigest()
 
 
 class AttachmentRequest(BaseModel):
@@ -60,16 +71,6 @@ class AttachmentRequest(BaseModel):
 class ApplyRequest(BaseModel):
     token: str = Field(min_length=1, max_length=450_000)
     selected: list[str] = Field(max_length=60)
-
-
-def _lookup_origin():
-    return EvidenceOrigin(kind="online", title="企查查 · 工商登记",
-                          url="https://openapi.qcc.com/dataApi/410",
-                          fetched_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
-
-
-def _revision_value(cp: CompanyProfile, field: str):
-    return getattr(cp, field, None)
 
 
 def _record_key(kind, item):
@@ -91,30 +92,20 @@ def _matching_records(cp, kind, raw):
 
 
 def _signature(payload: str, secret: str):
-    return hmac.new(secret.encode(), b"company-enrichment-v1:" + payload.encode(),
+    return hmac.new(secret.encode(), b"company-enrichment-v2:" + payload.encode(),
                     hashlib.sha256).hexdigest()
 
 
-def _snapshot(result, cp, name, expected_code, actor, secret):
-    lookup_origin = _lookup_origin()
+def _snapshot(result, cp, name, expected_code, actor, secret, *,
+              original: Optional[Original] = None):
     candidates = []
-    for key, raw in result["fields"].items():
-        value, origin = raw if isinstance(raw, tuple) else (raw, lookup_origin)
+    for key, (value, origin) in result["fields"].items():
         if key == "name" and cp:
-            if value != cp.name:
-                result["extra"]["登记全称"] = value
             continue
-        current = _revision_value(cp, key) if cp else None
+        current = getattr(cp, key) if cp else None
         candidates.append(Candidate(id=f"field-{key}", kind="field", title=LABELS[key], field=key,
                                     value=value, current=current, origin=origin,
                                     unchanged=value == current and cp is not None and key in cp.field_sources))
-    for key, value in result["extra"].items():
-        if key == "登记全称":
-            continue
-        current = cp.registry_details.get(key) if cp else None
-        candidates.append(Candidate(id=f"registry-{key}", kind="registry", title=key, field=key,
-                                    value=value, current=current, origin=lookup_origin,
-                                    unchanged=value == current))
     for i, record in enumerate(result["records"]):
         kind = record["kind"]
         origin = record["origin"]
@@ -129,26 +120,43 @@ def _snapshot(result, cp, name, expected_code, actor, secret):
         ))
 
     snapshot = Review(company=name, actor=actor, expires=int(time.time()) + _EXPIRY,
-                      existing=cp is not None, expected_code=expected_code, candidates=candidates)
+                      existing=cp is not None, expected_code=expected_code, candidates=candidates,
+                      original_sha256=original.sha256 if original else "",
+                      original_name=original.filename if original else "")
     b64 = base64.urlsafe_b64encode(snapshot.model_dump_json().encode()).decode()
     return {"company": name, "candidates": candidates, "checks": result["checks"],
-            "extra": result["extra"], "sources": online.OFFICIAL_SOURCES,
             "token": b64 + "." + _signature(b64, secret) if candidates else ""}
 
 
-def preview_online(request: PreviewRequest, actor: str, secret: str):
-    code = online.credit_code(request.credit_code)
+def _check_company_code(s, name: str, code: str) -> None:
+    if code and s.scalar(select(Profile.name).where(
+        func.upper(func.trim(Profile.credit_code)) == code, Profile.name != name
+    )):
+        raise ValueError("统一社会信用代码已关联其他企业档案，请在已有档案中补全资料")
+
+
+def preview_registry(original: Original, actor: str, secret: str):
+    if not original.content or len(original.content) > attachment_import.MAX_ORIGINAL_BYTES:
+        raise ValueError("请选择大小在 30 MB 以内的非空原件")
+    path = Path(original.filename.replace("\\", "/"))
+    suffix = path.suffix.lower()
+    if suffix not in attachment_import.ORIGINAL_TYPES:
+        raise ValueError("请选择 PDF、图片或 Word 原件")
+    filename = path.stem.encode()[:180].decode(errors="ignore") + suffix
+    original = Original(filename, original.content)
+    with TemporaryDirectory(prefix="jb-registry-") as folder:
+        local = Path(folder) / ("original" + suffix)
+        local.write_bytes(original.content)
+        result = attachment_import.extract_original(str(local), filename, "registry", None)
+    name = result["fields"].get("name", ("", None))[0]
+    code = result["fields"].get("credit_code", ("", None))[0]
+    if not name or not code:
+        return _snapshot(result, None, "", "", actor, secret)
     with session() as s:
-        cp = repo.load_profile(s, request.company) if request.company else None
-    if request.company and cp is None:
-        raise ValueError("企业档案不存在")
-    if cp and cp.credit_code and cp.credit_code.strip().upper() != code:
-        raise ValueError("请输入当前企业档案的统一社会信用代码")
-    result = online.lookup_company(code, cp.name if cp else "")
-    name = result["fields"].get("name", "")
-    if cp and not cp.credit_code and name and cp.name != name:
-        raise ValueError("档案没有统一社会信用代码，登记全称也不同，请核对企业后再导入")
-    return _snapshot(result, cp, cp.name if cp else name, code, actor, secret)
+        if s.get(Profile, name):
+            raise ValueError("企业档案已存在，请在该企业中补全资料")
+        _check_company_code(s, name, code)
+    return _snapshot(result, None, name, code, actor, secret, original=original)
 
 
 def preview_attachment(request: AttachmentRequest, actor: str, secret: str):
@@ -204,7 +212,11 @@ def _attach_to_draft(cp, entry):
     return raw, sources
 
 
-def _apply(s, review, chosen):
+def _apply(s, review, chosen, original, rollback):
+    if not review.existing and s.get_bind().dialect.name == "postgresql":
+        key = int.from_bytes(hashlib.sha256(review.expected_code.encode()).digest()[:8],
+                             "big", signed=True)
+        s.execute(select(func.pg_advisory_xact_lock(key)))
     row = s.scalar(select(Profile).where(Profile.name == review.company).with_for_update())
     cp = repo.load_profile(s, review.company) if row is not None else None
     if review.existing != (cp is not None):
@@ -213,26 +225,38 @@ def _apply(s, review, chosen):
         raise ValueError("未核对到企业名称")
     if cp and (cp.credit_code and cp.credit_code.strip().upper() != review.expected_code):
         raise ValueError("当前企业信用代码已更新，请重新查询")
-    if review.expected_code:
-        occupied = s.scalar(select(Profile.name).where(
-            func.upper(func.trim(Profile.credit_code)) == review.expected_code, Profile.name != review.company))
-        if occupied:
-            raise ValueError("统一社会信用代码已关联其他企业档案，请先核对旧档")
+    _check_company_code(s, review.company, review.expected_code)
     attachment_ids = {item.id for item in attachments.list_attachments(s, review.company)} if cp else set()
-    fields, origins, registry, records, updates = {}, {}, {}, [], []
+    if original:
+        repo.save_main(s, review.company, {"credit_code": review.expected_code})
+        s.flush()
+        filename = review.original_name
+        attachment = attachments.store(
+            s, review.company, filename, original.content, kind="certificate",
+            content_type=attachment_import.ORIGINAL_TYPES[Path(filename).suffix],
+        )
+        rollback.callback(Path(attachments.absolute_path(attachment)).unlink, missing_ok=True)
+        attachment_ids.add(attachment.id)
+        chosen = [entry.model_copy(update={
+            "origin": entry.origin.model_copy(update={"attachment_id": attachment.id}),
+            "field_origins": {key: origin.model_copy(update={"attachment_id": attachment.id})
+                              for key, origin in entry.field_origins.items()},
+        }) for entry in chosen]
+    fields, origins, records, updates = {}, {}, [], []
     existing_keys = {kind: {_record_key(kind, item) for item in getattr(cp, kind)}
                      if cp else set() for kind in TITLES}
     for entry in chosen:
         if entry.origin.attachment_id and entry.origin.attachment_id not in attachment_ids:
             raise ValueError("关联的原件已被删除，请重新选择资料")
-        if entry.kind in ("field", "registry"):
+        if entry.kind == "field":
             if entry.field == "name":
+                if cp is None:
+                    origins["name"] = entry.origin
                 continue
-            current = (cp.registry_details.get(entry.field) if entry.kind == "registry"
-                       else _revision_value(cp, entry.field)) if cp else None
+            current = getattr(cp, entry.field) if cp else None
             if current != entry.current:
                 raise ValueError("字段已被修改，请重新查询并核对差异")
-            (registry if entry.kind == "registry" else fields)[entry.field] = entry.value
+            fields[entry.field] = entry.value
             origins[entry.field] = entry.origin
         elif entry.existing_id:
             patched = _attach_to_draft(cp, entry)
@@ -249,26 +273,33 @@ def _apply(s, review, chosen):
                 "evidence_fields": {key: origin.model_dump() for key, origin in entry.field_origins.items()},
                 "attachments": [entry.origin.attachment_id] if entry.origin.attachment_id else [],
             }))
-    if cp is None:
-        fields["credit_code"] = review.expected_code
-        origins["credit_code"] = _lookup_origin()
-        origins["name"] = _lookup_origin()
-    if fields or registry:
-        repo.save_main(s, review.company, fields, field_sources=origins, registry_details=registry)
+    if fields:
+        repo.save_main(s, review.company, fields, field_sources=origins)
     for kind, data in records:
         repo.upsert_item(s, review.company, kind, data)
     for kind, data, sources in updates:
         repo.upsert_item(s, review.company, kind, data, evidence_fields=sources)
-    return {"company": review.company, "fields_updated": len(fields) + len(registry), "records_added": len(records),
+    return {"company": review.company, "fields_updated": len(fields), "records_added": len(records),
             "records_updated": len(updates),
             "record_kinds": list(dict.fromkeys(entry[0] for entry in [*records, *updates]))}
 
 
-def apply(request: ApplyRequest, actor: str, secret: str):
+def apply(request: ApplyRequest, actor: str, secret: str, *, original: Optional[Original] = None):
     review = _review(request.token, actor, secret)
     by_id = {entry.id: entry for entry in review.candidates if not entry.unchanged}
     chosen = list(dict.fromkeys(request.selected))
     if not chosen or any(key not in by_id for key in chosen):
         raise ValueError("请选择可采用的字段或资料")
-    with session() as s:
-        return _apply(s, review, [by_id[key] for key in chosen])
+    if not review.existing:
+        if not {"field-name", "field-credit_code"}.issubset(chosen):
+            raise ValueError("新建企业需要确认企业名称和统一社会信用代码")
+        if (not original or len(original.content) > attachment_import.MAX_ORIGINAL_BYTES
+                or original.sha256 != review.original_sha256):
+            raise ValueError("原件与预览文件不一致，请重新识别")
+    elif original:
+        raise ValueError("请在对应企业档案中导入原件")
+    with ExitStack() as rollback:
+        with session() as s:
+            result = _apply(s, review, [by_id[key] for key in chosen], original, rollback)
+        rollback.pop_all()
+    return result

@@ -45,10 +45,8 @@ API、worker、PostgreSQL 和 Redis 使用 Compose 内部网络；
 
 ## 发布过程
 
-企业资料联网补全使用已授权的企查查开放平台接口。在服务器 `/opt/jinbang/.env` 中设置
-`JB_QCC_KEY`、`JB_QCC_SECRET`，应用需开通工商信息（410）、资质证书（255）、招投标（958）、
-经营异常（739）和严重违法（748）；更新环境变量后重建 API 容器。各接口独立显示查询结果。
-官方原件入口和本地附件识别可在未配置联网接口时使用。
+企业资料通过官方公开查询入口和原件导入补全。原件识别使用 API 镜像内的 Poppler 和 Tesseract。
+导入企业登记原件前先预览候选字段，确认创建时再保存档案和附件。
 
 CI 完整通过 → 在 GitHub Linux runner 构建 amd64 镜像 → 将应用和依赖镜像推送阿里云 ACR →
 SSH 上传本次 Compose 和镜像引用 → 从 ACR 拉取镜像 → 停止 API/worker → 备份数据库 → 执行 Alembic →

@@ -29,8 +29,6 @@ services:
     environment:
       <<: *app-env
       JB_ADMIN_PASSWORD: ${JB_ADMIN_PASSWORD:?Set JB_ADMIN_PASSWORD}
-      JB_QCC_KEY: ${JB_QCC_KEY:-}
-      JB_QCC_SECRET: ${JB_QCC_SECRET:-}
     volumes: [uploads:/data/uploads]
     command: [uvicorn, 'jb_api.main:app', --host, 0.0.0.0, --port, '8000']
     depends_on:

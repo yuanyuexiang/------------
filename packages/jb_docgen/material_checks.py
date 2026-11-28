@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import re
 
+from jb_kb.company_sources import CNCA, CREDIT_CHINA, ECP, GSXT, NEA, PROCUREMENT
 from jb_kb.credit import credit_materials, grid_credit_requirement
-from jb_kb.online import CNCA, CREDIT_CHINA, ECP, GSXT, NEA, PROCUREMENT
 
 _CREDIT = (
     ("信用中国", ("信用中国", "creditchina.gov.cn"), CREDIT_CHINA),
@@ -37,9 +37,9 @@ def _rows_matching(rows, expression):
             and re.search(expression, f'{row["title"]}\n{row["text"]}')]
 
 
-def _entry(title, rows, tab, url, status, note, source_label="查看官方入口"):
+def _entry(title, rows, tab, url, status, note, import_kind=""):
     return {"title": title, "status": status, "note": note, "tab": tab,
-            "url": url, "source_label": source_label,
+            "url": url, "source_label": "查看官方入口", "import_kind": import_kind,
             "clauses": [{"id": row["id"], "source": row["source"], "title": row["title"]}
                         for row in rows]}
 
@@ -66,7 +66,7 @@ def checks(rows, trm, package, chosen, records, authorization_confirmed):
         if sources:
             linked = any(_has_original(records, "certificates", item) for item in credit[title])
             status = "已有材料，核对时效" if linked else "待核对查询材料"
-            result.append(_entry(title, sources, "certificates", url, status, "查看本包原文及指定报告格式"))
+            result.append(_entry(title, sources, "certificates", url, status, "查看本包原文及指定报告格式", "credit"))
 
     grid = grid_credit_requirement(trm, package)
     if grid["mode"] != "unspecified":
@@ -80,7 +80,8 @@ def checks(rows, trm, package, chosen, records, authorization_confirmed):
             "conflict": ("提交要求待核对", "原文存在提交与免交的不同表述"),
             "evidence": ("已有材料，核对时效" if linked else "待补查询凭证", "按本包原文取得查询凭证"),
         }[grid["mode"]]
-        result.append(_entry("国网供应商不良行为", sources, "certificates", ECP, label, note))
+        result.append(_entry("国网供应商不良行为", sources, "certificates", ECP, label, note,
+                             "credit" if grid["mode"] == "evidence" else ""))
 
     for title, expression, kinds, url, note in _ORIGINALS:
         sources = _rows_matching(rows, expression)
@@ -102,5 +103,8 @@ def checks(rows, trm, package, chosen, records, authorization_confirmed):
                     status = "待核对：" + "、".join(absent)
         if title == "资质证照" and any(re.search(r"承装|承修|承试", row["text"]) for row in sources):
             url = NEA
-        result.append(_entry(title, sources, kinds[0] if kinds else "attachments", url, status, note))
+        import_kind = {"营业执照": "registry", "资质证照": "certificate", "业绩证明": "contract",
+                       "财务材料": "financial", "检测和技术证明": "test_report"}.get(title, "")
+        result.append(_entry(title, sources, kinds[0] if kinds else "attachments", url, status, note,
+                             import_kind))
     return result

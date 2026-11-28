@@ -126,10 +126,10 @@ export interface EnrichmentCandidate {
   field_origins: Record<string, EvidenceOrigin>; unchanged: boolean; existing_id: string
 }
 export interface EnrichmentPreview {
-  company: string; token: string; candidates: EnrichmentCandidate[]; extra: Record<string, string>
+  company: string; token: string; candidates: EnrichmentCandidate[]
   checks: { title: string; status: string; detail: string }[]
-  sources: { title: string; url: string; kind: string }[]
 }
+export interface CompanySource { title: string; url: string; materials: string[] }
 export interface EnrichmentResult { company: string; fields_updated: number; records_added: number; records_updated: number; record_kinds: string[] }
 export type KbKind = 'certificates' | 'personnel' | 'performances' | 'financials' | 'products' | 'test_reports' | 'boilerplates'
 export interface CompanyProfile {
@@ -193,7 +193,7 @@ export interface RequirementRow {
 }
 export interface RequirementsState {
   revision: string; requirements: RequirementRow[]; evidence: RequirementEvidence[]; files: string[]
-  material_checks?: { title: string; status: string; note: string; tab: string; url: string; source_label: string
+  material_checks?: { title: string; status: string; note: string; tab: string; url: string; source_label: string; import_kind?: string
     clauses: { id: string; source: string; title: string }[] }[]
   generation_id: string | null; generation_stale: boolean; review_stale: boolean; review: ReviewResult | null; blockers: string[]; groups: Record<string, string>
 }
@@ -342,8 +342,19 @@ export const api = {
   trm: (id: string, confirmed = false) => req<TRM>(`/api/projects/${id}/trm?confirmed=${confirmed}`),
   confirmTrm: (id: string, trm: TRM) => req<{ ok: boolean }>(`/api/projects/${id}/trm`, json(trm)),
   profiles: () => req<ProfileSummary[]>('/api/profiles'),
-  lookupCompany: (company: string, credit_code: string) =>
-    req<EnrichmentPreview>('/api/company-enrichment/online', json({ company, credit_code }, 'POST')),
+  companySources: () => req<CompanySource[]>('/api/company-enrichment/sources'),
+  previewCompanyRegistry: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return req<EnrichmentPreview>('/api/company-enrichment/registry', { method: 'POST', body: form })
+  },
+  createCompanyFromRegistry: (file: File, token: string, selected: string[]) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('token', token)
+    selected.forEach(id => form.append('selected', id))
+    return req<EnrichmentResult>('/api/company-enrichment/registry/apply', { method: 'POST', body: form })
+  },
   readCompanyAttachment: (company: string, attachment_id: string, kind: string) =>
     req<EnrichmentPreview>('/api/company-enrichment/attachment', json({ company, attachment_id, kind }, 'POST')),
   applyCompanyEnrichment: (token: string, selected: string[]) =>

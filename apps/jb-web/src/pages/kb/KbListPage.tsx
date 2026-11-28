@@ -16,7 +16,7 @@ export default function KbListPage() {
   const qc = useQueryClient()
   const { data = [], isLoading } = useQuery({ queryKey: ['profiles'], queryFn: api.profiles })
   const [creating, setCreating] = useState(false)
-  const [lookupCode, setLookupCode] = useState<string>()
+  const [intakeOpen, setIntakeOpen] = useState(false)
   const [form] = Form.useForm()
   const create = useMutation({
     mutationFn: (v: { name: string; credit_code: string }) => api.saveMain(v.name, { credit_code: v.credit_code }),
@@ -32,7 +32,7 @@ export default function KbListPage() {
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       <Alert type="info" showIcon message="请在这里填写企业信息、证照、人员、业绩和产品参数，并上传证明材料。系统依据这些资料填写标书；资料不足时会提示补充。填写证照和检测报告的到期日后，可查看到期提醒。" />
-      <Card size="small" title="企业档案" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setCreating(true) }}>新建企业</Button>}>
+      <Card size="small" title="企业档案" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setIntakeOpen(true)}>新建企业</Button>}>
         <Table<ProfileSummary> rowKey="name" loading={isLoading} dataSource={data} pagination={false}
           columns={[
             { title: '企业', dataIndex: 'name', render: (v: string) => <a onClick={() => nav(`/kb/${encodeURIComponent(v)}`)}>{v}</a> },
@@ -54,23 +54,21 @@ export default function KbListPage() {
           ]} />
         {!isLoading && data.length === 0 && (
           <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
-            尚无企业档案。点击右上角“新建企业”，录入企业基本信息后，再补齐证照、人员与业绩资料。
+            尚无企业档案。上传营业执照即可识别基本信息并建档。
           </Typography.Paragraph>
         )}
       </Card>
 
       <Modal className="jb-dialog" centered cancelText="取消" open={creating} width={560} okText="创建档案" title={<span className="dialog-title"><span className="dialog-title-icon"><BankOutlined /></span><span>新建企业档案<small>建立企业资料，开启投标准备</small></span></span>} onCancel={() => setCreating(false)} onOk={() => form.validateFields().then((v) => create.mutate(v))} confirmLoading={create.isPending}>
-        <div className="dialog-intro">有统一社会信用代码时，可以先联网补全。</div>
         <Form form={form} layout="vertical">
 
           <Form.Item name="name" label="企业名称" extra="请填写与营业执照一致的企业全称" rules={[{ required: true, message: '请填写企业名称' }]}><Input placeholder="请输入企业全称" autoComplete="organization" /></Form.Item>
           <Form.Item name="credit_code" label="统一社会信用代码" extra="18 位数字或大写字母，可在创建后补充" rules={[{ pattern: /^[0-9A-Z]{18}$/, message: '18 位数字/大写字母' }]}><Input maxLength={18} placeholder="请输入统一社会信用代码" /></Form.Item>
         </Form>
-        <Button disabled={create.isPending} onClick={() => { setLookupCode(form.getFieldValue('credit_code') ?? ''); setCreating(false) }}>联网补全</Button>
       </Modal>
-      {lookupCode !== undefined && <CompanyEnrichment initialCode={lookupCode}
-        onClose={() => { setLookupCode(undefined); setCreating(true) }}
-        onSaved={result => { setLookupCode(undefined); nav(`/kb/${encodeURIComponent(result.company)}`) }} />}
+      {intakeOpen && <CompanyEnrichment onClose={() => setIntakeOpen(false)}
+        onManual={() => { setIntakeOpen(false); form.resetFields(); setCreating(true) }}
+        onSaved={result => { setIntakeOpen(false); nav(`/kb/${encodeURIComponent(result.company)}`) }} />}
     </Space>
   )
 }

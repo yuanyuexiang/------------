@@ -8,7 +8,7 @@ from zipfile import ZipFile
 import httpx
 import pytest
 from docx import Document
-from jb_kb import online
+from jb_kb import repo
 from jb_kb.models import CompanyProfile, Performance, bid_profile_data
 from jb_parser.trm import TRM, PackageTRM, QualificationItem
 from jb_store import Project, session
@@ -22,78 +22,133 @@ SHAANXI = (ROOT / "物资/1/国网陕西省电力有限公司2026年第三次物
            / "分标044接入设备/包1_完整招标文件_1813604751495232.zip")
 
 
-@pytest.fixture
-def licensed(monkeypatch):
-    monkeypatch.setenv("JB_QCC_KEY", "synthetic-key")
-    monkeypatch.setenv("JB_QCC_SECRET", "synthetic-secret")
-    winner = {"Name": COMPANY, "CreditCode": CODE, "WinBidAmt": "29.5万元"}
-    notice = {"Title": "历史服务项目", "ProjectNo": "TEST-01",
-              "PublishDate": "2025-04-05", "ContentUrl": "https://example.com/notice",
-              "WinBidUnitList": [winner], "BidInviUnitList": [{"Name": "某采购单位"}]}
-    responses = {
-        "ECIV4/GetBasicDetailsByName": {"Name": COMPANY, "CreditCode": CODE,
-                                      "OperName": "测试法人", "Address": "测试登记住所",
-                                      "StartDate": "2019-03-02", "RegisteredCapital": "2000000",
-                                      "RegisteredCapitalUnit": "元", "RegisteredCapitalCCY": "人民币",
-                                      "BelongOrg": "某市场监管局"},
-        "ECICertification/SearchCertification": [{"Name": "质量管理体系认证", "No": "TEST-QMS",
-                                                  "EndDate": "2028-01-01", "InstitutionList": ["测试机构"]}],
-        "TenderCheck/GetList": {"Data": [
-            notice, {**notice, "Title": "同名企业公告", "WinBidUnitList": [{**winner, "CreditCode": "OTHER"}]},
-        ]},
-        "ExceptionCheck/GetList": {"VerifyResult": 0, "Data": []},
-        "SeriousIllegalCheck/GetList": {"VerifyResult": 1, "Data": [{"AddDate": "2024-01-01"}]},
-    }
-
-    def lookup(_client, _key, _secret, path, **params):
-        if path == "TenderCheck/GetList":
-            assert params["keyword"] == COMPANY and params["msgType"] == "4"
-        return responses[path]
-
-    monkeypatch.setattr(online, "_lookup", lookup)
-    return responses
-
-
-def preview(client, *, company=""):
-    response = client.post(URL + "/online", json={"credit_code": CODE, "company": company})
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-def apply(client, result, selected=None):
-    ids = [item["id"] for item in result["candidates"] if not item["unchanged"]]
-    return client.post(URL + "/apply", json={"token": result["token"],
-                                            "selected": ids if selected is None else selected})
-
-
-def upload(client, company, lines):
+def original(lines):
     doc = Document()
     for line in lines:
         doc.add_paragraph(line)
     buffer = BytesIO()
     doc.save(buffer)
-    res = client.post(f"/api/profiles/{company}/attachments",
-                      files={"file": ("原件.docx", buffer.getvalue(), "application/octet-stream")})
+    return ("原件.docx", buffer.getvalue(), "application/octet-stream")
+
+
+def registry(*, name=COMPANY, code=CODE):
+    return original(["营业执照", f"名称：{name}", f"统一社会信用代码：{code}",
+                     "法定代表人：测试法人", "住所：测试登记住所", "成立日期：2019年3月2日",
+                     "注册资本：人民币200万元", "类型：有限责任公司"])
+
+
+def preview(client, file):
+    response = client.post(URL + "/registry", files={"file": file})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def apply(client, result, selected=None, file=None):
+    ids = [item["id"] for item in result["candidates"] if not item["unchanged"]]
+    data = {"token": result["token"], "selected": ids if selected is None else selected}
+    if file:
+        return client.post(URL + "/registry/apply", data=data, files={"file": file})
+    return client.post(URL + "/apply", json=data)
+
+
+def create_company(client):
+    file = registry()
+    response = apply(client, preview(client, file), file=file)
+    assert response.status_code == 201, response.text
+
+
+def upload(client, company, lines):
+    res = client.post(f"/api/profiles/{company}/attachments", files={"file": original(lines)})
     assert res.status_code == 201
     return res.json()["id"]
 
 
-def test_signed_preview_adoption_and_originals(client, licensed):
-    found = preview(client)
-    assert found["checks"][-2]["status"] == "指定来源未检出"
-    assert found["checks"][-1]["status"] == "查到记录"
-    assert all("同名企业" not in item["title"] for item in found["candidates"])
+def test_signed_registry_preview_and_original_saved_on_confirmation(client, tmp_path):
+    file = registry()
+    found = preview(client, file)
+    assert found["company"] == COMPANY
     assert client.get("/api/profiles").json() == []
-    assert apply(client, {**found, "token": found["token"] + "0"}).status_code == 409
-    assert apply(client, found).status_code == 200
+    assert not list(tmp_path.rglob("原件.docx"))
+    assert apply(client, {**found, "token": found["token"] + "0"}, file=file).status_code == 409
+    assert apply(client, found, file=registry(name="另一家企业")).status_code == 409
+    assert apply(client, found, ["field-address"], file=file).status_code == 409
+    assert apply(client, found).status_code == 409
+    assert apply(client, found, file=file).status_code == 201
     profile = client.get(f"/api/profiles/{COMPANY}").json()
-    assert profile["registered_capital_wan"] == 200
-    assert profile["registry_details"]["登记机关"] == "某市场监管局"
+    assert profile["registered_capital_wan"] == 200 and profile["company_type"] == "有限责任公司"
     assert profile["registration"] == {}
-    assert profile["field_sources"]["address"]["kind"] == "online"
-    award, = profile["performances"]
+    item, = client.get(f"/api/profiles/{COMPANY}/attachments").json()
+    assert item["kind"] == "certificate"
+    assert {origin["attachment_id"] for origin in profile["field_sources"].values()} == {item["id"]}
+    assert profile["field_sources"]["name"]["kind"] == "attachment"
+    license_record, = profile["certificates"]
+    assert license_record["number"] == CODE and license_record["attachments"] == [item["id"]]
+    assert license_record["status"] == "draft"
+    assert client.get(f"/api/attachments/{item['id']}").content == file[1]
+    assert apply(client, found, file=file).status_code == 409
+    assert client.post(URL + "/registry", files={"file": registry(name="另一家企业")}).status_code == 409
+
+
+def test_registry_creation_rolls_back_saved_file_on_failed_record(client, tmp_path, monkeypatch):
+    file = registry()
+    found = preview(client, file)
+
+    def fail(*args, **kwargs):
+        raise ValueError("模拟证照保存失败")
+
+    monkeypatch.setattr(repo, "upsert_item", fail)
+    assert apply(client, found, file=file).status_code == 409
+    assert client.get("/api/profiles").json() == []
+    assert not list(tmp_path.rglob("*原件.docx"))
+
+
+def test_rotated_license_uses_labelled_fields_and_checksum(client, monkeypatch):
+    from jb_kb import attachment_import
+
+    monkeypatch.setattr(attachment_import, "read_evidence",
+                        lambda *args, **kwargs: {"pages": [], "notes": []})
+
+    def rotated(_):
+        yield f"营业执照\n统 一 社 会 信 用 代 码\n{CODE}\n名 称 {COMPANY}\n经营范围 去"
+
+    monkeypatch.setattr(attachment_import, "registry_ocr", rotated)
+    result = preview(client, ("扫描执照.png", b"mocked scanner bytes", "image/png"))
+    values = {item["field"]: item["value"] for item in result["candidates"] if item["kind"] == "field"}
+    assert values == {"name": COMPANY, "credit_code": CODE}
+
+
+def test_public_credit_report_uses_cover_over_repeated_table_fields(client, monkeypatch):
+    from jb_kb import attachment_import
+
+    create_company(client)
+    monkeypatch.setattr(attachment_import, "read_evidence", lambda *args, **kwargs: {
+        "pages": [{"page": 1, "text": f"法人和非法人组织\n公共信用信息报告\n机构名称：{COMPANY}\n"
+                                    f"统一社会信用代码：{CODE}\n报告生成日期    2026年10月20日\n"
+                                    "报告出具单位     国家公共信用和地理空间信息中心"},
+                  {"page": 2, "text": "报告生成日期   2026年10月20日    报告出具单位    其他列\n"
+                                    "企业名称：附录提及的企业"}],
+        "notes": [],
+    })
+    file = ("信用报告.pdf", b"mocked PDF text", "application/pdf")
+    uploaded = client.post(f"/api/profiles/{COMPANY}/attachments", files={"file": file}).json()
+    res = client.post(URL + "/attachment", json={"company": COMPANY, "attachment_id": uploaded["id"], "kind": "credit"})
+    assert res.status_code == 200, res.text
+    imported, = res.json()["candidates"]
+    assert imported["title"] == "信用中国查询材料" and imported["data"]["valid_from"] == "2026-10-20"
+    assert imported["origin"]["page"] == 1 and imported["origin"]["attachment_id"] == uploaded["id"]
+
+
+def test_existing_online_award_can_be_completed_with_originals(client):
+    create_company(client)
+    with session() as s:
+        repo.upsert_item(s, COMPANY, "performances", {
+            "project": "历史服务项目", "buyer": "某采购单位", "status": "draft",
+            "award_date": "2025-04-05", "award_amount_wan": 29.5,
+            "evidence_origin": {"kind": "online", "title": "历史公告资料",
+                                "url": "https://example.com/notice", "fetched_at": "2025-04-06T00:00:00Z"},
+        })
+    award, = client.get(f"/api/profiles/{COMPANY}/performances").json()
     assert award["status"] == "draft" and award["evidence"] == []
-    assert award["award_date"] == "2025-04-05" and award["award_amount_wan"] == 29.5
     assert award["signed_date"] == "" and award["amount_wan"] is None
     path = f"/api/profiles/{COMPANY}/performances/{award['id']}"
     assert client.put(path, json={**award, "status": "approved"}).status_code == 409
@@ -121,38 +176,34 @@ def test_signed_preview_adoption_and_originals(client, licensed):
     assert client.get(f"/api/profiles/{COMPANY}/performances").json()[0]["status"] == "draft"
 
 
-def test_stale_company_field_and_wrong_entity_are_rejected(client, licensed):
-    src = licensed["ECIV4/GetBasicDetailsByName"]
+def test_stale_company_field_and_wrong_entity_are_rejected(client):
     assert client.put(f"/api/profiles/{COMPANY}/main", json={"credit_code": CODE, "address": "原地址"}).status_code == 200
-    found = preview(client, company=COMPANY)
+    aid = upload(client, COMPANY, ["营业执照", f"名称：{COMPANY}", f"统一社会信用代码：{CODE}",
+                                  "住所：测试登记住所"])
+    req = {"company": COMPANY, "attachment_id": aid, "kind": "registry"}
+    found = client.post(URL + "/attachment", json=req).json()
     client.put(f"/api/profiles/{COMPANY}/main", json={"address": "人工更新地址"})
     assert apply(client, found, ["field-address"]).status_code == 409
     assert client.get(f"/api/profiles/{COMPANY}").json()["address"] == "人工更新地址"
-    src["CreditCode"] = "WRONG"
-    found = preview(client, company=COMPANY)
-    assert found["candidates"] == [] and found["checks"][0]["status"] == "无法查询"
+    wrong = upload(client, COMPANY, ["营业执照", "名称：另一个企业", f"统一社会信用代码：{CODE}"])
+    found = client.post(URL + "/attachment", json={**req, "attachment_id": wrong}).json()
+    assert found["candidates"] == [] and found["checks"][0]["status"] == "需查看原件"
 
 
-def test_unconfigured_provider_promotes_official_entries_without_values(client, monkeypatch):
-    monkeypatch.delenv("JB_QCC_KEY", raising=False)
-    monkeypatch.delenv("JB_QCC_SECRET", raising=False)
-    found = preview(client)
-    assert found["candidates"] == [] and not found["token"]
-    assert found["checks"][0]["status"] == "未配置" and len(found["sources"]) >= 5
+def test_paid_lookup_is_retired_and_official_sources_do_not_require_a_preview(client, monkeypatch):
+    monkeypatch.setenv("JB_QCC_KEY", "synthetic-key")
+    monkeypatch.setenv("JB_QCC_SECRET", "synthetic-secret")
 
+    def no_request(*args, **kwargs):
+        pytest.fail("企业资料补全不应调用外部收费接口")
 
-def test_provider_transport_uses_signed_headers(monkeypatch):
-    monkeypatch.setattr(online.time, "time", lambda: 1700000000)
-
-    def response(request):
-        assert request.url.host == "api.qichacha.com"
-        assert request.url.params["keyword"] == CODE
-        assert request.headers["Timespan"] == "1700000000"
-        assert len(request.headers["Token"]) == 32 and request.headers["Token"].isupper()
-        return httpx.Response(200, json={"Status": "200", "Result": {"Name": COMPANY}})
-
-    with httpx.Client(transport=httpx.MockTransport(response)) as client:
-        assert online._lookup(client, "key", "secret", "verified-schema", keyword=CODE) == {"Name": COMPANY}
+    monkeypatch.setattr(httpx.Client, "stream", no_request)
+    assert client.post(URL + "/online", json={"credit_code": CODE}).status_code == 410
+    sources = client.get(URL + "/sources").json()
+    assert {"registry", "credit", "certificate", "award"} <= {
+        kind for source in sources for kind in source["materials"]
+    }
+    create_company(client)
 
 
 def test_old_generated_versions_remain_identifiable():
@@ -163,8 +214,8 @@ def test_old_generated_versions_remain_identifiable():
     assert "award_amount_wan" not in values["performances"][0]
 
 
-def test_checklist_uses_selected_package_and_official_credit_mode(client, licensed):
-    assert apply(client, preview(client)).status_code == 200
+def test_checklist_uses_selected_package_and_official_credit_mode(client):
+    create_company(client)
     trm = TRM(packages=[
         PackageTRM(pkg_no="包一", qualification=[QualificationItem(performance_req="请提供合同和发票")]),
         PackageTRM(pkg_no="包二", qualification=[QualificationItem(other_reqs={
@@ -183,15 +234,16 @@ def test_checklist_uses_selected_package_and_official_credit_mode(client, licens
     assert "信用中国" not in checks_a and "业绩证明" not in checks_b
     assert checks_a["业绩证明"]["status"] == "待核对：合同、发票"
     assert checks_b["国网供应商不良行为"]["status"] == "采购方核查"
-    assert checks_b["信用中国"]["clauses"] and b.json()["evidence"] == []
+    assert checks_b["信用中国"]["clauses"] and checks_b["信用中国"]["import_kind"] == "credit"
+    assert b.json()["evidence"] == []
 
 
 @pytest.mark.parametrize("sample", [
     pytest.param(FUJIAN, marks=pytest.mark.skipif(not FUJIAN.exists(), reason="缺少本地真实服务样本"), id="service"),
     pytest.param(SHAANXI, marks=pytest.mark.skipif(not SHAANXI.exists(), reason="缺少本地真实物资样本"), id="goods"),
 ])
-def test_real_tender_from_import_to_word(client, licensed, sample):
-    assert apply(client, preview(client)).status_code == 200
+def test_real_tender_from_import_to_word(client, sample):
+    create_company(client)
     with sample.open("rb") as archive:
         job = client.post("/api/projects", files={"file": (sample.name, archive, "application/zip")})
     assert job.status_code == 202, job.text

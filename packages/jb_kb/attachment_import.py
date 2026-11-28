@@ -4,17 +4,24 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 from zipfile import BadZipFile, ZipFile
 
 from docx import Document
 from docx.opc.exceptions import PackageNotFoundError
 from lxml.etree import XMLSyntaxError
 
-from . import attachments, online
+from . import attachments, company_sources
 from .models import Attachment, CompanyProfile, EvidenceOrigin
-from .text_evidence import read_evidence
+from .text_evidence import read_evidence, registry_ocr
 
 KINDS = ("registry", "credit", "certificate", "contract", "award", "financial", "test_report")
+MAX_ORIGINAL_BYTES = 30_000_000
+ORIGINAL_TYPES = {
+    ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".tif": "image/tiff", ".tiff": "image/tiff", ".webp": "image/webp",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
 
 _CREDIT_TITLES = {
     "信用中国": ("信用中国", "creditchina.gov.cn"),
@@ -45,10 +52,10 @@ def _word_text(path: str) -> dict:
             "notes": ["已读取 Word 文本和表格，内嵌扫描图片请用原始 PDF 或图片识别"]}
 
 
-def _field(lines, labels):
-    pattern = re.compile(
-        rf"^\s*(?:{'|'.join(map(re.escape, labels))})(?:\s*[：:|]\s*|[ \t]{{2,}})(.+?)\s*$"
-    )
+def _field(lines, labels, *, scanned=False):
+    names = [r"\s*".join(map(re.escape, label)) if scanned else re.escape(label) for label in labels]
+    separator = r"[ \t]+" if scanned else r"[ \t]{2,}"
+    pattern = re.compile(rf"^\s*(?:{'|'.join(names)})(?:\s*[：:|]\s*|{separator})(.+?)\s*$")
     matches = {}
     for source, line in lines:
         match = pattern.match(line)
@@ -62,39 +69,75 @@ def _field(lines, labels):
     return "", None
 
 
-def _registry(cp, lines, body):
-    if "营业执照" not in body and "国家企业信用信息公示系统" not in body:
+def _registry(cp, lines, *, scanned=False):
+    body = "\n".join(line for _, line in lines)
+    normalized = re.sub(r"\s+", "", body) if scanned else body
+    if "营业执照" not in normalized and "国家企业信用信息公示系统" not in normalized:
         return {}
-    name, _ = _field(lines, ("名称", "企业名称", "市场主体名称"))
-    raw_code, _ = _field(lines, ("统一社会信用代码",))
+    name, name_origin = _field(lines, ("名称", "企业名称", "市场主体名称"), scanned=scanned)
+    if scanned:
+        name = re.sub(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])", "", name)
+    raw_code, code_origin = _field(lines, ("统一社会信用代码",), scanned=scanned)
+    if scanned and not raw_code:
+        candidates = {}
+        for (_, label), (source, following) in zip(lines, lines[1:]):
+            if re.sub(r"\s+", "", label) == "统一社会信用代码":
+                codes = re.findall(r"(?<![A-Z0-9])[A-Z0-9]{18}(?![A-Z0-9])", following.upper())
+                if len(codes) == 1:
+                    candidates[codes[0]] = source.model_copy(
+                        update={"excerpt": f"统一社会信用代码 {following}"[:500]}
+                    )
+        if len(candidates) == 1:
+            raw_code, code_origin = next(iter(candidates.items()))
     try:
-        code = online.credit_code(raw_code)
+        code = company_sources.credit_code(re.sub(r"\s+", "", raw_code) if scanned else raw_code)
     except ValueError:
         return {}
-    if name != cp.name or (cp.credit_code and code != cp.credit_code.strip().upper()):
+    if not name or len(name) > 128:
         return {}
-    found = {}
+    if cp and (name != cp.name or (cp.credit_code and code != cp.credit_code.strip().upper())):
+        return {}
+    found = {"name": (name, name_origin), "credit_code": (code, code_origin)}
     for field, labels in (
-        ("credit_code", ("统一社会信用代码",)),
         ("legal_person", ("法定代表人",)),
         ("address", ("住所", "注册地址")),
         ("business_scope", ("经营范围",)),
         ("founded", ("成立日期", "成立时间")),
+        ("company_type", ("类型", "企业类型", "主体类型")),
         ("registered_capital_wan", ("注册资本",)),
     ):
-        value, origin = _field(lines, labels)
-        if field == "credit_code":
-            value = code
-        elif field == "founded":
-            value = online.exact_date(value)
+        value, origin = _field(lines, labels, scanned=scanned)
+        if field == "founded":
+            value = company_sources.exact_date(value)
+        elif field == "business_scope" and scanned and len(value) < 10:
+            value = ""
         elif field == "registered_capital_wan":
             # Chinese registration originals may also report capital denominated in a foreign currency.
-            value = online.amount_in_rmb(value) if "人民币" in value else None
+            value = company_sources.amount_in_rmb(value) if "人民币" in value else None
             if value is not None and value < 0:
                 value = None
         if origin and value is not None and value != "":
             found[field] = (value, origin)
     return found
+
+
+def _registry_with_ocr(path, cp, lines, filename, attachment_id, pages):
+    fields = _registry(cp, lines)
+    if fields or Path(path).suffix.lower() == ".docx" or (
+        pages and all(page.get("method") == "text" for page in pages)
+    ):
+        return fields, lines
+    source = EvidenceOrigin(kind="attachment", title=filename, attachment_id=attachment_id,
+                            fetched_at=datetime.now(timezone.utc).isoformat(), page=1)
+    attempts = registry_ocr(path)
+    try:
+        for text in attempts:
+            scanned = [(source, line) for line in text.splitlines() if line.strip()]
+            if fields := _registry(cp, scanned, scanned=True):
+                return fields, scanned
+    finally:
+        attempts.close()
+    return {}, lines
 
 
 def _origin_for(fields):
@@ -113,13 +156,16 @@ def _records(kind, lines, body, filename):
         result = {}
         for key, labels_for_field in labels.items():
             value, source = _field(lines, labels_for_field)
-            value = online.exact_date(value) if key in dates else value
+            value = company_sources.exact_date(value) if key in dates else value
             if value and source:
                 result[key] = (value[:255], source)
         return result
 
     if kind == "credit":
         sites = [label for label, words in _CREDIT_TITLES.items() if any(word in body for word in words)]
+        cover = _credit_cover(lines)
+        if cover:
+            sites, lines = ["信用中国"], cover
         values = fields_for({"valid_from": ("报告生成日期", "查询日期", "报告日期", "出具日期", "查询时间")}, ("valid_from",))
         if len(sites) == 1 and values:
             label = sites[0]
@@ -143,7 +189,7 @@ def _records(kind, lines, body, filename):
             "service_scope": ("服务范围", "合同范围"),
         }, ("signed_date",))
         value, source = _field(lines, ("合同金额", "合同总额", "合同总价"))
-        amount = online.amount_in_rmb(value)
+        amount = company_sources.amount_in_rmb(value)
         if source and amount is not None and amount >= 0:
             values["amount_wan"] = (amount, source)
         if "project" in values:
@@ -155,7 +201,7 @@ def _records(kind, lines, body, filename):
             "award_project_no": ("项目编号", "采购项目编号"),
         }, ("award_date",))
         value, source = _field(lines, ("中标金额", "成交金额", "中标成交金额"))
-        amount = online.amount_in_rmb(value)
+        amount = company_sources.amount_in_rmb(value)
         if source and amount is not None and amount >= 0:
             values["award_amount_wan"] = (amount, source)
         if "project" in values:
@@ -166,7 +212,7 @@ def _records(kind, lines, body, filename):
             for key, label in (("revenue_wan", "营业收入"), ("net_profit_wan", "净利润"),
                                ("asset_wan", "资产总额"), ("liability_wan", "负债总额")):
                 value, source = _field(lines, (label,))
-                amount = online.amount_in_rmb(value)
+                amount = company_sources.amount_in_rmb(value)
                 if source and amount is not None:
                     values[key] = (amount, source)
             # An extracted summary remains attached to its source as a draft for report-scope review.
@@ -190,10 +236,21 @@ def _records(kind, lines, body, filename):
     return []
 
 
+def _credit_cover(lines):
+    cover = [(source, line) for source, line in lines if source.page in (None, 1)]
+    text = "".join(line for _, line in cover)
+    return cover if "公共信用信息报告" in text and "国家公共信用和地理空间信息中心" in text else []
+
+
 def extract(cp: CompanyProfile, attachment: Attachment, kind: str) -> dict:
-    path = attachments.absolute_path(attachment)
-    if attachment.size > 30_000_000:
+    if attachment.size > MAX_ORIGINAL_BYTES:
         raise ValueError("此文件超过30 MB，请选取包含关键信息的原件页上传")
+    return extract_original(attachments.absolute_path(attachment), attachment.filename, kind, cp,
+                            attachment.id)
+
+
+def extract_original(path: str, filename: str, kind: str, cp: Optional[CompanyProfile],
+                     attachment_id: str = "") -> dict:
     try:
         result = _word_text(path) if Path(path).suffix.lower() == ".docx" else read_evidence(path, ocr_pages=3)
     except (OSError, BadZipFile, PackageNotFoundError, XMLSyntaxError, ValueError):
@@ -201,35 +258,39 @@ def extract(cp: CompanyProfile, attachment: Attachment, kind: str) -> dict:
     lines = []
     for page in result["pages"]:
         origin = EvidenceOrigin(
-            kind="attachment", title=attachment.filename,
+            kind="attachment", title=filename,
             fetched_at=datetime.now(timezone.utc).isoformat(),
-            attachment_id=attachment.id, page=page["page"],
+            attachment_id=attachment_id, page=page["page"],
         )
         lines.extend((origin, line) for line in page["text"].splitlines())
     body = "\n".join(line for _, line in lines)
     fields, records = {}, []
     if kind == "registry":
-        fields = _registry(cp, lines, body)
-        if fields and any(line.strip() == "营业执照" for _, line in lines):
+        fields, registry_lines = _registry_with_ocr(
+            path, cp, lines, filename, attachment_id, result["pages"]
+        )
+        if fields and any(re.sub(r"\s+", "", line) in ("营业执照", "电子营业执照")
+                          for _, line in registry_lines):
             value, origin = fields["credit_code"]
             records = [_record("certificates", "营业执照", {"number": (value, origin)},
                                name="营业执照", cert_type="营业执照")]
-    else:
+    elif cp is not None:
         labels = {
             "contract": ("乙方", "乙方名称", "卖方", "供应商"),
             "award": ("中标供应商名称", "成交供应商名称", "中标单位", "中标成交供应商名称"),
         }
         label = labels.get(kind, (
-            "企业名称", "单位名称", "信用主体名称", "主体名称", "编制单位", "被审计单位",
+            "企业名称", "单位名称", "信用主体名称", "主体名称", "机构名称", "编制单位", "被审计单位",
             "申请单位", "获证组织", "制造商", "生产单位", "委托单位", "受检单位",
         ))
-        named, _ = _field(lines, label)
-        code, _ = _field(lines, ("统一社会信用代码", "统一信用代码"))
+        identity_lines = (_credit_cover(lines) or lines) if kind == "credit" else lines
+        named, _ = _field(identity_lines, label)
+        code, _ = _field(identity_lines, ("统一社会信用代码", "统一信用代码"))
         valid = named == cp.name or kind not in labels and cp.credit_code and code == cp.credit_code
         if valid and (not named or named == cp.name) and (not code or not cp.credit_code or code == cp.credit_code):
-            records = _records(kind, lines, body, attachment.filename)
+            records = _records(kind, lines, body, filename)
     status = "待核对" if fields or records else "需查看原件"
     detail = "已提取可核对的字段" if fields or records else "当前页未取得可唯一匹配的主体和字段"
-    return {"fields": fields, "records": records, "extra": {},
-            "checks": [{"title": attachment.filename, "status": status,
+    return {"fields": fields, "records": records,
+            "checks": [{"title": filename, "status": status,
                         "detail": "。".join([detail, *result["notes"]])}]}
